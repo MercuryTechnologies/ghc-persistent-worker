@@ -10,7 +10,9 @@
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs {inherit system;};
       hpkgs = pkgs.haskellPackages;
-      hsenv = hpkgs.ghcWithPackages (p: []);
+      hsenv = hpkgs.ghcWithPackages (p: with p; [
+        network
+      ]);
     in {
       devShells.default = pkgs.mkShell {
         name = "ghc-worker-test-shell";
