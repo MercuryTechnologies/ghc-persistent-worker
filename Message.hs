@@ -2,10 +2,13 @@ module Message
   ( Msg (..),
     sendMsg,
     recvMsg,
+    wrapMsg,
+    unwrapMsg,
   ) where
 
 import Data.Binary (Binary (..), encode, decode)
 import Data.ByteString (ByteString (..))
+import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy as L
 import Data.Int (Int32 (..))
 import Network.Socket (Socket (..))
@@ -27,3 +30,12 @@ recvMsg s = do
   let n = decode (L.fromStrict msg_n)
   payload <- recv s (fromIntegral n)
   pure (Msg n payload)
+
+wrapMsg :: (Binary a) => a -> Msg
+wrapMsg x =
+  let bs = L.toStrict (encode x)
+      n = fromIntegral $ C.length bs
+   in Msg n bs
+
+unwrapMsg :: (Binary a) => Msg -> a
+unwrapMsg (Msg _n bs) = decode (L.fromStrict bs)

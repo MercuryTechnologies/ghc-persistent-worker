@@ -7,7 +7,7 @@ import Data.Binary (decode)
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as L
 import Data.Int (Int32)
-import Message (Msg (..), recvMsg)
+import Message (Msg (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 
@@ -15,10 +15,13 @@ main :: IO ()
 main = runServer "/tmp/mytest.ipc" talk
   where
     talk s = do
-        Msg _ payload <- recvMsg s
-        putStrLn "message received"
-        unless (S.null payload) $ do
-          sendAll s payload
+        msg <- recvMsg s
+        let xs :: [String] = unwrapMsg msg
+        print xs
+        unless (null xs) $ do
+          let n' = length xs
+              msg' = wrapMsg n'
+          sendMsg s msg'
           talk s
 
 runServer :: FilePath -> (Socket -> IO a) -> IO a
