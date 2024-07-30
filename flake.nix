@@ -11,7 +11,10 @@
       pkgs = import nixpkgs {inherit system;};
       hpkgs = pkgs.haskellPackages;
       hsenv = hpkgs.ghcWithPackages (p: with p; [
+        directory
+        filepath
         network
+        process
       ]);
     in {
       devShells.default = pkgs.mkShell {
