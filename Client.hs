@@ -8,21 +8,15 @@ import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 
 main :: IO ()
-main = runTCPClient "127.0.0.1" "3000" $ \s -> do
+main = runClient "/tmp/mytest.ipc" $ \s -> do
     sendAll s "Hello, world!"
     msg <- recv s 1024
     putStr "Received: "
     C.putStrLn msg
 
--- from the "network-run" package.
-runTCPClient :: HostName -> ServiceName -> (Socket -> IO a) -> IO a
-runTCPClient host port client = withSocketsDo $ do
-    addr <- resolve
-    E.bracket (open addr) close client
+runClient :: FilePath -> (Socket -> IO a) -> IO a
+runClient fp client = withSocketsDo $ E.bracket (open fp) close client
   where
-    resolve = do
-        let hints = defaultHints { addrSocketType = Stream }
-        head <$> getAddrInfo (Just hints) (Just host) (Just port)
-    open addr = E.bracketOnError (openSocket addr) close $ \sock -> do
-        connect sock $ addrAddress addr
+    open fp = E.bracketOnError (socket AF_UNIX Stream 0) close $ \sock -> do
+        connect sock (SockAddrUnix fp)
         return sock
