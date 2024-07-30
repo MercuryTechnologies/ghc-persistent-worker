@@ -3,7 +3,11 @@ module Main where
 import Control.Concurrent (forkFinally)
 import qualified Control.Exception as E
 import Control.Monad (unless, forever, void)
+import Data.Binary (decode)
 import qualified Data.ByteString as S
+import qualified Data.ByteString.Lazy as L
+import Data.Int (Int32)
+import Message (Msg (..), recvMsg)
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 
@@ -11,9 +15,10 @@ main :: IO ()
 main = runServer "/tmp/mytest.ipc" talk
   where
     talk s = do
-        msg <- recv s 1024
-        unless (S.null msg) $ do
-          sendAll s msg
+        Msg _ payload <- recvMsg s
+        putStrLn "message received"
+        unless (S.null payload) $ do
+          sendAll s payload
           talk s
 
 runServer :: FilePath -> (Socket -> IO a) -> IO a
