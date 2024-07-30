@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
--- Echo client program
 module Main (main) where
 
 import qualified Control.Exception as E
@@ -10,12 +9,12 @@ import Data.Int (Int32)
 import Message (Msg (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
+import System.Environment (getArgs)
 
 main :: IO ()
 main = runClient "/tmp/mytest.ipc" $ \s -> do
-    let xs :: [String]
-        xs = ["a", "b", "abc", "def"]
-        msg = wrapMsg xs
+    args <- getArgs
+    let msg = wrapMsg args
     sendMsg s msg
     --
     msg' <- recvMsg s
