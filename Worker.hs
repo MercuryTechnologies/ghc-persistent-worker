@@ -15,7 +15,6 @@ import System.IO
     hPutStrLn,
     hSetBuffering,
     stderr,
-    -- stdin,
     stdout,
     withFile,
   )
@@ -26,7 +25,7 @@ import System.Posix.IO
     fdToHandle,
     openFd,
   )
-import Util (fileOpenAfterCheck)
+import Util (openFileAfterCheck, openPipeRead, openPipeWrite)
 
 logMessage :: String -> IO ()
 logMessage = hPutStrLn stderr
@@ -40,16 +39,8 @@ main = do
       infile = args !! 1
       outfile = args !! 2
       prompt = "[Worker:" ++ show n ++ "]"
-  hin <-
-    fileOpenAfterCheck infile (True, False) $ \fp -> do
-      fd <- openFd fp ReadOnly defaultFileFlags {nonBlock = True}
-      h <- fdToHandle fd
-      pure h
-  hout <-
-    fileOpenAfterCheck outfile (False, True) $ \fp -> do
-      fd <- openFd fp WriteOnly defaultFileFlags {nonBlock = True}
-      h <- fdToHandle fd
-      pure h
+  hin <- openFileAfterCheck infile (True, False) openPipeRead
+  hout <- openFileAfterCheck outfile (False, True) openPipeWrite
   logMessage (prompt ++ " Started")
   forever $ do
     s <- hGetLine hin

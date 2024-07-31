@@ -17,7 +17,7 @@ import qualified Data.List as List
 import Message (Msg (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
-import System.Directory (getCurrentDirectory)
+import System.Directory (doesFileExist, getCurrentDirectory)
 import System.FilePath ((</>), (<.>))
 import System.IO (Handle, IOMode (ReadMode, WriteMode), hFlush, hGetLine, hPutStrLn, openFile)
 import System.Posix.Files (createNamedPipe, fileAccess, ownerModes)
@@ -29,7 +29,7 @@ import System.Posix.IO
     openFd,
   )
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
-import Util (fileOpenAfterCheck)
+import Util (openFileAfterCheck, openPipeRead, openPipeWrite, whenM)
 
 data Pool = Pool
   { poolStatus :: IntMap Bool,
@@ -76,24 +76,12 @@ initWorker i = do
   let exec_path = cwd </> "Worker"
       infile = cwd </> "in" ++ show i <.> "fifo"
       outfile = cwd </> "out" ++ show i <.> "fifo"
-      proc_setup = (proc exec_path [show i, infile, outfile]) -- { std_in = CreatePipe, std_out = CreatePipe }
-  createNamedPipe infile ownerModes
-  createNamedPipe outfile ownerModes
-  -- TODO: must be safer
-  -- threadDelay 5_000_000
-  ho <-
-    fileOpenAfterCheck outfile (True, False) $ \fp -> do
-      fd <- openFd fp ReadOnly defaultFileFlags {nonBlock = True}
-      h <- fdToHandle fd
-      pure h
-  threadDelay 5_000_000
+      proc_setup = (proc exec_path [show i, infile, outfile])
+  whenM (not <$> doesFileExist infile) (createNamedPipe infile ownerModes)
+  whenM (not <$> doesFileExist outfile) (createNamedPipe outfile ownerModes)
+  ho <- openFileAfterCheck outfile (True, False) openPipeRead
   _ <- createProcess proc_setup
-  threadDelay 5_000_000
-  hi <-
-    fileOpenAfterCheck infile (False, True) $ \fp -> do
-      fd <- openFd fp WriteOnly defaultFileFlags {nonBlock = True}
-      h <- fdToHandle fd
-      pure h
+  hi <- openFileAfterCheck infile (False, True) openPipeWrite
   pure (hi, ho)
 
 serve :: TVar Pool -> Socket -> IO ()
