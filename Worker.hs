@@ -7,7 +7,25 @@ import Control.Monad (forever)
 import Message (Msg (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket (Socket)
 import System.Environment (getArgs)
-import System.IO (BufferMode (..), hFlush, hGetLine, hPutStrLn, hSetBuffering, stderr, stdin, stdout)
+import System.IO
+  ( BufferMode (..),
+    IOMode (..),
+    hFlush,
+    hGetLine,
+    hPutStrLn,
+    hSetBuffering,
+    stderr,
+    -- stdin,
+    stdout,
+    withFile,
+  )
+import System.Posix.IO
+  ( OpenFileFlags (nonBlock),
+    OpenMode (ReadOnly, WriteOnly),
+    defaultFileFlags,
+    fdToHandle,
+    openFd,
+  )
 
 logMessage :: String -> IO ()
 logMessage = hPutStrLn stderr
@@ -18,11 +36,17 @@ main = do
   hSetBuffering stderr LineBuffering
   args <- getArgs
   let n :: Int = read (args !! 0)
+      infile = args !! 1
+      outfile = args !! 2
       prompt = "[Worker:" ++ show n ++ "]"
+  fdi <- openFd infile ReadOnly defaultFileFlags {nonBlock = True}
+  fdo <- openFd outfile WriteOnly defaultFileFlags {nonBlock = True}
+  hin <- fdToHandle fdi
+  hout <- fdToHandle fdo
   logMessage (prompt ++ " Started")
   forever $ do
-    s <- hGetLine stdin
+    s <- hGetLine hin
     logMessage (prompt ++ " Got args: " ++ show s)
     threadDelay 15_000_000
-    hPutStrLn stdout "ABCDE"
-    hFlush stdout
+    hPutStrLn hout "ABCDE"
+    hFlush hout

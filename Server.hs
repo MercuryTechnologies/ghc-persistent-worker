@@ -18,8 +18,16 @@ import Message (Msg (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 import System.Directory (getCurrentDirectory)
-import System.FilePath ((</>))
-import System.IO (Handle, hFlush, hGetLine, hPutStrLn)
+import System.FilePath ((</>), (<.>))
+import System.IO (Handle, IOMode (ReadMode, WriteMode), hFlush, hGetLine, hPutStrLn, openFile)
+import System.Posix.Files (createNamedPipe, ownerModes)
+import System.Posix.IO
+  ( OpenFileFlags (nonBlock),
+    OpenMode (ReadOnly, WriteOnly),
+    defaultFileFlags,
+    fdToHandle,
+    openFd,
+  )
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
 
 data Pool = Pool
@@ -65,10 +73,21 @@ initWorker i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
   cwd <- getCurrentDirectory
   let exec_path = cwd </> "Worker"
-      proc_setup =
-        (proc exec_path [show i]) { std_in = CreatePipe, std_out = CreatePipe }
-  (Just hi, Just ho, _, _) <- createProcess proc_setup
-  -- print h
+      infile = cwd </> "in" ++ show i <.> "fifo"
+      outfile = cwd </> "out" ++ show i <.> "fifo"
+      proc_setup = (proc exec_path [show i, infile, outfile]) -- { std_in = CreatePipe, std_out = CreatePipe }
+  -- createNamedPipe infile ownerModes
+  -- createNamedPipe outfile ownerModes
+  -- TODO: must be safer
+  -- threadDelay 5_000_000
+  -- threadDelay 5_000_000
+  fdo <- openFd outfile ReadOnly defaultFileFlags {nonBlock = True}
+  ho <- fdToHandle fdo
+  threadDelay 5_000_000
+  _ <- createProcess proc_setup
+  threadDelay 5_000_000
+  fdi <- openFd infile WriteOnly defaultFileFlags {nonBlock = True}
+  hi <- fdToHandle fdi
   pure (hi, ho)
 
 serve :: TVar Pool -> Socket -> IO ()
@@ -82,7 +101,6 @@ serve ref s = do
   -- simulate a worker
   hPutStrLn hi (show xs)
   hFlush hi
-  -- threadDelay 15_000_000
   results <- hGetLine ho
   putStrLn $ "worker " ++ show i ++ " returns: " ++ results
   --
