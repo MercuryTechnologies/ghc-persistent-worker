@@ -19,12 +19,12 @@ import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 import System.Directory (getCurrentDirectory)
 import System.FilePath ((</>))
-import System.IO (Handle, hPutStrLn)
-import System.Process (CreateProcess (std_in), StdStream (CreatePipe), createProcess, proc)
+import System.IO (Handle, hFlush, hGetLine, hPutStrLn)
+import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
 
 data Pool = Pool
   { poolStatus :: IntMap Bool,
-    poolHandles :: [(Int, Handle)]
+    poolHandles :: [(Int, (Handle, Handle))]
   }
 
 runServer :: FilePath -> (Socket -> IO a) -> IO a
@@ -40,7 +40,7 @@ runServer fp server = do
         $ \(conn, _peer) -> void $
             forkFinally (server conn) (const $ gracefulClose conn 5000)
 
-assignJob :: TVar Pool -> STM (Int, Handle)
+assignJob :: TVar Pool -> STM (Int, (Handle, Handle))
 assignJob ref = do
   pool <- readTVar ref
   let workers = poolStatus pool
@@ -49,9 +49,9 @@ assignJob ref = do
     Nothing -> retry
     Just (i, _) -> do
       let !workers' = IM.update (\_ -> Just True) i workers
-          Just h = List.lookup i (poolHandles pool)
+          Just (hi, ho) = List.lookup i (poolHandles pool)
       writeTVar ref (pool {poolStatus = workers'})
-      pure (i, h)
+      pure (i, (hi, ho))
 
 finishJob :: TVar Pool -> Int -> STM ()
 finishJob ref i = do
@@ -60,28 +60,32 @@ finishJob ref i = do
       !workers' = IM.update (\_ -> Just False) i workers
   writeTVar ref (pool {poolStatus = workers'})
 
-initWorker :: Int -> IO Handle
+initWorker :: Int -> IO (Handle, Handle)
 initWorker i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
   cwd <- getCurrentDirectory
   let exec_path = cwd </> "Worker"
       proc_setup =
-        (proc exec_path [show i]) { std_in = CreatePipe }
-  (Just h, _, _, _) <- createProcess proc_setup
-  print h
-  pure h
+        (proc exec_path [show i]) { std_in = CreatePipe, std_out = CreatePipe }
+  (Just hi, Just ho, _, _) <- createProcess proc_setup
+  -- print h
+  pure (hi, ho)
 
 serve :: TVar Pool -> Socket -> IO ()
 serve ref s = do
   msg <- recvMsg s
-  (i, h) <- atomically $ assignJob ref
+  (i, (hi, ho)) <- atomically $ assignJob ref
   let xs :: [String] = unwrapMsg msg
   putStrLn $ "worker = " ++ show i ++ ": " ++ show xs
   let n' = length xs
       msg' = wrapMsg n'
   -- simulate a worker
-  hPutStrLn h (show xs)
-  threadDelay 15_000_000
+  hPutStrLn hi (show xs)
+  hFlush hi
+  -- threadDelay 15_000_000
+  results <- hGetLine ho
+  putStrLn $ "worker " ++ show i ++ " returns: " ++ results
+  --
   atomically $ finishJob ref i
   sendMsg s msg'
   serve ref s
