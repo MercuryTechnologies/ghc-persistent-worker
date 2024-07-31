@@ -5,7 +5,7 @@ module Main where
 import Control.Concurrent (forkFinally, threadDelay)
 import Control.Concurrent.STM (STM, TVar, atomically, newTVarIO, readTVar, retry, writeTVar)
 import qualified Control.Exception as E
-import Control.Monad (unless, forever, void)
+import Control.Monad (unless, forever, void, when)
 import Data.Binary (decode)
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as L
@@ -20,7 +20,7 @@ import Network.Socket.ByteString (recv, sendAll)
 import System.Directory (getCurrentDirectory)
 import System.FilePath ((</>), (<.>))
 import System.IO (Handle, IOMode (ReadMode, WriteMode), hFlush, hGetLine, hPutStrLn, openFile)
-import System.Posix.Files (createNamedPipe, ownerModes)
+import System.Posix.Files (createNamedPipe, fileAccess, ownerModes)
 import System.Posix.IO
   ( OpenFileFlags (nonBlock),
     OpenMode (ReadOnly, WriteOnly),
@@ -29,6 +29,7 @@ import System.Posix.IO
     openFd,
   )
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
+import Util (fileOpenAfterCheck)
 
 data Pool = Pool
   { poolStatus :: IntMap Bool,
@@ -76,18 +77,23 @@ initWorker i = do
       infile = cwd </> "in" ++ show i <.> "fifo"
       outfile = cwd </> "out" ++ show i <.> "fifo"
       proc_setup = (proc exec_path [show i, infile, outfile]) -- { std_in = CreatePipe, std_out = CreatePipe }
-  -- createNamedPipe infile ownerModes
-  -- createNamedPipe outfile ownerModes
+  createNamedPipe infile ownerModes
+  createNamedPipe outfile ownerModes
   -- TODO: must be safer
   -- threadDelay 5_000_000
-  -- threadDelay 5_000_000
-  fdo <- openFd outfile ReadOnly defaultFileFlags {nonBlock = True}
-  ho <- fdToHandle fdo
+  ho <-
+    fileOpenAfterCheck outfile (True, False) $ \fp -> do
+      fd <- openFd fp ReadOnly defaultFileFlags {nonBlock = True}
+      h <- fdToHandle fd
+      pure h
   threadDelay 5_000_000
   _ <- createProcess proc_setup
   threadDelay 5_000_000
-  fdi <- openFd infile WriteOnly defaultFileFlags {nonBlock = True}
-  hi <- fdToHandle fdi
+  hi <-
+    fileOpenAfterCheck infile (False, True) $ \fp -> do
+      fd <- openFd fp WriteOnly defaultFileFlags {nonBlock = True}
+      h <- fdToHandle fd
+      pure h
   pure (hi, ho)
 
 serve :: TVar Pool -> Socket -> IO ()
