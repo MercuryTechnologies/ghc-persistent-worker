@@ -1,6 +1,5 @@
 {-# LANGUAGE NumericUnderscores #-}
--- placeholder worker. later replaced by GHC frontend plugin
-module Main where
+module Worker where
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (forever)
@@ -30,14 +29,14 @@ import Util (openFileAfterCheck, openPipeRead, openPipeWrite)
 logMessage :: String -> IO ()
 logMessage = hPutStrLn stderr
 
-main :: IO ()
-main = do
+workerMain :: [String] -> [String] -> IO ()
+workerMain flags args = do
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
-  args <- getArgs
-  let n :: Int = read (args !! 0)
-      infile = args !! 1
-      outfile = args !! 2
+  -- args <- getArgs
+  let n :: Int = read (flags !! 0)
+      infile = flags !! 1
+      outfile = flags !! 2
       prompt = "[Worker:" ++ show n ++ "]"
   hin <- openFileAfterCheck infile (True, False) openPipeRead
   hout <- openFileAfterCheck outfile (False, True) openPipeWrite

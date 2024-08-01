@@ -73,10 +73,22 @@ initWorker :: Int -> IO (Handle, Handle)
 initWorker i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
   cwd <- getCurrentDirectory
-  let exec_path = cwd </> "Worker"
+  let exec_path = "ghc" -- cwd </> "Worker"
       infile = cwd </> "in" ++ show i <.> "fifo"
       outfile = cwd </> "out" ++ show i <.> "fifo"
-      proc_setup = (proc exec_path [show i, infile, outfile])
+      ghc_options =
+        [ "-package-db",
+          "myplugin/dist-newstyle/packagedb/ghc-9.6.5",
+          "--frontend",
+          "MyPlugin",
+          "-ffrontend-opt",
+          show i,
+          "-ffrontend-opt",
+          infile,
+          "-ffrontend-opt",
+          outfile
+        ]
+      proc_setup = (proc exec_path ghc_options)
   whenM (not <$> doesFileExist infile) (createNamedPipe infile ownerModes)
   whenM (not <$> doesFileExist outfile) (createNamedPipe outfile ownerModes)
   ho <- openFileAfterCheck outfile (True, False) openPipeRead
