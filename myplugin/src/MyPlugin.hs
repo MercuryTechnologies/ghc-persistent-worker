@@ -14,4 +14,4 @@ frontendPlugin = defaultFrontendPlugin
   }
 
 doNothing :: [String] -> [(String, Maybe Phase)] -> Ghc ()
-doNothing flags args = liftIO $ workerMain flags (map fst args)
+doNothing flags _args = workerMain flags
