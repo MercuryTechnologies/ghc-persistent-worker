@@ -12,7 +12,14 @@
 --
 -----------------------------------------------------------------------------
 
-module GHC.Main (main) where
+module GHC.Main
+( Mode,
+  PostLoadMode (..),
+  main,
+  main',
+  parseModeFlags,
+  showBanner,
+) where
 
 -- The official GHC API
 import qualified GHC
