@@ -8,7 +8,6 @@ import qualified GHC
 import GHC.Driver.Backend (backendNeedsFullWays)
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
-import GHC.Driver.Errors (handleFlagWarnings)
 import GHC.Driver.Monad (Ghc)
 import GHC.Driver.Phases (StopPhase (NoStop))
 import GHC.Driver.Session (gopt_set, gopt_unset)

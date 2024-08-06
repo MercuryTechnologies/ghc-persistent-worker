@@ -30,6 +30,7 @@ import GHC.Driver.Backend
 import GHC.Driver.CmdLine
 import GHC.Driver.Env
 import GHC.Driver.Errors
+import GHC.Driver.Errors.Types
 import GHC.Driver.Phases
 import GHC.Driver.Session
 import GHC.Driver.Ppr
@@ -86,12 +87,13 @@ import GHC.Iface.Load
 import GHC.Iface.Recomp.Binary ( fingerprintBinMem )
 
 import GHC.Tc.Utils.Monad      ( initIfaceCheck )
-import System.FilePath
+import GHC.Iface.Errors.Ppr
 
 -- Standard Haskell libraries
 import System.IO
 import System.Environment
 import System.Exit
+import System.FilePath
 import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except (throwE, runExceptT)
@@ -221,6 +223,8 @@ main' postLoadMode units dflags0 args flagWarnings = do
                                        -- object code but has little other effect unless you are also using
                                        -- fat interface files.
                                        `gopt_set` Opt_UseBytecodeRatherThanObjects
+                                       -- By default enable the debugger by inserting breakpoints
+                                       `gopt_set` Opt_InsertBreakpoints
 
   logger1 <- getLogger
   let logger2 = setLogFlags logger1 (initLogFlags dflags2)
@@ -249,12 +253,13 @@ main' postLoadMode units dflags0 args flagWarnings = do
 
   GHC.prettyPrintGhcErrors logger4 $ do
 
-  let flagWarnings' = flagWarnings ++ dynamicFlagWarnings
+  let diag_opts = initDiagOpts dflags4
+  let flagWarnings' = GhcDriverMessage <$> mconcat [warnsToMessages diag_opts flagWarnings, dynamicFlagWarnings]
 
   handleSourceError (\e -> do
        GHC.printException e
        liftIO $ exitWith (ExitFailure 1)) $ do
-         liftIO $ handleFlagWarnings logger4 (initPrintConfig dflags4) (initDiagOpts dflags4) flagWarnings'
+         liftIO $ printOrThrowDiagnostics logger4 (initPrintConfig dflags4) diag_opts flagWarnings'
 
   liftIO $ showBanner postLoadMode dflags4
 
@@ -631,8 +636,8 @@ mode_flags =
           "LibDir",
           "Global Package DB",
           "C compiler flags",
-          "C compiler link flags",
-          "ld flags"],
+          "C compiler link flags"
+          ],
     let k' = "-print-" ++ map (replaceSpace . toLower) k
         replaceSpace ' ' = '-'
         replaceSpace c   = c
@@ -793,7 +798,7 @@ initMulti unitArgsFiles  = do
     handleSourceError (\e -> do
        GHC.printException e
        liftIO $ exitWith (ExitFailure 1)) $ do
-         liftIO $ handleFlagWarnings logger (initPrintConfig dflags2) (initDiagOpts dflags2) warns
+         liftIO $ printOrThrowDiagnostics logger (initPrintConfig dflags2) (initDiagOpts dflags2) (GhcDriverMessage <$> warns)
 
     let (dflags3, srcs, objs) = parseTargetFiles dflags2 (map unLoc fileish_args)
         dflags4 = offsetDynFlags dflags3
@@ -1114,8 +1119,11 @@ abiHash strs = do
          r <- findImportedModule hsc_env modname NoPkgQual
          case r of
            Found _ m -> return m
-           _error    -> throwGhcException $ CmdLineError $ showSDoc dflags $
-                          cannotFindModule hsc_env modname r
+           _error    ->
+            let opts   = initIfaceMessageOpts dflags
+                err_txt = missingInterfaceErrorDiagnostic opts
+                        $ cannotFindModule hsc_env modname r
+            in throwGhcException . CmdLineError $ showSDoc dflags err_txt
 
   mods <- mapM find_it strs
 
@@ -1139,15 +1147,6 @@ unknownFlagsErr fs = throwGhcException $ UsageError $ concatMap oneError fs
   where
     oneError f =
         "unrecognised flag: " ++ f ++ "\n" ++
-        (case match f (nubSort allNonDeprecatedFlags) of
+        (case flagSuggestions (nubSort allNonDeprecatedFlags) f of
             [] -> ""
             suggs -> "did you mean one of:\n" ++ unlines (map ("  " ++) suggs))
-    -- fixes #11789
-    -- If the flag contains '=',
-    -- this uses both the whole and the left side of '=' for comparing.
-    match f allFlags
-        | elem '=' f =
-              let (flagsWithEq, flagsWithoutEq) = partition (elem '=') allFlags
-                  fName = takeWhile (/= '=') f
-              in (fuzzyMatch f flagsWithEq) ++ (fuzzyMatch fName flagsWithoutEq)
-        | otherwise = fuzzyMatch f allFlags

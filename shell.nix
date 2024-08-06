@@ -46,6 +46,7 @@ in
 
     shellHook = ''
       export PS1="\n[ghc-persistent-worker-ghcHEAD:\w]$ \0"
-
+      export DYLD_LIBRARY_PATH=${pkgs.zlib.out}/lib:${pkgs.gmp}/lib:$DYLD_LIBRARY_PATH
+      export LD_LIBRARY_PATH=${pkgs.zlib.out}/lib:${pkgs.gmp}/lib:$LD_LIBRARY_PATH
     '';
   }
