@@ -11,7 +11,6 @@
       pkgs = import nixpkgs {inherit system;};
       hpkgs = pkgs.haskellPackages;
       hsenv = hpkgs.ghcWithPackages (p: with p; [
-        cabal-install
         directory
         filepath
         network
@@ -22,6 +21,7 @@
         name = "ghc-worker-test-shell";
         buildInputs = [
           hsenv
+          hpkgs.cabal-install
         ];
         shellHook = ''
           export PS1="\n[ghc-worker-test-shell:\w]$ \0"
