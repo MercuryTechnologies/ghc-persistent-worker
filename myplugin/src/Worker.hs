@@ -66,6 +66,7 @@ workerMain flags = do
 
 compileMain :: [String] -> Ghc ()
 compileMain args = do
+  GHC.initGhcMonad Nothing
   let argv2 = map (GHC.mkGeneralLocated "on the commandline") args
   (_mode, units, argv3, flagWarnings) <- liftIO $ parseModeFlags argv2
 
