@@ -63,6 +63,9 @@ workerMain flags = do
     --
     liftIO $ hPutStrLn hout "AfterGHC"
     liftIO $ hFlush hout
+    liftIO $ hPutStrLn stdout "*D*E*L*I*M*I*T*E*D*"
+    liftIO $ hFlush stdout
+
 
 compileMain :: [String] -> Ghc ()
 compileMain args = do
@@ -75,4 +78,3 @@ compileMain args = do
       Right (Right postLoadMode) ->
         main' postLoadMode units dflags0 argv3 flagWarnings
       _ -> pure ()
-

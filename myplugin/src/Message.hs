@@ -1,9 +1,13 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module Message
   ( Msg (..),
     sendMsg,
     recvMsg,
     wrapMsg,
     unwrapMsg,
+    --
+    ConsoleOutput (..),
   ) where
 
 import Data.Binary (Binary (..), encode, decode)
@@ -39,3 +43,8 @@ wrapMsg x =
 
 unwrapMsg :: (Binary a) => Msg -> a
 unwrapMsg (Msg _n bs) = decode (L.fromStrict bs)
+
+newtype ConsoleOutput = ConsoleOutput
+  { unConsoleOutput :: [String]
+  }
+  deriving Binary

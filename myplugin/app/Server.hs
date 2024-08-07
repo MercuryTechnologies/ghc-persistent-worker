@@ -14,12 +14,12 @@ import Data.Int (Int32)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IM
 import qualified Data.List as List
-import Message (Msg (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
+import Message (ConsoleOutput (..), Msg (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 import System.Directory (doesFileExist, getCurrentDirectory)
 import System.FilePath ((</>), (<.>))
-import System.IO (Handle, IOMode (ReadMode, WriteMode), hFlush, hGetLine, hPutStrLn, openFile)
+import System.IO (Handle, IOMode (ReadMode, WriteMode), hFlush, hGetContents, hGetLine, hPutStrLn, openFile)
 import System.Posix.Files (createNamedPipe, fileAccess, ownerModes)
 import System.Posix.IO
   ( OpenFileFlags (nonBlock),
@@ -31,9 +31,15 @@ import System.Posix.IO
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
 import Util (openFileAfterCheck, openPipeRead, openPipeWrite, whenM)
 
+data HandleSet = HandleSet
+  { handleArgIn :: Handle,
+    handleMsgOut :: Handle,
+    handleStdOut :: Handle
+  }
+
 data Pool = Pool
   { poolStatus :: IntMap Bool,
-    poolHandles :: [(Int, (Handle, Handle))]
+    poolHandles :: [(Int, HandleSet)]
   }
 
 runServer :: FilePath -> (Socket -> IO a) -> IO a
@@ -49,7 +55,7 @@ runServer fp server = do
         $ \(conn, _peer) -> void $
             forkFinally (server conn) (const $ gracefulClose conn 5000)
 
-assignJob :: TVar Pool -> STM (Int, (Handle, Handle))
+assignJob :: TVar Pool -> STM (Int, HandleSet)
 assignJob ref = do
   pool <- readTVar ref
   let workers = poolStatus pool
@@ -58,9 +64,9 @@ assignJob ref = do
     Nothing -> retry
     Just (i, _) -> do
       let !workers' = IM.update (\_ -> Just True) i workers
-          Just (hi, ho) = List.lookup i (poolHandles pool)
+          Just hset = List.lookup i (poolHandles pool)
       writeTVar ref (pool {poolStatus = workers'})
-      pure (i, (hi, ho))
+      pure (i, hset)
 
 finishJob :: TVar Pool -> Int -> STM ()
 finishJob ref i = do
@@ -69,11 +75,11 @@ finishJob ref i = do
       !workers' = IM.update (\_ -> Just False) i workers
   writeTVar ref (pool {poolStatus = workers'})
 
-initWorker :: Int -> IO (Handle, Handle)
+initWorker :: Int -> IO HandleSet
 initWorker i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
   cwd <- getCurrentDirectory
-  let exec_path = "ghc" -- cwd </> "Worker"
+  let exec_path = "ghc"
       infile = cwd </> "in" ++ show i <.> "fifo"
       outfile = cwd </> "out" ++ show i <.> "fifo"
       ghc_options =
@@ -92,30 +98,51 @@ initWorker i = do
           "-ffrontend-opt",
           outfile
         ]
-      proc_setup = (proc exec_path ghc_options)
+      proc_setup =
+        (proc exec_path ghc_options)
+          { std_out = CreatePipe
+          }
   whenM (not <$> doesFileExist infile) (createNamedPipe infile ownerModes)
   whenM (not <$> doesFileExist outfile) (createNamedPipe outfile ownerModes)
   ho <- openFileAfterCheck outfile (True, False) openPipeRead
-  _ <- createProcess proc_setup
+  (_, Just hstdout, _, _) <- createProcess proc_setup
   hi <- openFileAfterCheck infile (False, True) openPipeWrite
-  pure (hi, ho)
+  let hset = HandleSet
+        { handleArgIn = hi,
+          handleMsgOut = ho,
+          handleStdOut = hstdout
+        }
+  pure hset
+
+fetchUntil :: String -> Handle -> IO [String]
+fetchUntil delim h = do
+    f <- go id
+    pure (f [])
+  where
+    go acc = do
+      s <- hGetLine h
+      if s == delim
+        then pure acc
+        else go (acc . (s:))
 
 serve :: TVar Pool -> Socket -> IO ()
 serve ref s = do
   msg <- recvMsg s
-  (i, (hi, ho)) <- atomically $ assignJob ref
+  (i, hset) <- atomically $ assignJob ref
   let xs :: [String] = unwrapMsg msg
   putStrLn $ "worker = " ++ show i ++ ": " ++ show xs
-  let n' = length xs
-      msg' = wrapMsg n'
-  -- simulate a worker
+  let hi = handleArgIn hset
+      ho = handleMsgOut hset
+      hstdout = handleStdOut hset
   hPutStrLn hi (show xs)
   hFlush hi
   results <- hGetLine ho
   putStrLn $ "worker " ++ show i ++ " returns: " ++ results
+  -- get stdout until delimiter
+  consoleOutput <- fetchUntil "*D*E*L*I*M*I*T*E*D*" hstdout
   --
   atomically $ finishJob ref i
-  sendMsg s msg'
+  sendMsg s (wrapMsg (ConsoleOutput consoleOutput))
   serve ref s
 
 main :: IO ()
