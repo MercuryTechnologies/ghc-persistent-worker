@@ -34,14 +34,15 @@ toChunks bytes bs0 = go id bs0 []
     go !acc !bs =
       let (chunk, bs') = C.splitAt bytes bs
        in if C.length bs' < bytes
-          then (acc . (chunk:) . (bs':))
+          then if C.null bs'
+               then acc . (chunk:)
+               else (acc . (chunk:) . (bs':))
           else go (acc . (chunk:)) bs'
 
 sendMsg :: Socket -> Msg -> IO ()
 sendMsg s (Msg n payload) = do
   sendAll s (L.toStrict (encode n))
   let chunks = toChunks chunkSize payload
-  -- putStrLn $ "sendMsg: " ++ show n ++ " bytes " ++ show (length chunks)
   traverse_ (sendAll s) chunks
 
 recvMsg :: Socket -> IO Msg
@@ -52,10 +53,14 @@ recvMsg s = do
       n' :: Int
       n' = fromIntegral n
       (q, r) = n' `divMod` chunkSize
-  -- putStrLn $ "recvMsg: " ++ show n' ++ " bytes " ++ show (q, r)
   ps <- replicateM q (recv s chunkSize)
-  p <- recv s r
-  let payload = mconcat (ps ++ [p])
+  payload <-
+    if r > 0
+    then do
+      p <- recv s r
+      pure $ mconcat (ps ++ [p])
+    else
+      pure $ mconcat ps
   pure (Msg n payload)
 
 wrapMsg :: (Binary a) => a -> Msg
