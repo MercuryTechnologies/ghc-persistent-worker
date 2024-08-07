@@ -151,6 +151,7 @@ serve ref s = do
   atomically $ finishJob ref i
   -- TODO: THIS IS REALLY AD HOC. FOR NOW.
   sendMsg s (wrapMsg (ConsoleOutput (take 20 consoleOutput)))
+  -- sendMsg s (wrapMsg (ConsoleOutput consoleOutput))
   serve ref s
 
 main :: IO ()
