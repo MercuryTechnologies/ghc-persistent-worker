@@ -15,10 +15,14 @@
 module GHC.Main
 ( Mode,
   PostLoadMode (..),
+  PreStartupMode (..),
   main,
   main',
   parseModeFlags,
   showBanner,
+  showSupportedExtensions,
+  showVersion,
+  showOptions,
 ) where
 
 -- The official GHC API

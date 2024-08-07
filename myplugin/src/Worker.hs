@@ -12,8 +12,18 @@ import GHC.Driver.Config.Logger (initLogFlags)
 import GHC.Driver.Monad (Ghc)
 import GHC.Driver.Phases (StopPhase (NoStop))
 import GHC.Driver.Session (gopt_set, gopt_unset)
-import GHC.Main (PostLoadMode (..), main', parseModeFlags, showBanner)
+import GHC.Main
+  ( PostLoadMode (..),
+    PreStartupMode (..),
+    main',
+    parseModeFlags,
+    showBanner,
+    showSupportedExtensions,
+    showVersion,
+    showOptions,
+  )
 import GHC.Platform.Ways (hostFullWays, wayGeneralFlags, wayUnsetGeneralFlags)
+import GHC.Settings.Config (cProjectVersion)
 import GHC.Utils.Logger (setLogFlags)
 import Message (Msg (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket (Socket)
@@ -76,6 +86,14 @@ compileMain args = do
 
   dflags0 <- GHC.getSessionDynFlags
   case mode of
-      Right (Right postLoadMode) ->
-        main' postLoadMode units dflags0 argv3 flagWarnings
-      _ -> pure ()
+    Left ShowSupportedExtensions     ->
+      liftIO $ showSupportedExtensions Nothing
+    Left ShowVersion                 ->
+      liftIO $ showVersion
+    Left ShowNumVersion              ->
+      liftIO $ putStrLn cProjectVersion
+    Left (ShowOptions isInteractive) ->
+      liftIO $ showOptions isInteractive
+    Right (Right postLoadMode) ->
+      main' postLoadMode units dflags0 argv3 flagWarnings
+    _ -> pure ()
