@@ -10,12 +10,6 @@
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs {inherit system;};
       hpkgs = pkgs.haskellPackages;
-      #hsenv = hpkgs.ghcWithPackages (p: with p; [
-      #  directory
-      #  filepath
-      #  network
-      #  process
-      #]);
     in {
       devShells.default = import ./shell.nix {inherit system pkgs;};
     });

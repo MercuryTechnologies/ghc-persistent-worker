@@ -46,7 +46,7 @@ workerMain flags = do
   liftIO $ do
     hSetBuffering stdout LineBuffering
     hSetBuffering stderr LineBuffering
-  -- args <- getArgs
+
   let n :: Int = read (flags !! 0)
       infile = flags !! 1
       outfile = flags !! 2
@@ -59,7 +59,7 @@ workerMain flags = do
     let args :: [String] = read s
     logMessage (prompt ++ " Got args: " ++ show args)
     --
-    compileMain args -- liftIO $ threadDelay 15_000_000
+    compileMain args
     --
     liftIO $ hPutStrLn hout "AfterGHC"
     liftIO $ hFlush hout
@@ -68,7 +68,11 @@ compileMain :: [String] -> Ghc ()
 compileMain args = do
   GHC.initGhcMonad Nothing
   let argv2 = map (GHC.mkGeneralLocated "on the commandline") args
-  (_mode, units, argv3, flagWarnings) <- liftIO $ parseModeFlags argv2
+  (mode, units, argv3, flagWarnings) <- liftIO $ parseModeFlags argv2
 
   dflags0 <- GHC.getSessionDynFlags
-  main' (StopBefore NoStop) units dflags0 argv3 flagWarnings
+  case mode of
+      Right (Right postLoadMode) ->
+        main' postLoadMode units dflags0 argv3 flagWarnings
+      _ -> pure ()
+
