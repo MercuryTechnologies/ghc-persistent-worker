@@ -2,7 +2,8 @@
 
 module Main where
 
-import Control.Concurrent (forkFinally, threadDelay)
+import Control.Concurrent (forkFinally, forkIO, threadDelay)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (STM, TVar, atomically, newTVarIO, readTVar, retry, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (unless, forever, void, when)
@@ -121,6 +122,7 @@ fetchUntil delim h = do
   where
     go acc = do
       s <- hGetLine h
+      -- print s
       if s == delim
         then pure acc
         else go (acc . (s:))
@@ -136,18 +138,24 @@ serve ref s = do
       hstdout = handleStdOut hset
   hPutStrLn hi (show xs)
   hFlush hi
+  -- get stdout until delimiter
+  var <- newEmptyMVar
+  forkIO $ do
+    consoleOutput <- fetchUntil "*D*E*L*I*M*I*T*E*D*" hstdout
+    putMVar var consoleOutput
+
   results <- hGetLine ho
   putStrLn $ "worker " ++ show i ++ " returns: " ++ results
-  -- get stdout until delimiter
-  consoleOutput <- fetchUntil "*D*E*L*I*M*I*T*E*D*" hstdout
+  consoleOutput <- takeMVar var
   --
   atomically $ finishJob ref i
-  sendMsg s (wrapMsg (ConsoleOutput consoleOutput))
+  -- TODO: THIS IS REALLY AD HOC. FOR NOW.
+  sendMsg s (wrapMsg (ConsoleOutput (take 20 consoleOutput)))
   serve ref s
 
 main :: IO ()
 main = do
-  let workers = [1, 2, 3, 4]
+  let workers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
   handles <- traverse (\i -> (i,) <$> initWorker i) workers
   let thePool = Pool
         { poolStatus = IM.fromList $ map (,False) workers,

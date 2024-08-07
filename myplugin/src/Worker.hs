@@ -4,6 +4,7 @@ module Worker where
 import Control.Concurrent (threadDelay)
 import Control.Monad (forever)
 import Control.Monad.IO.Class (liftIO)
+import Data.List (intercalate)
 import qualified GHC
 import GHC.Driver.Backend (backendNeedsFullWays)
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
@@ -57,7 +58,7 @@ workerMain flags = do
   forever $ do
     s <- liftIO $ hGetLine hin
     let args :: [String] = read s
-    logMessage (prompt ++ " Got args: " ++ show args)
+    logMessage (prompt ++ " Got args: " ++ intercalate " " args)
     --
     compileMain args
     --
