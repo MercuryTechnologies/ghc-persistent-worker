@@ -156,7 +156,7 @@ serve ref s = do
 
 main :: IO ()
 main = do
-  let workers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  let workers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
   handles <- traverse (\i -> (i,) <$> initWorker i) workers
   let thePool = Pool
         { poolStatus = IM.fromList $ map (,False) workers,

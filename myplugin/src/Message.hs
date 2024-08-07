@@ -46,8 +46,7 @@ sendMsg s (Msg n payload) = do
   sendAll s (L.toStrict (encode n))
   let !chunks = toChunks chunkSize payload
   -- AD HOC THING FOR WEIRD LAZINESS.
-  hPutStrLn stderr (show (length chunks))
-  -- utStrLn $ "sendMsg: " ++ show n ++ ", " ++ show (length chunks)
+  hPutStrLn stderr $ "sendMsg: " ++ show n ++ ", " ++ show (length chunks)
   chunks `deepseq` traverse_ (\chunk -> chunk `deepseq` sendAll s chunk) chunks
 
 recvMsg :: Socket -> IO Msg
@@ -58,7 +57,8 @@ recvMsg s = do
       n' :: Int
       n' = fromIntegral n
       (q, r) = n' `divMod` chunkSize
-  -- putStrLn $ "recvMsg: " ++ show n' ++ ", (q, r) = " ++ show (q, r)
+  -- AD HOC THING FOR WEIRD LAZINESS.
+  hPutStrLn stderr $ "recvMsg: " ++ show n' ++ ", (q, r) = " ++ show (q, r)
   ps <- replicateM q (recv s chunkSize)
   payload <-
     if r > 0
