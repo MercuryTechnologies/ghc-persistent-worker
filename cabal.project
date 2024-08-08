@@ -1,1 +1,1 @@
-packages: ./myplugin
+packages: ./ghc-persistent-worker-plugin

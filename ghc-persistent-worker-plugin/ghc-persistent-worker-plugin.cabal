@@ -1,5 +1,5 @@
 cabal-version:      3.4
-name:               myplugin
+name:               ghc-persistent-worker-plugin
 version:            0.1.0.0
 -- synopsis:
 -- description:
@@ -19,7 +19,7 @@ common warnings
 library
     import:           warnings
     exposed-modules:  Message
-                      MyPlugin
+                      GHCPersistentWorkerPlugin
                       Util
     other-modules:    GHC.Main
                       Worker
@@ -47,7 +47,7 @@ executable Server
                       containers,
                       directory,
                       filepath,
-                      myplugin,
+                      ghc-persistent-worker-plugin,
                       network,
                       process,
                       stm,
@@ -60,6 +60,6 @@ executable Client
     build-depends:    base,
                       binary,
                       bytestring,
-                      myplugin,
+                      ghc-persistent-worker-plugin,
                       network
     default-language: GHC2021

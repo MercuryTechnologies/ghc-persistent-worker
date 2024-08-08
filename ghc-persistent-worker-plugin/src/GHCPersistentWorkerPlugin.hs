@@ -1,4 +1,4 @@
-module MyPlugin (frontendPlugin) where
+module GHCPersistentWorkerPlugin (frontendPlugin) where
 
 import Control.Monad.IO.Class (liftIO)
 import GHC.Driver.Monad (Ghc)
@@ -10,8 +10,5 @@ import Worker (workerMain)
 frontendPlugin :: FrontendPlugin
 frontendPlugin = defaultFrontendPlugin
   {
-    frontend = doNothing
+    frontend = \flags _args -> workerMain flags
   }
-
-doNothing :: [String] -> [(String, Maybe Phase)] -> Ghc ()
-doNothing flags _args = workerMain flags
