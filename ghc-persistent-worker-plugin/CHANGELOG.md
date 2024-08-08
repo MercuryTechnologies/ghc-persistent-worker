@@ -1,4 +1,4 @@
-# Revision history for myplugin
+# Revision history for ghc-persistent-worker-plugin
 
 ## 0.1.0.0 -- YYYY-mm-dd
 
