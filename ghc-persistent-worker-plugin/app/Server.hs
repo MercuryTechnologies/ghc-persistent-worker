@@ -122,14 +122,13 @@ fetchUntil delim h = do
   where
     go acc = do
       s <- hGetLine h
-      -- print s
       if s == delim
         then pure acc
         else go (acc . (s:))
 
 serve :: TVar Pool -> Socket -> IO ()
 serve ref s = do
-  msg <- recvMsg s
+  !msg <- recvMsg s
   (i, hset) <- atomically $ assignJob ref
   let xs :: [String] = unwrapMsg msg
   putStrLn $ "worker = " ++ show i ++ ": " ++ show xs
@@ -149,9 +148,7 @@ serve ref s = do
   consoleOutput <- takeMVar var
   --
   atomically $ finishJob ref i
-  -- TODO: THIS IS REALLY AD HOC. FOR NOW.
-  sendMsg s (wrapMsg (ConsoleOutput (take 20 consoleOutput)))
-  -- sendMsg s (wrapMsg (ConsoleOutput consoleOutput))
+  sendMsg s (wrapMsg (ConsoleOutput consoleOutput))
   serve ref s
 
 main :: IO ()

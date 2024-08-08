@@ -28,10 +28,10 @@ data Msg = Msg
   }
 
 chunkSize :: Int
-chunkSize = 4096
+chunkSize = 1024
 
 toChunks :: Int -> ByteString -> [ByteString]
-toChunks bytes bs0 = go id bs0 []
+toChunks !bytes !bs0 = go id bs0 []
   where
     go !acc !bs =
       let (!chunk, !bs') = C.splitAt bytes bs
@@ -42,31 +42,27 @@ toChunks bytes bs0 = go id bs0 []
           else go (acc . (chunk:)) bs'
 
 sendMsg :: Socket -> Msg -> IO ()
-sendMsg s (Msg n payload) = do
+sendMsg s (Msg !n !payload) = do
   sendAll s (L.toStrict (encode n))
   let !chunks = toChunks chunkSize payload
-  -- AD HOC THING FOR WEIRD LAZINESS.
-  hPutStrLn stderr $ "sendMsg: " ++ show n ++ ", " ++ show (length chunks)
   chunks `deepseq` traverse_ (\chunk -> chunk `deepseq` sendAll s chunk) chunks
 
 recvMsg :: Socket -> IO Msg
 recvMsg s = do
-  msg_n <- recv s 4
+  !msg_n <- recv s 4
   let n :: Int32
       n = decode (L.fromStrict msg_n)
       n' :: Int
       n' = fromIntegral n
       (q, r) = n' `divMod` chunkSize
-  -- AD HOC THING FOR WEIRD LAZINESS.
-  hPutStrLn stderr $ "recvMsg: " ++ show n' ++ ", (q, r) = " ++ show (q, r)
   ps <- replicateM q (recv s chunkSize)
   payload <-
     if r > 0
     then do
       p <- recv s r
-      pure $ mconcat (ps ++ [p])
+      pure $! mconcat (ps ++ [p])
     else
-      pure $ mconcat ps
+      pure $! mconcat ps
   payload `deepseq` pure (Msg n payload)
 
 wrapMsg :: (Binary a) => a -> Msg
