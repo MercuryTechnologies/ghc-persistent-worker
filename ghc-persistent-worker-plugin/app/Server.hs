@@ -18,7 +18,8 @@ import qualified Data.List as List
 import Message (ConsoleOutput (..), Msg (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
-import System.Directory (doesFileExist, getCurrentDirectory)
+import System.Directory (doesFileExist, getCurrentDirectory, getHomeDirectory)
+import System.Environment (getArgs)
 import System.FilePath ((</>), (<.>))
 import System.IO (Handle, IOMode (ReadMode, WriteMode), hFlush, hGetContents, hGetLine, hPutStrLn, openFile)
 import System.Posix.Files (createNamedPipe, fileAccess, ownerModes)
@@ -50,7 +51,7 @@ runServer fp server = do
   where
     open fp = E.bracketOnError (socket AF_UNIX Stream 0) close $ \sock -> do
         bind sock (SockAddrUnix fp)
-        listen sock 5
+        listen sock 1024
         return sock
     loop sock = forever $ E.bracketOnError (accept sock) (close . fst)
         $ \(conn, _peer) -> void $
@@ -80,14 +81,15 @@ initWorker :: Int -> IO HandleSet
 initWorker i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
   cwd <- getCurrentDirectory
+  home <- getHomeDirectory
   let exec_path = "ghc"
       infile = cwd </> "in" ++ show i <.> "fifo"
       outfile = cwd </> "out" ++ show i <.> "fifo"
       ghc_options =
         [ "-package-db",
-          "/Users/ianwookim/.local/state/cabal/store/ghc-9.11.20240806/package.db",
+          (home </> ".local/state/cabal/store/ghc-9.11.20240809/package.db"),
           "-package-db",
-          "/Users/ianwookim/repo/mercury/ghc-persistent-worker/dist-newstyle/packagedb/ghc-9.11.20240806",
+          (home </> "repo/mercury/ghc-persistent-worker/dist-newstyle/packagedb/ghc-9.11.20240809"),
           "-plugin-package",
           "ghc-persistent-worker-plugin",
           "--frontend",
@@ -153,7 +155,9 @@ serve ref s = do
 
 main :: IO ()
 main = do
-  let workers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  args <- getArgs
+  let n :: Int = read (args !! 0)
+  let workers = [1..n]
   handles <- traverse (\i -> (i,) <$> initWorker i) workers
   let thePool = Pool
         { poolStatus = IM.fromList $ map (,False) workers,
