@@ -33,6 +33,7 @@ library
                       ghc,
                       ghc-boot,
                       network,
+                      time,
                       transformers,
                       unix
     hs-source-dirs:   src

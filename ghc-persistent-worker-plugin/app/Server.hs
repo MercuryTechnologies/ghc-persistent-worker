@@ -87,9 +87,9 @@ initWorker i = do
       outfile = cwd </> "out" ++ show i <.> "fifo"
       ghc_options =
         [ "-package-db",
-          (home </> ".local/state/cabal/store/ghc-9.11.20240809/package.db"),
+          (home </> ".local/state/cabal/store/ghc-9.11.20240806/package.db"),
           "-package-db",
-          (home </> "repo/mercury/ghc-persistent-worker/dist-newstyle/packagedb/ghc-9.11.20240809"),
+          (home </> "repo/mercury/ghc-persistent-worker/dist-newstyle/packagedb/ghc-9.11.20240806"),
           "-plugin-package",
           "ghc-persistent-worker-plugin",
           "--frontend",
