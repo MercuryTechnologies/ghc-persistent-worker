@@ -91,23 +91,6 @@ workerMain flags = do
       hPutStrLn stderr (show time)
       mapM_ (\_ -> hPutStrLn stderr "=================================") [1..5]
     --
-    withSession $ \env -> do
-      let minterp = hsc_interp env
-      case minterp of
-        Nothing -> liftIO $ hPutStrLn stderr "NOTHING"
-        Just interp -> liftIO $ do
-          sdoc <- showLoaderState interp
-          hPutStrLn stderr (showSDocUnsafe sdoc)
-          mpls <- readMVar (loader_state (interpLoader interp))
-          case mpls of
-            Nothing -> hPutStrLn stderr "NO LOADER STATE!"
-            Just pls -> do
-              let ndet_ce = NonDetUniqFM (closure_env (linker_env pls))
-                  names_in_closureEnv = map fst (toList ndet_ce)
-              hPutStrLn stderr "++names_in_closureEnv++"
-              mapM_ (hPutStrLn stderr . showPprUnsafe) names_in_closureEnv
-              hPutStrLn stderr "--names_in_closureEnv--"
-    --
     compileMain args
     --
     liftIO $ do
