@@ -9,7 +9,7 @@ import qualified GHC
 import GHC.Driver.Backend (backendNeedsFullWays)
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
-import GHC.Driver.Env (HscEnv (hsc_interp, hsc_unit_env))
+import GHC.Driver.Env (HscEnv (hsc_NC, hsc_interp, hsc_unit_env))
 import GHC.Driver.Main (initHscEnv)
 import GHC.Driver.Monad (Ghc, withSession, modifySession)
 import GHC.Driver.Phases (StopPhase (NoStop))
@@ -122,18 +122,15 @@ workerMain flags = do
     liftIO $ hFlush stdout
     --
 
-    (minterp, unit_env) <-
+    (minterp, unit_env, nc) <-
       withSession $ \env ->
-        pure $ (hsc_interp env, hsc_unit_env env)
-   {- let Just interp = minterp
-    liftIO $ do
-      sdoc <- showLoaderState interp
-      hPutStrLn stderr (showSDocUnsafe sdoc)
-    --  "rootzmlocalzmpackageszmmercuryzmaesonzmsrczmlib_MercuryziAesonUtils_jsonDeriveWithAffix_closure"
-    -}
+        pure $ (hsc_interp env, hsc_unit_env env, hsc_NC env)
     GHC.initGhcMonad Nothing
-    -- liftIO $ initHscEnv Nothing
-    modifySession $ \env -> env {hsc_interp = minterp} -- , hsc_unit_env = unit_env}
+    modifySession $ \env ->
+      env
+        { hsc_interp = minterp,
+          hsc_NC = nc
+        }
 
 compileMain :: [String] -> Ghc ()
 compileMain args = do

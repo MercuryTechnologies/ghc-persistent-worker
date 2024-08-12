@@ -274,7 +274,10 @@ main' postLoadMode units dflags0 args flagWarnings = do
   dflags6 <- GHC.getSessionDynFlags
 
   -- Must do this before loading plugins
-  liftIO $ initUniqSupply (initialUnique dflags6) (uniqueIncrement dflags6)
+  -- -- ***** IWKIM *****
+  -- -- THIS IS IMPORTANT. UniqSupply should not be reinitialized in loop-shot mode!
+  -- liftIO $ initUniqSupply (initialUnique dflags6) (uniqueIncrement dflags6)
+  -- -- ***** IWKIM *****
 
   -- Initialise plugins here because the plugin author might already expect this
   -- subsequent call to `getLogger` to be affected by a plugin.
