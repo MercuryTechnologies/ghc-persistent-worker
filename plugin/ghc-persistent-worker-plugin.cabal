@@ -18,10 +18,13 @@ common warnings
 
 library
     import:           warnings
+    hs-source-dirs:   src
     exposed-modules:  GHCPersistentWorkerPlugin
                       Util
-    other-modules:    GHC.Main
-                      Worker
+    if (impl(ghc > 9.11))
+        hs-source-dirs: src-ghcHEAD
+        other-modules:  GHC.Main
+
     -- other-extensions:
     build-depends:    base ^>=4.20,
                       binary,
@@ -34,5 +37,4 @@ library
                       time,
                       transformers,
                       unix
-    hs-source-dirs:   src
     default-language: GHC2021
