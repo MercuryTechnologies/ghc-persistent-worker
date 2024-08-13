@@ -27,8 +27,6 @@ import GHC.Main
 import GHC.Platform.Ways (hostFullWays, wayGeneralFlags, wayUnsetGeneralFlags)
 import GHC.Settings.Config (cProjectVersion)
 import GHC.Utils.Logger (setLogFlags)
-import Message (Msg (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
-import Network.Socket (Socket)
 import System.Environment (getArgs)
 import System.Exit (ExitCode (..), exitWith)
 import System.IO

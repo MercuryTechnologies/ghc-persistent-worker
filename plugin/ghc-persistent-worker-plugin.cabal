@@ -18,8 +18,7 @@ common warnings
 
 library
     import:           warnings
-    exposed-modules:  Message
-                      GHCPersistentWorkerPlugin
+    exposed-modules:  GHCPersistentWorkerPlugin
                       Util
     other-modules:    GHC.Main
                       Worker
@@ -32,35 +31,8 @@ library
                       filepath,
                       ghc,
                       ghc-boot,
-                      network,
                       time,
                       transformers,
                       unix
     hs-source-dirs:   src
-    default-language: GHC2021
-
-executable Server
-    main-is:          Server.hs
-    hs-source-dirs:   app
-    build-depends:    base ^>=4.20,
-                      binary,
-                      bytestring,
-                      containers,
-                      directory,
-                      filepath,
-                      ghc-persistent-worker-plugin,
-                      network,
-                      process,
-                      stm,
-                      unix
-    default-language: GHC2021
-
-executable Client
-    main-is:          Client.hs
-    hs-source-dirs:   app
-    build-depends:    base,
-                      binary,
-                      bytestring,
-                      ghc-persistent-worker-plugin,
-                      network
     default-language: GHC2021

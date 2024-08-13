@@ -150,7 +150,7 @@ serve ref s = do
   consoleOutput <- takeMVar var
   --
   atomically $ finishJob ref i
-  sendMsg s (wrapMsg (ConsoleOutput consoleOutput))
+  sendMsg s (wrapMsg (ConsoleOutput (take 20 consoleOutput)))
   serve ref s
 
 main :: IO ()
