@@ -85,6 +85,7 @@ workerMain flags = do
     modifySession $ \env ->
       env
         { hsc_interp = minterp,
+          -- hsc_unit_env = unit_env,
           hsc_NC = nc
         }
 
