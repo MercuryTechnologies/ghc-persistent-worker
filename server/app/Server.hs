@@ -82,7 +82,7 @@ initWorker i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
   cwd <- getCurrentDirectory
   home <- getHomeDirectory
-  let exec_path = "ghc"
+  let exec_path = home </> "repo/srcc/ghcHEAD/_build/stage1/bin" </> "ghc"
       infile = cwd </> "in" ++ show i <.> "fifo"
       outfile = cwd </> "out" ++ show i <.> "fifo"
       ghc_options =
@@ -150,7 +150,7 @@ serve ref s = do
   consoleOutput <- takeMVar var
   --
   atomically $ finishJob ref i
-  sendMsg s (wrapMsg (ConsoleOutput (take 20 consoleOutput)))
+  sendMsg s (wrapMsg (ConsoleOutput consoleOutput))
   serve ref s
 
 main :: IO ()

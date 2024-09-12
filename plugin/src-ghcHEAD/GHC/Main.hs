@@ -305,6 +305,10 @@ main' postLoadMode units dflags0 args flagWarnings = do
                                                     (hsc_units  hsc_env)
                                                     (hsc_NC     hsc_env)
                                                     f
+       ShowInterfaceAbiHash f -> liftIO $ showIfaceAbiHash logger
+                                                           (hsc_dflags hsc_env)
+                                                           (hsc_NC     hsc_env)
+                                                           f
        DoMake                 -> doMake units srcs
        DoMkDependHS           -> doMkDependHS (map fst srcs)
        StopBefore p           -> liftIO (oneShot hsc_env p srcs)
@@ -495,6 +499,8 @@ isShowGhciUsageMode _ = False
 
 data PostLoadMode
   = ShowInterface FilePath  -- ghc --show-iface
+  | ShowInterfaceAbiHash FilePath
+                            -- ghc --show-iface-abi-hash
   | DoMkDependHS            -- ghc -M
   | StopBefore StopPhase    -- ghc -E | -C | -S
                             -- StopBefore StopLn is the default
@@ -518,6 +524,9 @@ showUnitsMode = mkPostLoadMode ShowPackages
 
 showInterfaceMode :: FilePath -> Mode
 showInterfaceMode fp = mkPostLoadMode (ShowInterface fp)
+
+showInterfaceAbiHashMode :: FilePath -> Mode
+showInterfaceAbiHashMode fp = mkPostLoadMode (ShowInterfaceAbiHash fp)
 
 stopBeforeMode :: StopPhase -> Mode
 stopBeforeMode phase = mkPostLoadMode (StopBefore phase)
@@ -652,6 +661,9 @@ mode_flags =
       ------- interfaces ----------------------------------------------------
   [ defFlag "-show-iface"  (HasArg (\f -> setMode (showInterfaceMode f)
                                                "--show-iface"))
+
+  , defFlag "-show-iface-abi-hash" (HasArg (\f -> setMode (showInterfaceAbiHashMode f)
+                                               "--show-iface-abi-hash"))
 
       ------- primary modes ------------------------------------------------
   , defFlag "c"            (PassFlag (\f -> do setMode (stopBeforeMode NoStop) f
