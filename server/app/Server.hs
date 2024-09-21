@@ -133,12 +133,13 @@ serve ref s = do
   !msg <- recvMsg s
   (i, hset) <- atomically $ assignJob ref
   let req :: Request = unwrapMsg msg
+      env = requestEnv req
       args = requestArgs req
-  putStrLn $ "worker = " ++ show i ++ ": " ++ show req
+  putStrLn $ "worker = " ++ show i ++ " will handle this req."
   let hi = handleArgIn hset
       ho = handleMsgOut hset
       hstdout = handleStdOut hset
-  hPutStrLn hi (show args)
+  hPutStrLn hi (show (env, args))
   hFlush hi
   -- get stdout until delimiter
   var <- newEmptyMVar

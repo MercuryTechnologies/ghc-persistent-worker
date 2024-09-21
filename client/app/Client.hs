@@ -26,13 +26,14 @@ import Network.Socket
     withSocketsDo,
   )
 import Network.Socket.ByteString (recv, sendAll)
-import System.Environment (getArgs)
+import System.Environment (getArgs, getEnvironment)
 
 main :: IO ()
 main = runClient "/tmp/mytest.ipc" $ \s -> do
     args <- getArgs
+    env <- getEnvironment
     let req = Request
-          { requestEnv = [],
+          { requestEnv = env,
             requestArgs = args
           }
     let msg = wrapMsg req
