@@ -30,7 +30,7 @@ library
                       binary,
                       bytestring,
                       containers,
-                      deepseq,
+                      directory,
                       filepath,
                       ghc,
                       ghc-boot,

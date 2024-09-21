@@ -3,6 +3,7 @@ module GHCPersistentWorkerPlugin (frontendPlugin) where
 
 import Control.Monad (forever)
 import Control.Monad.IO.Class (liftIO)
+import Data.Foldable (for_)
 import Data.List (intercalate)
 import Data.Time.Clock (getCurrentTime)
 import GHC.Driver.Env (HscEnv (hsc_NC, hsc_interp, hsc_unit_env))
@@ -18,6 +19,8 @@ import GHC.Main
   )
 import GHC.Settings.Config (cProjectVersion)
 import qualified GHC
+import System.Directory (setCurrentDirectory)
+import System.Environment (setEnv)
 import System.IO
   ( BufferMode (..),
     hFlush,
@@ -55,7 +58,12 @@ workerMain flags = do
   GHC.initGhcMonad Nothing
   forever $ do
     s <- liftIO $ hGetLine hin
-    let args :: [String] = read s
+    let (env, args) :: ([(String, String)], [String]) = read s
+    logMessage (prompt ++ " MJML_TEMPLATE_ROOT = " ++ show (lookup "MJML_TEMPLATE_ROOT" env))
+    for_ (lookup "PWD" env) $ \pwd -> liftIO $
+      setCurrentDirectory pwd
+    for_ env $ \(var, val) -> liftIO $
+      setEnv var val
     logMessage (prompt ++ " Got args: " ++ intercalate " " args)
     --
     liftIO $ do

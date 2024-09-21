@@ -6,15 +6,37 @@ import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy as L
 import Data.Binary (encode)
 import Data.Int (Int32)
-import Message (ConsoleOutput (..), Msg (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
+import Message
+  ( ConsoleOutput (..),
+    Msg (..),
+    Request (..),
+    recvMsg,
+    sendMsg,
+    unwrapMsg,
+    wrapMsg
+  )
 import Network.Socket
+  ( Family (AF_UNIX),
+    SockAddr (SockAddrUnix),
+    Socket,
+    SocketType (Stream),
+    close,
+    connect,
+    socket,
+    withSocketsDo,
+  )
 import Network.Socket.ByteString (recv, sendAll)
-import System.Environment (getArgs)
+import System.Environment (getArgs, getEnvironment)
 
 main :: IO ()
 main = runClient "/tmp/mytest.ipc" $ \s -> do
     args <- getArgs
-    let msg = wrapMsg args
+    env <- getEnvironment
+    let req = Request
+          { requestEnv = env,
+            requestArgs = args
+          }
+    let msg = wrapMsg req
     sendMsg s msg
     --
     msg' <- recvMsg s

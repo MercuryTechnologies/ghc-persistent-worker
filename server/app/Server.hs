@@ -15,7 +15,7 @@ import Data.Int (Int32)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IM
 import qualified Data.List as List
-import Message (ConsoleOutput (..), Msg (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
+import Message (ConsoleOutput (..), Msg (..), Request (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 import System.Directory (doesFileExist, getCurrentDirectory, getHomeDirectory)
@@ -87,9 +87,9 @@ initWorker i = do
       outfile = cwd </> "out" ++ show i <.> "fifo"
       ghc_options =
         [ "-package-db",
-          (home </> ".local/state/cabal/store/ghc-9.11.20240806/package.db"),
+          (home </> ".local/state/cabal/store/ghc-9.11.20240913/package.db"),
           "-package-db",
-          (home </> "repo/mercury/ghc-persistent-worker/dist-newstyle/packagedb/ghc-9.11.20240806"),
+          (home </> "repo/mercury/ghc-persistent-worker/dist-newstyle/packagedb/ghc-9.11.20240913"),
           "-plugin-package",
           "ghc-persistent-worker-plugin",
           "--frontend",
@@ -132,12 +132,14 @@ serve :: TVar Pool -> Socket -> IO ()
 serve ref s = do
   !msg <- recvMsg s
   (i, hset) <- atomically $ assignJob ref
-  let xs :: [String] = unwrapMsg msg
-  putStrLn $ "worker = " ++ show i ++ ": " ++ show xs
+  let req :: Request = unwrapMsg msg
+      env = requestEnv req
+      args = requestArgs req
+  putStrLn $ "worker = " ++ show i ++ " will handle this req."
   let hi = handleArgIn hset
       ho = handleMsgOut hset
       hstdout = handleStdOut hset
-  hPutStrLn hi (show xs)
+  hPutStrLn hi (show (env, args))
   hFlush hi
   -- get stdout until delimiter
   var <- newEmptyMVar
