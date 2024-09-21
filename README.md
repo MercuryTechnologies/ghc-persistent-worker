@@ -20,4 +20,4 @@ The system consists of three components.
 * **ghc-persistent-worker-client**: GHC Client. The CLI arguments of this client is identical
   to ordinary GHC and it sends those arguments to the server. 
 
-![Configuration](docs/config.png)
+<img src="docs/config.png" width="300">
