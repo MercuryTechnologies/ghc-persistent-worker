@@ -8,6 +8,15 @@ import Data.Binary (encode)
 import Data.Int (Int32)
 import Message (ConsoleOutput (..), Msg (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
+  ( Family (AF_UNIX),
+    SockAddr (SockAddrUnix),
+    Socket,
+    SocketType (Stream),
+    close,
+    connect,
+    socket,
+    withSocketsDo,
+  )
 import Network.Socket.ByteString (recv, sendAll)
 import System.Environment (getArgs)
 
