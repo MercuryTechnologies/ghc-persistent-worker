@@ -27,6 +27,7 @@ executable Server
                       filepath,
                       ghc-persistent-worker-comm,
                       network,
+                      optparse-applicative,
                       process,
                       stm,
                       unix

@@ -18,6 +18,8 @@ import qualified Data.List as List
 import Message (ConsoleOutput (..), Msg (..), Request (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
+import Options.Applicative (Parser, (<**>))
+import qualified Options.Applicative as OA
 import System.Directory (doesFileExist, getCurrentDirectory, getHomeDirectory)
 import System.Environment (getArgs)
 import System.FilePath ((</>), (<.>))
@@ -77,32 +79,28 @@ finishJob ref i = do
       !workers' = IM.update (\_ -> Just False) i workers
   writeTVar ref (pool {poolStatus = workers'})
 
-initWorker :: Int -> IO HandleSet
-initWorker i = do
+initWorker :: FilePath -> [FilePath] -> Int -> IO HandleSet
+initWorker ghcPath dbPaths i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
   cwd <- getCurrentDirectory
-  home <- getHomeDirectory
-  let exec_path = home </> "repo/srcc/ghcHEAD/_build/stage1/bin" </> "ghc"
-      infile = cwd </> "in" ++ show i <.> "fifo"
+  let infile = cwd </> "in" ++ show i <.> "fifo"
       outfile = cwd </> "out" ++ show i <.> "fifo"
+      db_options = concatMap (\db -> ["-package-db", db]) dbPaths
       ghc_options =
-        [ "-package-db",
-          (home </> ".local/state/cabal/store/ghc-9.11.20240913/package.db"),
-          "-package-db",
-          (home </> "repo/mercury/ghc-persistent-worker/dist-newstyle/packagedb/ghc-9.11.20240913"),
-          "-plugin-package",
-          "ghc-persistent-worker-plugin",
-          "--frontend",
-          "GHCPersistentWorkerPlugin",
-          "-ffrontend-opt",
-          show i,
-          "-ffrontend-opt",
-          infile,
-          "-ffrontend-opt",
-          outfile
-        ]
+        db_options ++
+          [ "-plugin-package",
+            "ghc-persistent-worker-plugin",
+            "--frontend",
+            "GHCPersistentWorkerPlugin",
+            "-ffrontend-opt",
+            show i,
+            "-ffrontend-opt",
+            infile,
+            "-ffrontend-opt",
+            outfile
+          ]
       proc_setup =
-        (proc exec_path ghc_options)
+        (proc ghcPath ghc_options)
           { std_out = CreatePipe
           }
   whenM (not <$> doesFileExist infile) (createNamedPipe infile ownerModes)
@@ -155,12 +153,36 @@ serve ref s = do
   sendMsg s (wrapMsg (ConsoleOutput consoleOutput))
   serve ref s
 
+-- cli args
+
+data Option = Option
+  { optionNumWorkers :: Int,
+    optionGHC :: FilePath,
+    optionPkgDbs :: [FilePath]
+  }
+
+p_option :: Parser Option
+p_option =
+  Option
+    <$> OA.option OA.auto
+        ( OA.long "num"
+            <> OA.short 'n'
+            <> OA.help "number of workers"
+        )
+    <*> OA.strOption
+        ( OA.long "ghc"
+            <> OA.help "GHC path"
+        )
+    <*> OA.many (OA.strOption (OA.long "package-db" <> OA.help "Package DB Path"))
+
 main :: IO ()
 main = do
-  args <- getArgs
-  let n :: Int = read (args !! 0)
-  let workers = [1..n]
-  handles <- traverse (\i -> (i,) <$> initWorker i) workers
+  opts <- OA.execParser (OA.info (p_option <**> OA.helper) OA.fullDesc)
+  let n = optionNumWorkers opts
+      ghcPath = optionGHC opts
+      dbPaths = optionPkgDbs opts
+      workers = [1..n]
+  handles <- traverse (\i -> (i,) <$> initWorker ghcPath dbPaths i) workers
   let thePool = Pool
         { poolStatus = IM.fromList $ map (,False) workers,
           poolHandles = handles
