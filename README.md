@@ -4,6 +4,8 @@ ghc-persistent-worker
 Persistent worker (compiler server) implementation. 
 GHC persistent worker currently works with Buck2.
 
+<img src="docs/config.png" width="400">
+
 The system consists of three components. 
 
 * **ghc-persistent-worker-plugin**: GHC frontend plugin. With this plugin installed, 
@@ -20,4 +22,9 @@ The system consists of three components.
 * **ghc-persistent-worker-client**: GHC Client. The CLI arguments of this client is identical
   to ordinary GHC and it sends those arguments to the server. 
 
-<img src="docs/config.png" width="300">
+
+To start:
+```
+$ cabal run ghc-persistent-worker-server -- --ghc ~/repo/srcc/ghcHEAD/_build/stage1/bin/ghc -n 10 --package-db ~/.local/state/cabal/store/ghc-9.11.20240913/package.db
+```
+(`--package-db` argument is optional. One can have multiple `--package-db`.)
