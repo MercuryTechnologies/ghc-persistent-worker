@@ -18,6 +18,7 @@ import qualified Data.List as List
 import Message (ConsoleOutput (..), Msg (..), Request (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
+import Options.Applicative (Parser, auto, execParser, fullDesc, help, helper, info, long, option, short, (<**>))
 import System.Directory (doesFileExist, getCurrentDirectory, getHomeDirectory)
 import System.Environment (getArgs)
 import System.FilePath ((</>), (<.>))
@@ -32,6 +33,21 @@ import System.Posix.IO
   )
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
 import Util (openFileAfterCheck, openPipeRead, openPipeWrite, whenM)
+
+-- cli args
+
+data Option = Option
+  { optionNumWorkers :: Int
+  }
+
+p_option :: Parser Option
+p_option =
+  Option
+    <$> option auto
+        ( long "num-worker"
+            <> short 'n'
+            <> help "number of workers"
+        )
 
 data HandleSet = HandleSet
   { handleArgIn :: Handle,
@@ -157,9 +173,9 @@ serve ref s = do
 
 main :: IO ()
 main = do
-  args <- getArgs
-  let n :: Int = read (args !! 0)
-  let workers = [1..n]
+  opts <- execParser (info (p_option <**> helper) fullDesc)
+  let n = optionNumWorkers opts
+      workers = [1..n]
   handles <- traverse (\i -> (i,) <$> initWorker i) workers
   let thePool = Pool
         { poolStatus = IM.fromList $ map (,False) workers,
