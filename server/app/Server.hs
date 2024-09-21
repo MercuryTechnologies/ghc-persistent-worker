@@ -18,7 +18,8 @@ import qualified Data.List as List
 import Message (ConsoleOutput (..), Msg (..), Request (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
-import Options.Applicative (Parser, auto, execParser, fullDesc, help, helper, info, long, option, short, (<**>))
+import Options.Applicative (Parser, (<**>))
+import qualified Options.Applicative as OA
 import System.Directory (doesFileExist, getCurrentDirectory, getHomeDirectory)
 import System.Environment (getArgs)
 import System.FilePath ((</>), (<.>))
@@ -33,21 +34,6 @@ import System.Posix.IO
   )
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
 import Util (openFileAfterCheck, openPipeRead, openPipeWrite, whenM)
-
--- cli args
-
-data Option = Option
-  { optionNumWorkers :: Int
-  }
-
-p_option :: Parser Option
-p_option =
-  Option
-    <$> option auto
-        ( long "num-worker"
-            <> short 'n'
-            <> help "number of workers"
-        )
 
 data HandleSet = HandleSet
   { handleArgIn :: Handle,
@@ -93,12 +79,12 @@ finishJob ref i = do
       !workers' = IM.update (\_ -> Just False) i workers
   writeTVar ref (pool {poolStatus = workers'})
 
-initWorker :: Int -> IO HandleSet
-initWorker i = do
+initWorker :: FilePath -> Int -> IO HandleSet
+initWorker ghcPath i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
   cwd <- getCurrentDirectory
   home <- getHomeDirectory
-  let exec_path = home </> "repo/srcc/ghcHEAD/_build/stage1/bin" </> "ghc"
+  let -- exec_path = home </> "repo/srcc/ghcHEAD/_build/stage1/bin" </> "ghc"
       infile = cwd </> "in" ++ show i <.> "fifo"
       outfile = cwd </> "out" ++ show i <.> "fifo"
       ghc_options =
@@ -118,7 +104,7 @@ initWorker i = do
           outfile
         ]
       proc_setup =
-        (proc exec_path ghc_options)
+        (proc ghcPath ghc_options)
           { std_out = CreatePipe
           }
   whenM (not <$> doesFileExist infile) (createNamedPipe infile ownerModes)
@@ -171,12 +157,33 @@ serve ref s = do
   sendMsg s (wrapMsg (ConsoleOutput consoleOutput))
   serve ref s
 
+-- cli args
+
+data Option = Option
+  { optionNumWorkers :: Int,
+    optionGHC :: FilePath
+  }
+
+p_option :: Parser Option
+p_option =
+  Option
+    <$> OA.option OA.auto
+        ( OA.long "num"
+            <> OA.short 'n'
+            <> OA.help "number of workers"
+        )
+    <*> OA.strOption
+        ( OA.long "ghc"
+            <> OA.help "GHC path"
+        )
+
 main :: IO ()
 main = do
-  opts <- execParser (info (p_option <**> helper) fullDesc)
+  opts <- OA.execParser (OA.info (p_option <**> OA.helper) OA.fullDesc)
   let n = optionNumWorkers opts
+      ghcPath = optionGHC opts
       workers = [1..n]
-  handles <- traverse (\i -> (i,) <$> initWorker i) workers
+  handles <- traverse (\i -> (i,) <$> initWorker ghcPath i) workers
   let thePool = Pool
         { poolStatus = IM.fromList $ map (,False) workers,
           poolHandles = handles
