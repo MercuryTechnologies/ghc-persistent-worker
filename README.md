@@ -19,3 +19,5 @@ The system consists of three components.
   Individual GHCs are connected with the server by stdin/stdout and fifo pipes.
 * **ghc-persistent-worker-client**: GHC Client. The CLI arguments of this client is identical
   to ordinary GHC and it sends those arguments to the server. 
+
+![Configuration](docs/config.png)
