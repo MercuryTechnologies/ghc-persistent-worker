@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Message
   ( Msg (..),
@@ -7,20 +8,21 @@ module Message
     wrapMsg,
     unwrapMsg,
     --
+    Request (..),
     ConsoleOutput (..),
   ) where
 
 import Control.DeepSeq (deepseq)
 import Control.Monad (replicateM)
 import Data.Binary (Binary (..), encode, decode)
-import Data.ByteString (ByteString (..))
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy as L
 import Data.Foldable (traverse_)
-import Data.Int (Int32 (..))
-import Network.Socket (Socket (..))
+import Data.Int (Int32)
+import GHC.Generics (Generic)
+import Network.Socket (Socket)
 import Network.Socket.ByteString (recv, sendAll)
-import System.IO (hPutStrLn, stderr)
 
 data Msg = Msg
   { msgNumBytes :: !Int32,
@@ -73,6 +75,14 @@ wrapMsg x =
 
 unwrapMsg :: (Binary a) => Msg -> a
 unwrapMsg (Msg _n bs) = decode (L.fromStrict bs)
+
+data Request = Request
+  { requestEnv :: [(String, String)],
+    requestArgs :: [String]
+  }
+  deriving (Show, Generic)
+
+instance Binary Request
 
 newtype ConsoleOutput = ConsoleOutput
   { unConsoleOutput :: [String]
