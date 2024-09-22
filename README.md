@@ -26,7 +26,7 @@ The system consists of three components.
 To start:
 ```
 $ cabal install --lib ghc-persistent-worker-plugin
-$ cabal run ghc-persistent-worker-server -- --ghc ~/repo/srcc/ghcHEAD/_build/stage1/bin/ghc -n 10
-$ cabal run ghc-persistent-worker-client -- test/A.hs
+$ cabal run ghc-persistent-worker-server -- --ghc ~/repo/srcc/ghcHEAD/_build/stage1/bin/ghc --socket-path /tmp/ghc_server.ipc -n 10
+$ GHC_PERSISTENT_WORKER_SOCKET=/tmp/ghc_server.ipc cabal run ghc-persistent-worker-client -- test/A.hs
 ```
 (optionally, one can set `--package-db (pkg_db_path)`. One can have multiple `--package-db`.)
