@@ -27,6 +27,7 @@ import System.IO
     hGetLine,
     hPutStrLn,
     hSetBuffering,
+    stdin,
     stderr,
     stdout,
   )
@@ -49,17 +50,13 @@ workerMain flags = do
     hSetBuffering stderr LineBuffering
 
   let n :: Int = read (flags !! 0)
-      infile = flags !! 1
-      outfile = flags !! 2
       prompt = "[Worker:" ++ show n ++ "]"
-  hin <- liftIO $ openFileAfterCheck infile (True, False) openPipeRead
-  hout <- liftIO $ openFileAfterCheck outfile (False, True) openPipeWrite
+  let (hin, hout) = (stdin, stdout)
   logMessage (prompt ++ " Started")
   GHC.initGhcMonad Nothing
   forever $ do
     s <- liftIO $ hGetLine hin
     let (env, args) :: ([(String, String)], [String]) = read s
-    logMessage (prompt ++ " MJML_TEMPLATE_ROOT = " ++ show (lookup "MJML_TEMPLATE_ROOT" env))
     for_ (lookup "PWD" env) $ \pwd -> liftIO $
       setCurrentDirectory pwd
     for_ env $ \(var, val) -> liftIO $
@@ -80,10 +77,16 @@ workerMain flags = do
       hPutStrLn stderr (show time)
       mapM_ (\_ -> hPutStrLn stderr "|||||||||||||||||||||||||||||||||") [1..5]
     --
-    liftIO $ hPutStrLn hout "AfterGHC"
+    -- TODO: will have more useful info
+    let result = "DUMMY RESULT"
+    --
+    liftIO $ hPutStrLn hout "*S*T*D*O*U*T*"
     liftIO $ hFlush hout
-    liftIO $ hPutStrLn stdout "*D*E*L*I*M*I*T*E*D*"
-    liftIO $ hFlush stdout
+    liftIO $ hPutStrLn hout result
+    liftIO $ hPutStrLn hout "*R*E*S*U*L*T*"
+    liftIO $ hFlush hout
+    liftIO $ hPutStrLn hout "*D*E*L*I*M*I*T*E*D*"
+    liftIO $ hFlush hout
     --
 
     (minterp, unit_env, nc) <-

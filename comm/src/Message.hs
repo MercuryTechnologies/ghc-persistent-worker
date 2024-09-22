@@ -9,7 +9,7 @@ module Message
     unwrapMsg,
     --
     Request (..),
-    ConsoleOutput (..),
+    Response (..),
   ) where
 
 import Control.DeepSeq (deepseq)
@@ -84,7 +84,18 @@ data Request = Request
 
 instance Binary Request
 
+data Response = Response
+  { responseResult :: [String],
+    responseConsoleStdOut :: [String],
+    responseConsoleStdErr :: [String]
+  }
+  deriving (Show, Generic)
+
+instance Binary Response
+
+{-
 newtype ConsoleOutput = ConsoleOutput
   { unConsoleOutput :: [String]
   }
   deriving Binary
+-}
