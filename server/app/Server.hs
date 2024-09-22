@@ -15,7 +15,7 @@ import Data.Int (Int32)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IM
 import qualified Data.List as List
-import Message (ConsoleOutput (..), Msg (..), Request (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
+import Message (Msg (..), Request (..), Response (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 import Options.Applicative (Parser, (<**>))
@@ -37,8 +37,7 @@ import Util (openFileAfterCheck, openPipeRead, openPipeWrite, whenM)
 
 data HandleSet = HandleSet
   { handleArgIn :: Handle,
-    handleMsgOut :: Handle,
-    handleStdOut :: Handle
+    handleMsgOut :: Handle
   }
 
 data Pool = Pool
@@ -83,9 +82,7 @@ initWorker :: FilePath -> [FilePath] -> Int -> IO HandleSet
 initWorker ghcPath dbPaths i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
   cwd <- getCurrentDirectory
-  let -- infile = cwd </> "in" ++ show i <.> "fifo"
-      outfile = cwd </> "out" ++ show i <.> "fifo"
-      db_options = concatMap (\db -> ["-package-db", db]) dbPaths
+  let db_options = concatMap (\db -> ["-package-db", db]) dbPaths
       ghc_options =
         db_options ++
           [ "-plugin-package",
@@ -93,26 +90,17 @@ initWorker ghcPath dbPaths i = do
             "--frontend",
             "GHCPersistentWorkerPlugin",
             "-ffrontend-opt",
-            show i,
-            -- "-ffrontend-opt",
-            -- infile,
-            "-ffrontend-opt",
-            outfile
+            show i
           ]
       proc_setup =
         (proc ghcPath ghc_options)
           { std_in = CreatePipe,
             std_out = CreatePipe
           }
- --  whenM (not <$> doesFileExist infile) (createNamedPipe infile ownerModes)
-  whenM (not <$> doesFileExist outfile) (createNamedPipe outfile ownerModes)
-  ho <- openFileAfterCheck outfile (True, False) openPipeRead
   (Just hstdin, Just hstdout, _, _) <- createProcess proc_setup
-  -- hi <- openFileAfterCheck infile (False, True) openPipeWrite
   let hset = HandleSet
-        { handleArgIn = hstdin, -- hi,
-          handleMsgOut = ho,
-          handleStdOut = hstdout
+        { handleArgIn = hstdin,
+          handleMsgOut = hstdout
         }
   pure hset
 
@@ -137,21 +125,25 @@ serve ref s = do
   putStrLn $ "worker = " ++ show i ++ " will handle this req."
   let hi = handleArgIn hset
       ho = handleMsgOut hset
-      hstdout = handleStdOut hset
   hPutStrLn hi (show (env, args))
   hFlush hi
-  -- get stdout until delimiter
   var <- newEmptyMVar
   forkIO $ do
-    consoleOutput <- fetchUntil "*D*E*L*I*M*I*T*E*D*" hstdout
-    putMVar var consoleOutput
+    -- get stdout until delimiter
+    console_stdout <- fetchUntil "*S*T*D*O*U*T*" ho
+    -- get result metatdata until delimiter
+    results <- fetchUntil "*R*E*S*U*L*T*" ho
+    -- get stderr until delimiter
+    console_stderr <- fetchUntil "*D*E*L*I*M*I*T*E*D*" ho
+    let res = Response results console_stdout console_stderr
+    putMVar var res
 
-  results <- hGetLine ho
-  putStrLn $ "worker " ++ show i ++ " returns: " ++ results
-  consoleOutput <- takeMVar var
+  res@(Response results _ _) <- takeMVar var
+
+  putStrLn $ "worker " ++ show i ++ " returns: " ++ show results
   --
   atomically $ finishJob ref i
-  sendMsg s (wrapMsg (ConsoleOutput consoleOutput))
+  sendMsg s (wrapMsg res)
   serve ref s
 
 -- cli args

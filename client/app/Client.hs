@@ -7,9 +7,9 @@ import qualified Data.ByteString.Lazy as L
 import Data.Binary (encode)
 import Data.Int (Int32)
 import Message
-  ( ConsoleOutput (..),
-    Msg (..),
+  ( Msg (..),
     Request (..),
+    Response (..),
     recvMsg,
     sendMsg,
     unwrapMsg,
@@ -27,6 +27,7 @@ import Network.Socket
   )
 import Network.Socket.ByteString (recv, sendAll)
 import System.Environment (getArgs, getEnvironment)
+import System.IO (hPutStrLn, stderr, stdout)
 
 main :: IO ()
 main = runClient "/tmp/mytest.ipc" $ \s -> do
@@ -40,8 +41,9 @@ main = runClient "/tmp/mytest.ipc" $ \s -> do
     sendMsg s msg
     --
     msg' <- recvMsg s
-    let ConsoleOutput ss = unwrapMsg msg'
-    mapM_ putStrLn ss
+    let Response res ss_out ss_err = unwrapMsg msg'
+    mapM_ (hPutStrLn stdout) ss_out
+    mapM_ (hPutStrLn stderr) ss_err
 
 runClient :: FilePath -> (Socket -> IO a) -> IO a
 runClient fp client = withSocketsDo $ E.bracket (open fp) close client
