@@ -83,7 +83,7 @@ initWorker :: FilePath -> [FilePath] -> Int -> IO HandleSet
 initWorker ghcPath dbPaths i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
   cwd <- getCurrentDirectory
-  let infile = cwd </> "in" ++ show i <.> "fifo"
+  let -- infile = cwd </> "in" ++ show i <.> "fifo"
       outfile = cwd </> "out" ++ show i <.> "fifo"
       db_options = concatMap (\db -> ["-package-db", db]) dbPaths
       ghc_options =
@@ -94,22 +94,23 @@ initWorker ghcPath dbPaths i = do
             "GHCPersistentWorkerPlugin",
             "-ffrontend-opt",
             show i,
-            "-ffrontend-opt",
-            infile,
+            -- "-ffrontend-opt",
+            -- infile,
             "-ffrontend-opt",
             outfile
           ]
       proc_setup =
         (proc ghcPath ghc_options)
-          { std_out = CreatePipe
+          { std_in = CreatePipe,
+            std_out = CreatePipe
           }
-  whenM (not <$> doesFileExist infile) (createNamedPipe infile ownerModes)
+ --  whenM (not <$> doesFileExist infile) (createNamedPipe infile ownerModes)
   whenM (not <$> doesFileExist outfile) (createNamedPipe outfile ownerModes)
   ho <- openFileAfterCheck outfile (True, False) openPipeRead
-  (_, Just hstdout, _, _) <- createProcess proc_setup
-  hi <- openFileAfterCheck infile (False, True) openPipeWrite
+  (Just hstdin, Just hstdout, _, _) <- createProcess proc_setup
+  -- hi <- openFileAfterCheck infile (False, True) openPipeWrite
   let hset = HandleSet
-        { handleArgIn = hi,
+        { handleArgIn = hstdin, -- hi,
           handleMsgOut = ho,
           handleStdOut = hstdout
         }

@@ -27,6 +27,7 @@ import System.IO
     hGetLine,
     hPutStrLn,
     hSetBuffering,
+    stdin,
     stderr,
     stdout,
   )
@@ -49,10 +50,11 @@ workerMain flags = do
     hSetBuffering stderr LineBuffering
 
   let n :: Int = read (flags !! 0)
-      infile = flags !! 1
-      outfile = flags !! 2
+      -- infile = flags !! 1
+      outfile = flags !! 1
       prompt = "[Worker:" ++ show n ++ "]"
-  hin <- liftIO $ openFileAfterCheck infile (True, False) openPipeRead
+  -- hin <- liftIO $ openFileAfterCheck infile (True, False) openPipeRead
+  let hin = stdin
   hout <- liftIO $ openFileAfterCheck outfile (False, True) openPipeWrite
   logMessage (prompt ++ " Started")
   GHC.initGhcMonad Nothing
