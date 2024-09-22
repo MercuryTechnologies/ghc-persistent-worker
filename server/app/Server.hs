@@ -151,6 +151,7 @@ serve ref s = do
 data Option = Option
   { optionNumWorkers :: Int,
     optionGHC :: FilePath,
+    optionSocket :: FilePath,
     optionPkgDbs :: [FilePath]
   }
 
@@ -166,6 +167,10 @@ p_option =
         ( OA.long "ghc"
             <> OA.help "GHC path"
         )
+    <*> OA.strOption
+        ( OA.long "socket-file"
+            <> OA.help "UNIX socket file accepting compilation requests"
+        )
     <*> OA.many (OA.strOption (OA.long "package-db" <> OA.help "Package DB Path"))
 
 main :: IO ()
@@ -173,6 +178,7 @@ main = do
   opts <- OA.execParser (OA.info (p_option <**> OA.helper) OA.fullDesc)
   let n = optionNumWorkers opts
       ghcPath = optionGHC opts
+      socketPath = optionSocket opts
       dbPaths = optionPkgDbs opts
       workers = [1..n]
   handles <- traverse (\i -> (i,) <$> initWorker ghcPath dbPaths i) workers
@@ -182,4 +188,4 @@ main = do
         }
 
   ref <- newTVarIO thePool
-  runServer "/tmp/mytest.ipc" (serve ref)
+  runServer socketPath (serve ref)
