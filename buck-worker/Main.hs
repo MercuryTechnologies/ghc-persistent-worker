@@ -1,14 +1,12 @@
-{-# language DataKinds, OverloadedLists, OverloadedStrings, GADTs #-}
+{-# language DataKinds, OverloadedLists, OverloadedStrings, GADTs, OverloadedRecordDot #-}
 
 module Main where
 
 import Args (parseBuckArgs, writeResult)
-import Cache (CacheRef)
+import Cache (Cache, emptyCache)
 import Compile (compile)
-import Control.Concurrent.MVar (newMVar, readMVar)
-import Control.Exception (throwIO)
-import Data.Foldable (traverse_)
-import Data.IORef (newIORef)
+import Control.Concurrent.MVar (MVar, newMVar, readMVar)
+import Control.Exception (SomeException (SomeException), throwIO, try)
 import Data.String (fromString)
 import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
@@ -30,24 +28,35 @@ import System.IO (BufferMode (LineBuffering), hPutStrLn, hSetBuffering, stderr, 
 import Worker (ExecuteCommand (..), ExecuteEvent (..), ExecuteResponse (..), Worker (..), workerServer)
 
 executeHandler ::
-  CacheRef ->
+  MVar Cache ->
   ServerRequest 'Normal ExecuteCommand ExecuteResponse ->
   IO (ServerResponse 'Normal ExecuteResponse)
 executeHandler cache (ServerNormalRequest _ ExecuteCommand {executeCommandArgv}) = do
-  hPutStrLn stderr (unlines argv)
-  args <- either (throwIO . userError) pure (parseBuckArgs argv)
-  log <- newMVar Log {diagnostics = [], other = []}
-  result <- withGhc Env {log, cache, args} (compile args)
-  executeResponseExitCode <- writeResult args result
-  Log {diagnostics, other} <- readMVar log
-  traverse_ (hPutStrLn stderr) (reverse other)
-  let
-    response = ExecuteResponse {
-      executeResponseExitCode,
-      executeResponseStderr = mconcat (LazyText.pack <$> reverse diagnostics)
-      }
+  -- hPutStrLn stderr (unlines argv)
+  response <- either exceptionResponse successResponse =<< try run
   pure (ServerNormalResponse response [] StatusOk "")
   where
+    run = do
+      args <- either (throwIO . userError) pure (parseBuckArgs argv)
+      log <- newMVar Log {diagnostics = [], other = []}
+      let env = Env {log, cache, args}
+      result <- withGhc env (compile args)
+      pure (env, result)
+
+    successResponse (env, result) = do
+      executeResponseExitCode <- writeResult env.args result
+      Log {diagnostics, other} <- readMVar env.log
+      pure ExecuteResponse {
+        executeResponseExitCode,
+        executeResponseStderr = LazyText.unlines (LazyText.pack <$> reverse (other ++ diagnostics))
+      }
+
+    exceptionResponse (SomeException e) =
+      pure ExecuteResponse {
+        executeResponseExitCode = 1,
+        executeResponseStderr = "Uncaught exception: " <> LazyText.pack (show e)
+      }
+
     argv = Text.unpack . decodeUtf8Lenient <$> Vector.toList executeCommandArgv
 
 execHandler ::
@@ -57,7 +66,7 @@ execHandler (ServerReaderRequest _metadata _recv) = do
   hPutStrLn stderr "Received Exec"
   error "not implemented"
 
-handlers :: CacheRef -> Worker ServerRequest ServerResponse
+handlers :: MVar Cache -> Worker ServerRequest ServerResponse
 handlers cache =
   Worker
     { workerExecute = executeHandler cache,
@@ -70,7 +79,7 @@ main = do
   hSetBuffering stderr LineBuffering
   socket <- lookupEnv "WORKER_SOCKET"
   hPutStrLn stderr $ "using worker socket: " <> show socket
-  cache <- newIORef Nothing
+  cache <- emptyCache
   workerServer (handlers cache) (maybe id setSocket socket defaultServiceOptions)
   where
     setSocket s options = options {serverHost = fromString ("unix://" <> s <> "\x00"), serverPort = 0}

@@ -1,5 +1,3 @@
-{-# language BlockArguments, LambdaCase, DerivingStrategies, RecordWildCards, OverloadedRecordDot #-}
-
 module Args where
 
 import Data.Foldable (for_)

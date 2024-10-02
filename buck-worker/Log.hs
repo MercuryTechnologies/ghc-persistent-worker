@@ -1,23 +1,24 @@
-{-# language BlockArguments, DerivingStrategies #-}
-
 module Log where
 
 import Control.Concurrent.MVar (MVar, modifyMVar_)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHC (Severity (SevIgnore))
 import GHC.Types.Error (MessageClass (..), getCaretDiagnostic, mkLocMessageWarningGroups)
 import GHC.Utils.Logger (LogAction, LogFlags (..))
 import GHC.Utils.Outputable (
+  Outputable,
+  SDoc,
   blankLine,
   empty,
   getPprStyle,
   renderWithContext,
   setStyleColoured,
-  text,
+  showPprUnsafe,
   withPprStyle,
   ($$),
   ($+$),
   )
-import Prelude hiding (log)
+import System.IO (hPutStrLn, stderr)
 
 data Log =
   Log {
@@ -26,13 +27,29 @@ data Log =
   }
   deriving stock (Eq, Show)
 
+logDiagnostics ::
+  MonadIO m =>
+  MVar Log ->
+  String ->
+  m ()
+logDiagnostics logVar msg =
+  liftIO $ modifyMVar_ logVar \ Log {diagnostics, ..} -> pure Log {diagnostics = msg : diagnostics, ..}
+
+logOther ::
+  MonadIO m =>
+  MVar Log ->
+  String ->
+  m ()
+logOther logVar msg =
+  liftIO $ modifyMVar_ logVar \ Log {other, ..} -> pure Log {other = msg : other, ..}
+
 logToState :: MVar Log -> LogAction
 logToState logVar logflags msg_class srcSpan msg = case msg_class of
-  MCOutput -> logOther msg
-  MCDump -> logOther (msg $$ blankLine)
-  MCInteractive -> logOther msg
-  MCInfo -> logError msg
-  MCFatal -> logError msg
+  MCOutput -> other msg
+  MCDump -> other (msg $$ blankLine)
+  MCInteractive -> other msg
+  MCInfo -> diagnostic msg
+  MCFatal -> diagnostic msg
   MCDiagnostic SevIgnore _ _ -> pure ()
   MCDiagnostic _sev _rea _code -> printDiagnostics
   where
@@ -43,18 +60,36 @@ logToState logVar logflags msg_class srcSpan msg = case msg_class of
         if log_show_caret logflags
         then getCaretDiagnostic msg_class srcSpan
         else pure empty
-      logError $ getPprStyle $ \style ->
+      diagnostic $ getPprStyle $ \style ->
         withPprStyle (setStyleColoured True style) (message $+$ caretDiagnostic $+$ blankLine)
 
-    logError =
-      logWith \ Log {diagnostics, other} new ->
-        Log {diagnostics = new : diagnostics, other}
+    diagnostic = logDiagnostics logVar . render
 
-    logOther =
-      logWith \ Log {diagnostics, other} new ->
-        Log {diagnostics = diagnostics, other = new : other}
+    other = logOther logVar . render
 
-    logWith f d =
-      modifyMVar_ logVar \ log ->
-        let new = renderWithContext (log_default_user_context logflags) (d $$ text "")
-        in pure (f log new)
+    render d = renderWithContext (log_default_user_context logflags) d
+
+dbg :: MonadIO m => String -> m ()
+dbg = liftIO . hPutStrLn stderr
+
+dbgs :: Show a => MonadIO m => a -> m ()
+dbgs = dbg . show
+
+dbgp :: Outputable a => MonadIO m => a -> m ()
+dbgp = dbg . showPprUnsafe
+
+logp ::
+  Outputable a =>
+  MonadIO m =>
+  MVar Log ->
+  a ->
+  m ()
+logp logVar =
+  logOther logVar . showPprUnsafe
+
+logd ::
+  MonadIO m =>
+  MVar Log ->
+  SDoc ->
+  m ()
+logd = logp
