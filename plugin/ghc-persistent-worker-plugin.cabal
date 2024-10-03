@@ -27,7 +27,7 @@ library
         build-depends: base ^>=4.20,
 
     if (impl(ghc >= 9.8) && impl(ghc < 9.9))
-        hs-source-dirs: src-ghcHEAD
+        hs-source-dirs: src-ghc98
         other-modules:  GHC.Main
         build-depends: base ^>=4.19,
 
