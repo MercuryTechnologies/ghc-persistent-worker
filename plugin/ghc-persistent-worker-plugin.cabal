@@ -24,10 +24,14 @@ library
     if (impl(ghc > 9.11))
         hs-source-dirs: src-ghcHEAD
         other-modules:  GHC.Main
+        build-depends: base ^>=4.20,
 
-    -- other-extensions:
-    build-depends:    base ^>=4.20,
-                      binary,
+    if (impl(ghc >= 9.8) && impl(ghc < 9.9))
+        hs-source-dirs: src-ghcHEAD
+        other-modules:  GHC.Main
+        build-depends: base ^>=4.19,
+
+    build-depends:    binary,
                       bytestring,
                       containers,
                       directory,

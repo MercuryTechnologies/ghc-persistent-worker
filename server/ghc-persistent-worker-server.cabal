@@ -19,7 +19,7 @@ common warnings
 executable Server
     main-is:          Server.hs
     hs-source-dirs:   app
-    build-depends:    base ^>=4.20,
+    build-depends:    base >=4.19,
                       binary,
                       bytestring,
                       containers,
