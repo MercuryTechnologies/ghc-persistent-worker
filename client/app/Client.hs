@@ -29,7 +29,7 @@ import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 import System.Environment (getArgs, getEnv, getEnvironment)
 import System.Exit (exitFailure)
-import System.IO (hPutStrLn, stderr, stdout)
+import System.IO (hFlush, hPutStrLn, stderr, stdout)
 
 main :: IO ()
 main = do
@@ -54,7 +54,9 @@ process socketPath env args = runClient socketPath $ \s -> do
   msg' <- recvMsg s
   let Response res ss_out ss_err = unwrapMsg msg'
   mapM_ (hPutStrLn stdout) ss_out
+  hFlush stdout
   mapM_ (hPutStrLn stderr) ss_err
+  hFlush stderr
 
 runClient :: FilePath -> (Socket -> IO a) -> IO a
 runClient fp client = withSocketsDo $ E.bracket (open fp) close client
