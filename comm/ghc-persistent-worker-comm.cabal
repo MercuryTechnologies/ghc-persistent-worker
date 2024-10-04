@@ -20,8 +20,8 @@ library
     import:           warnings
     exposed-modules:  Message
                       Util
-    -- other-extensions:
-    build-depends:    base ^>=4.20,
+
+    build-depends:    base >=4.19,
                       binary,
                       bytestring,
                       containers,
