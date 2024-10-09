@@ -5,8 +5,10 @@ import qualified Control.Exception as E
 import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy as L
 import Data.Binary (encode)
+import Data.Foldable (foldMap)
 import Data.Int (Int32)
-import Data.List (lookup)
+import Data.List (isPrefixOf, lookup, partition, stripPrefix)
+import Data.Monoid (First (..))
 import Message
   ( Msg (..),
     Request (..),
@@ -31,16 +33,21 @@ import System.Environment (getArgs, getEnv, getEnvironment)
 import System.Exit (exitFailure)
 import System.IO (hFlush, hPutStrLn, stderr, stdout)
 
+splitArgs :: [String] -> ([String], [String])
+splitArgs = partition ("--worker-" `isPrefixOf`)
+
 main :: IO ()
 main = do
   args <- getArgs
-  env <- getEnvironment
-  let mSocketPath = lookup "GHC_PERSISTENT_WORKER_SOCKET" env
+  let (workerArgs, ghcArgs) = splitArgs args
+      mSocketPath = getFirst $ foldMap (First . stripPrefix "--worker-socket=") workerArgs
   case mSocketPath of
     Nothing -> do
       hPutStrLn stderr "ghc-persistent-worker-client: Please set GHC_PERSISTENT_WORKER_SOCKET env variable with the socket file path."
       exitFailure
-    Just sockPath -> process sockPath env args
+    Just sockPath -> do
+      env <- getEnvironment
+      process sockPath env ghcArgs
 
 process :: FilePath -> [(String, String)] -> [String] -> IO ()
 process socketPath env args = runClient socketPath $ \s -> do
