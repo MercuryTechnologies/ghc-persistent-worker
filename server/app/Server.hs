@@ -120,8 +120,10 @@ serve ref s = do
   !msg <- recvMsg s
   (i, hset) <- atomically $ assignJob ref
   let req :: Request = unwrapMsg msg
+      id' = requestWorkerId req
       env = requestEnv req
       args = requestArgs req
+  putStrLn $ "id' = " ++ show id'
   putStrLn $ "worker = " ++ show i ++ " will handle this req."
   let hi = handleArgIn hset
       ho = handleMsgOut hset

@@ -10,7 +10,8 @@ import Data.Int (Int32)
 import Data.List (isPrefixOf, lookup, partition, stripPrefix)
 import Data.Monoid (First (..))
 import Message
-  ( Msg (..),
+  ( Id (..),
+    Msg (..),
     Request (..),
     Response (..),
     recvMsg,
@@ -33,26 +34,46 @@ import System.Environment (getArgs, getEnv, getEnvironment)
 import System.Exit (exitFailure)
 import System.IO (hFlush, hPutStrLn, stderr, stdout)
 
+data WorkerConfig = WorkerConfig
+  { workerConfigSocket :: String,
+    workerConfigId :: Id
+  }
+  deriving (Show)
+
 splitArgs :: [String] -> ([String], [String])
 splitArgs = partition ("--worker-" `isPrefixOf`)
+
+getWorkerConfig :: [String] -> Maybe WorkerConfig
+getWorkerConfig args = do
+  socket <- getFirst $ foldMap (First . stripPrefix "--worker-socket=") args
+  id' <- getFirst $ foldMap (First . stripPrefix "--worker-id=") args
+  pure WorkerConfig {workerConfigSocket = socket, workerConfigId = Id id'}
 
 main :: IO ()
 main = do
   args <- getArgs
   let (workerArgs, ghcArgs) = splitArgs args
-      mSocketPath = getFirst $ foldMap (First . stripPrefix "--worker-socket=") workerArgs
-  case mSocketPath of
+      mConf = getWorkerConfig workerArgs
+  hPutStrLn stderr (show mConf)
+  hFlush stderr
+  case workerConfigSocket <$> mConf of
     Nothing -> do
-      hPutStrLn stderr "ghc-persistent-worker-client: Please set GHC_PERSISTENT_WORKER_SOCKET env variable with the socket file path."
+      hPutStrLn stderr "ghc-persistent-worker-client: Please pass --worker-socket=(socket file path)."
       exitFailure
-    Just sockPath -> do
-      env <- getEnvironment
-      process sockPath env ghcArgs
+    Just sockPath ->
+      case workerConfigId <$> mConf of
+        Nothing -> do
+          hPutStrLn stderr "ghc-persistent-worker-client: Please pass --worker-id=(worker id)."
+          exitFailure
+        Just id' -> do
+          env <- getEnvironment
+          process sockPath id' env ghcArgs
 
-process :: FilePath -> [(String, String)] -> [String] -> IO ()
-process socketPath env args = runClient socketPath $ \s -> do
+process :: FilePath -> Id -> [(String, String)] -> [String] -> IO ()
+process socketPath id' env args = runClient socketPath $ \s -> do
   let req = Request
-        { requestEnv = env,
+        { requestWorkerId = id',
+          requestEnv = env,
           requestArgs = args
         }
   let msg = wrapMsg req
