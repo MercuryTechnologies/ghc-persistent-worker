@@ -41,7 +41,7 @@ parseBuckArgs =
     spin Args {..} = \case
       "--abi-out" : rest -> takeArg "--abi-out" rest \ v -> Args {abiOut = Just v, ..}
       "--buck2-dep" : rest -> takeArg "--buck2-dep" rest \ v -> Args {buck2Dep = Just v, ..}
-      "--buck2-packagedb" : rest -> takeArg "--buck2-packagedb" rest \ v -> Args {buck2PackageDb = v : buck2PackageDb, ..}
+      "--buck2-package-db" : rest -> takeArg "--buck2-package-db" rest \ v -> Args {buck2PackageDb = v : buck2PackageDb, ..}
       "--buck2-packagedb-dep" : rest -> takeArg "--buck2-packagedb-dep" rest \ v -> Args {buck2PackageDbDep = Just v, ..}
       "--ghc" : rest -> takeArg "--ghc" rest \ _ -> Args {ghcOptions = [], ..}
       "--ghc-dir" : rest -> takeArg "--ghc-dir" rest \ f -> Args {ghcOptions = [], ghcDirFile = Just f, ..}

@@ -42,7 +42,7 @@ runSession Env {log, args} prog = do
   topdir <- readPath args.ghcDirFile
   packageDb <- readPath args.ghcDbFile
   let packageDbArg path = ["-package-db", path]
-      argv = args.ghcOptions ++ foldMap packageDbArg packageDb
+      argv = args.ghcOptions ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb
   runGhc topdir do
     handleExceptions log Nothing (prog (map loc argv))
   where
