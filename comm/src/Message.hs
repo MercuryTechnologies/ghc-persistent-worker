@@ -78,7 +78,7 @@ unwrapMsg :: (Binary a) => Msg -> a
 unwrapMsg (Msg _n bs) = decode (L.fromStrict bs)
 
 newtype Id = Id String
-  deriving (Show, Binary)
+  deriving (Show, Eq, Binary)
 
 data Request = Request
   { requestWorkerId :: Id,

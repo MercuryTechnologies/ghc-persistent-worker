@@ -15,7 +15,7 @@ import Data.Int (Int32)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IM
 import qualified Data.List as List
-import Message (Msg (..), Request (..), Response (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
+import Message (Id (..), Msg (..), Request (..), Response (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 import Options.Applicative (Parser, (<**>))
@@ -41,9 +41,15 @@ data HandleSet = HandleSet
   }
 
 data Pool = Pool
-  { poolStatus :: IntMap Bool,
+  { poolStatus :: IntMap (Maybe Id),
     poolHandles :: [(Int, HandleSet)]
   }
+
+dumpStatus :: TVar Pool -> IO ()
+dumpStatus ref = do
+  pool <- atomically (readTVar ref)
+  print $ poolStatus pool
+
 
 runServer :: FilePath -> (Socket -> IO a) -> IO a
 runServer fp server = do
@@ -58,15 +64,15 @@ runServer fp server = do
         $ \(conn, _peer) -> void $
             forkFinally (server conn) (const $ gracefulClose conn 5000)
 
-assignJob :: TVar Pool -> STM (Int, HandleSet)
-assignJob ref = do
+assignJob :: TVar Pool -> Id -> STM (Int, HandleSet)
+assignJob ref id' = do
   pool <- readTVar ref
   let workers = poolStatus pool
-  let m = List.find ((== False) . snd) (IM.toAscList workers)
+  let m = List.find ((== Nothing) . snd) (IM.toAscList workers)
   case m of
     Nothing -> retry
     Just (i, _) -> do
-      let !workers' = IM.update (\_ -> Just True) i workers
+      let !workers' = IM.update (\_ -> Just (Just id')) i workers
           Just hset = List.lookup i (poolHandles pool)
       writeTVar ref (pool {poolStatus = workers'})
       pure (i, hset)
@@ -75,7 +81,7 @@ finishJob :: TVar Pool -> Int -> STM ()
 finishJob ref i = do
   pool <- readTVar ref
   let workers = poolStatus pool
-      !workers' = IM.update (\_ -> Just False) i workers
+      !workers' = IM.update (\_ -> Just Nothing) i workers
   writeTVar ref (pool {poolStatus = workers'})
 
 initWorker :: FilePath -> [FilePath] -> Int -> IO HandleSet
@@ -118,13 +124,14 @@ fetchUntil delim h = do
 serve :: TVar Pool -> Socket -> IO ()
 serve ref s = do
   !msg <- recvMsg s
-  (i, hset) <- atomically $ assignJob ref
   let req :: Request = unwrapMsg msg
       id' = requestWorkerId req
       env = requestEnv req
       args = requestArgs req
-  putStrLn $ "id' = " ++ show id'
-  putStrLn $ "worker = " ++ show i ++ " will handle this req."
+  (i, hset) <- atomically $ assignJob ref id'
+  dumpStatus ref
+  -- putStrLn $ "id' = " ++ show id'
+  -- putStrLn $ "worker = " ++ show i ++ " will handle this req."
   let hi = handleArgIn hset
       ho = handleMsgOut hset
   hPutStrLn hi (show (env, args))
@@ -142,7 +149,7 @@ serve ref s = do
 
   res@(Response results _ _) <- takeMVar var
 
-  putStrLn $ "worker " ++ show i ++ " returns: " ++ show results
+  -- putStrLn $ "worker " ++ show i ++ " returns: " ++ show results
   --
   atomically $ finishJob ref i
   sendMsg s (wrapMsg res)
@@ -185,7 +192,7 @@ main = do
       workers = [1..n]
   handles <- traverse (\i -> (i,) <$> initWorker ghcPath dbPaths i) workers
   let thePool = Pool
-        { poolStatus = IM.fromList $ map (,False) workers,
+        { poolStatus = IM.fromList $ map (,Nothing) workers,
           poolHandles = handles
         }
 
