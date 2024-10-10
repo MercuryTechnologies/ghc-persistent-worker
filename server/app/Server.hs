@@ -54,6 +54,22 @@ initWorker ghcPath dbPaths i = do
         }
   pure hset
 
+spawnWorker :: FilePath -> [FilePath] -> TVar Pool -> IO ()
+spawnWorker ghcPath dbPaths ref = do
+  i <- atomically $ do
+    pool <- readTVar ref
+    let i = poolNext pool
+    writeTVar ref (pool {poolNext = i + 1})
+    pure i
+  hset <- initWorker ghcPath dbPaths i
+  atomically $ do
+    pool <- readTVar ref
+    let s = poolStatus pool
+        s' = IM.insert i (False, Nothing) s
+        ihsets = poolHandles pool
+        ihsets' = (i, hset) : ihsets
+    writeTVar ref (pool {poolStatus = s', poolHandles = ihsets'})
+
 fetchUntil :: String -> Handle -> IO [String]
 fetchUntil delim h = do
     f <- go id
@@ -146,29 +162,13 @@ main = do
       ghcPath = optionGHC opts
       socketPath = optionSocket opts
       dbPaths = optionPkgDbs opts
-      -- workers = [1..n]
-  -- handles <- traverse (\i -> (i,) <$> initWorker ghcPath dbPaths i) workers
   let thePool = Pool
         { poolLimit = n,
           poolNext = 1,
-          poolStatus = IM.empty, -- IM.fromList $ map (,(False, Nothing)) workers,
-          poolHandles = [] --  handles
+          poolStatus = IM.empty,
+          poolHandles = []
         }
 
   ref <- newTVarIO thePool
-  replicateM_ n $ do
-    i <- atomically $ do
-      pool <- readTVar ref
-      let i = poolNext pool
-      writeTVar ref (pool {poolNext = i + 1})
-      pure i
-    hset <- initWorker ghcPath dbPaths i
-    atomically $ do
-      pool <- readTVar ref
-      let s = poolStatus pool
-          s' = IM.insert i (False, Nothing) s
-          ihsets = poolHandles pool
-          ihsets' = (i, hset) : ihsets
-      writeTVar ref (pool {poolStatus = s', poolHandles = ihsets'})
-
+  replicateM_ n $ spawnWorker ghcPath dbPaths ref
   runServer socketPath (serve ref)
