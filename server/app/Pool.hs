@@ -10,6 +10,7 @@ module Pool
 ) where
 
 import Control.Concurrent.STM (STM, TVar, atomically, readTVar, retry, writeTVar)
+import qualified Data.Foldable as F
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IM
 import qualified Data.List as List
@@ -22,7 +23,8 @@ data HandleSet = HandleSet
   }
 
 data Pool = Pool
-  { poolStatus :: IntMap (Bool, Maybe Id),
+  { poolLimit :: Int,
+    poolStatus :: IntMap (Bool, Maybe Id),
     poolHandles :: [(Int, HandleSet)]
   }
 
@@ -42,20 +44,24 @@ getAssignableWorker workers mid' = List.find (isAssignable . snd) . IM.toAscList
                   (Just id'', Just id') -> id' == id''
       | otherwise = False
 
-assignJob :: TVar Pool -> Maybe Id -> STM (Int, HandleSet)
+assignJob :: TVar Pool -> Maybe Id -> STM (Either Int (Int, HandleSet))
 assignJob ref mid' = do
   pool <- readTVar ref
   let workers = poolStatus pool
   let m = getAssignableWorker workers mid'
   case m of
-    Nothing -> retry
+    Nothing -> do
+      let nRunningJobs = length $ filter (\(b, _) -> b) $ F.toList workers
+      if (nRunningJobs >= poolLimit pool)
+        then retry
+        else pure (Left nRunningJobs)
     Just (i, _) -> do
       let upd (_, Nothing) = Just (True, mid')
           upd (_, Just id'') = Just (True, Just id'')
           !workers' = IM.update upd i workers
           Just hset = List.lookup i (poolHandles pool)
       writeTVar ref (pool {poolStatus = workers'})
-      pure (i, hset)
+      pure $ Right (i, hset)
 
 finishJob :: TVar Pool -> Int -> STM ()
 finishJob ref i = do

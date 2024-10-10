@@ -65,15 +65,10 @@ fetchUntil delim h = do
         then pure acc
         else go (acc . (s:))
 
-serve :: TVar Pool -> Socket -> IO ()
-serve ref s = do
-  !msg <- recvMsg s
-  let req :: Request = unwrapMsg msg
-      mid = requestWorkerId req
-      willClose = requestWorkerClose req
-      env = requestEnv req
+work :: (Int, HandleSet) -> Request -> IO Response
+work (i, hset) req = do
+  let env = requestEnv req
       args = requestArgs req
-  (i, hset) <- atomically $ assignJob ref mid
   -- putStrLn $ "id' = " ++ show id'
   -- putStrLn $ "worker = " ++ show i ++ " will handle this req."
   let hi = handleArgIn hset
@@ -92,17 +87,30 @@ serve ref s = do
     putMVar var res
 
   res@(Response results _ _) <- takeMVar var
-
   putStrLn $ "worker " ++ show i ++ " returns: " ++ show results
-  when willClose $
-    case mid of
-      Nothing -> pure ()
-      Just id' -> atomically $ removeWorker ref id'
-  dumpStatus ref
-  --
-  atomically $ finishJob ref i
-  sendMsg s (wrapMsg res)
-  serve ref s
+  pure res
+
+
+serve :: TVar Pool -> Socket -> IO ()
+serve ref s = do
+  !msg <- recvMsg s
+  let req :: Request = unwrapMsg msg
+      mid = requestWorkerId req
+  eassigned <- atomically $ assignJob ref mid
+  case eassigned of
+    Left n -> do
+      putStrLn $ "currently " ++ show n ++ " jobs are running"
+      error "not yet"
+    Right (i, hset) -> do
+      res <- work (i, hset) req
+      sendMsg s (wrapMsg res)
+      atomically $ finishJob ref i
+      when (requestWorkerClose req) $
+        case mid of
+          Nothing -> pure ()
+          Just id' -> atomically $ removeWorker ref id'
+      dumpStatus ref
+      serve ref s
 
 -- cli args
 
@@ -141,7 +149,8 @@ main = do
       workers = [1..n]
   handles <- traverse (\i -> (i,) <$> initWorker ghcPath dbPaths i) workers
   let thePool = Pool
-        { poolStatus = IM.fromList $ map (,(False, Nothing)) workers,
+        { poolLimit = n,
+          poolStatus = IM.fromList $ map (,(False, Nothing)) workers,
           poolHandles = handles
         }
 
