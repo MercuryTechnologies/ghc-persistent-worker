@@ -136,7 +136,7 @@ main = do
       workers = [1..n]
   handles <- traverse (\i -> (i,) <$> initWorker ghcPath dbPaths i) workers
   let thePool = Pool
-        { poolStatus = IM.fromList $ map (,Nothing) workers,
+        { poolStatus = IM.fromList $ map (,(False, Nothing)) workers,
           poolHandles = handles
         }
 
