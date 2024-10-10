@@ -36,7 +36,8 @@ import System.IO (hFlush, hPutStrLn, stderr, stdout)
 
 data WorkerConfig = WorkerConfig
   { workerConfigSocket :: String,
-    workerConfigId :: Maybe Id
+    workerConfigId :: Maybe Id,
+    workerConfigClose :: Bool
   }
   deriving (Show)
 
@@ -47,7 +48,12 @@ getWorkerConfig :: [String] -> Maybe WorkerConfig
 getWorkerConfig args = do
   socket <- getFirst $ foldMap (First . stripPrefix "--worker-socket=") args
   let mid = getFirst $ foldMap (First . stripPrefix "--worker-id=") args
-  pure WorkerConfig {workerConfigSocket = socket, workerConfigId = Id <$> mid}
+      willClose = any ("--worker-close" `isPrefixOf`) args
+  pure WorkerConfig
+    { workerConfigSocket = socket,
+      workerConfigId = Id <$> mid,
+      workerConfigClose = willClose
+    }
 
 main :: IO ()
 main = do
@@ -56,19 +62,22 @@ main = do
       mConf = getWorkerConfig workerArgs
   hPutStrLn stderr (show mConf)
   hFlush stderr
-  case workerConfigSocket <$> mConf of
+  case mConf of
     Nothing -> do
       hPutStrLn stderr "ghc-persistent-worker-client: Please pass --worker-socket=(socket file path)."
       exitFailure
-    Just sockPath -> do
-      let mid = workerConfigId =<< mConf
+    Just conf -> do
+      let sockPath = workerConfigSocket conf
+          mid = workerConfigId conf
+          willClose = workerConfigClose conf
       env <- getEnvironment
-      process sockPath mid env ghcArgs
+      process sockPath mid willClose env ghcArgs
 
-process :: FilePath -> Maybe Id -> [(String, String)] -> [String] -> IO ()
-process socketPath mid env args = runClient socketPath $ \s -> do
+process :: FilePath -> Maybe Id -> Bool -> [(String, String)] -> [String] -> IO ()
+process socketPath mid willClose env args = runClient socketPath $ \s -> do
   let req = Request
         { requestWorkerId = mid,
+          requestWorkerClose = willClose,
           requestEnv = env,
           requestArgs = args
         }

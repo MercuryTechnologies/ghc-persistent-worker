@@ -82,6 +82,7 @@ newtype Id = Id String
 
 data Request = Request
   { requestWorkerId :: Maybe Id,
+    requestWorkerClose :: Bool,
     requestEnv :: [(String, String)],
     requestArgs :: [String]
   }
@@ -97,10 +98,3 @@ data Response = Response
   deriving (Show, Generic)
 
 instance Binary Response
-
-{-
-newtype ConsoleOutput = ConsoleOutput
-  { unConsoleOutput :: [String]
-  }
-  deriving Binary
--}

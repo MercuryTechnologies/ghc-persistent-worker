@@ -73,7 +73,6 @@ serve ref s = do
       env = requestEnv req
       args = requestArgs req
   (i, hset) <- atomically $ assignJob ref mid
-  dumpStatus ref
   -- putStrLn $ "id' = " ++ show id'
   -- putStrLn $ "worker = " ++ show i ++ " will handle this req."
   let hi = handleArgIn hset
@@ -94,6 +93,7 @@ serve ref s = do
   res@(Response results _ _) <- takeMVar var
 
   putStrLn $ "worker " ++ show i ++ " returns: " ++ show results
+  dumpStatus ref
   --
   atomically $ finishJob ref i
   sendMsg s (wrapMsg res)

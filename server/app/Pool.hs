@@ -13,7 +13,7 @@ import Data.IntMap (IntMap)
 import qualified Data.IntMap as IM
 import qualified Data.List as List
 import Message (Id)
-import System.IO (Handle)
+import System.IO (Handle, hFlush, hPrint, stdout)
 
 data HandleSet = HandleSet
   { handleArgIn :: Handle,
@@ -28,7 +28,8 @@ data Pool = Pool
 dumpStatus :: TVar Pool -> IO ()
 dumpStatus ref = do
   pool <- atomically (readTVar ref)
-  mapM_ print $ IM.toAscList (poolStatus pool)
+  mapM_ (hPrint stdout) $ IM.toAscList (poolStatus pool)
+  hFlush stdout
 
 getAssignableWorker :: IntMap (Bool, Maybe Id) -> Maybe Id -> Maybe (Int, (Bool, Maybe Id))
 getAssignableWorker workers mid' = List.find (isAssignable . snd) . IM.toAscList $ workers
