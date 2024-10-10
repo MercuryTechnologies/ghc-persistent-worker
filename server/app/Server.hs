@@ -54,7 +54,7 @@ initWorker ghcPath dbPaths i = do
         }
   pure hset
 
-spawnWorker :: FilePath -> [FilePath] -> TVar Pool -> IO ()
+spawnWorker :: FilePath -> [FilePath] -> TVar Pool -> IO (Int, HandleSet)
 spawnWorker ghcPath dbPaths ref = do
   i <- atomically $ do
     pool <- readTVar ref
@@ -69,6 +69,7 @@ spawnWorker ghcPath dbPaths ref = do
         ihsets = poolHandles pool
         ihsets' = (i, hset) : ihsets
     writeTVar ref (pool {poolStatus = s', poolHandles = ihsets'})
+  pure (i, hset)
 
 fetchUntil :: String -> Handle -> IO [String]
 fetchUntil delim h = do
@@ -107,26 +108,27 @@ work (i, hset) req = do
   pure res
 
 
-serve :: TVar Pool -> Socket -> IO ()
-serve ref s = do
+serve :: FilePath -> [FilePath] -> TVar Pool -> Socket -> IO ()
+serve ghcPath dbPaths ref s = do
   !msg <- recvMsg s
   let req :: Request = unwrapMsg msg
       mid = requestWorkerId req
   eassigned <- atomically $ assignJob ref mid
-  case eassigned of
-    Left n -> do
-      putStrLn $ "currently " ++ show n ++ " jobs are running"
-      error "not yet"
-    Right (i, hset) -> do
-      res <- work (i, hset) req
-      sendMsg s (wrapMsg res)
-      atomically $ finishJob ref i
-      when (requestWorkerClose req) $
-        case mid of
-          Nothing -> pure ()
-          Just id' -> atomically $ removeWorker ref id'
-      dumpStatus ref
-      serve ref s
+  (i, hset) <-
+    case eassigned of
+      Left n -> do
+        putStrLn $ "currently " ++ show n ++ " jobs are running. I am spawning a worker."
+        spawnWorker ghcPath dbPaths ref
+      Right (i, hset) -> pure (i, hset)
+  res <- work (i, hset) req
+  sendMsg s (wrapMsg res)
+  atomically $ finishJob ref i
+  when (requestWorkerClose req) $
+    case mid of
+      Nothing -> pure ()
+      Just id' -> atomically $ removeWorker ref id'
+  dumpStatus ref
+  serve ghcPath dbPaths ref s
 
 -- cli args
 
@@ -171,4 +173,4 @@ main = do
 
   ref <- newTVarIO thePool
   replicateM_ n $ spawnWorker ghcPath dbPaths ref
-  runServer socketPath (serve ref)
+  runServer socketPath (serve ghcPath dbPaths ref)
