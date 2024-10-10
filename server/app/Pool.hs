@@ -30,24 +30,27 @@ dumpStatus ref = do
   pool <- atomically (readTVar ref)
   mapM_ print $ IM.toAscList (poolStatus pool)
 
-getAssignableWorker :: IntMap (Bool, Maybe Id) -> Id -> Maybe (Int, (Bool, Maybe Id))
-getAssignableWorker workers id' = List.find (isAssignable . snd) . IM.toAscList $ workers
+getAssignableWorker :: IntMap (Bool, Maybe Id) -> Maybe Id -> Maybe (Int, (Bool, Maybe Id))
+getAssignableWorker workers mid' = List.find (isAssignable . snd) . IM.toAscList $ workers
   where
     isAssignable (b, mid)
-      | not b = case mid of
-                  Nothing -> True
-                  Just id'' -> id' == id''
+      | not b = case (mid, mid') of
+                  (Nothing, _) -> True
+                  (Just _, Nothing) -> True
+                  (Just id'', Just id') -> id' == id''
       | otherwise = False
 
-assignJob :: TVar Pool -> Id -> STM (Int, HandleSet)
-assignJob ref id' = do
+assignJob :: TVar Pool -> Maybe Id -> STM (Int, HandleSet)
+assignJob ref mid' = do
   pool <- readTVar ref
   let workers = poolStatus pool
-  let m = getAssignableWorker workers id'
+  let m = getAssignableWorker workers mid'
   case m of
     Nothing -> retry
     Just (i, _) -> do
-      let !workers' = IM.update (\_ -> Just (True, Just id')) i workers
+      let upd (_, Nothing) = Just (True, mid')
+          upd (_, Just id'') = Just (True, Just id'')
+          !workers' = IM.update upd i workers
           Just hset = List.lookup i (poolHandles pool)
       writeTVar ref (pool {poolStatus = workers'})
       pure (i, hset)

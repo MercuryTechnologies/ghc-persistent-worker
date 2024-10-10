@@ -36,7 +36,7 @@ import System.IO (hFlush, hPutStrLn, stderr, stdout)
 
 data WorkerConfig = WorkerConfig
   { workerConfigSocket :: String,
-    workerConfigId :: Id
+    workerConfigId :: Maybe Id
   }
   deriving (Show)
 
@@ -46,8 +46,8 @@ splitArgs = partition ("--worker-" `isPrefixOf`)
 getWorkerConfig :: [String] -> Maybe WorkerConfig
 getWorkerConfig args = do
   socket <- getFirst $ foldMap (First . stripPrefix "--worker-socket=") args
-  id' <- getFirst $ foldMap (First . stripPrefix "--worker-id=") args
-  pure WorkerConfig {workerConfigSocket = socket, workerConfigId = Id id'}
+  let mid = getFirst $ foldMap (First . stripPrefix "--worker-id=") args
+  pure WorkerConfig {workerConfigSocket = socket, workerConfigId = Id <$> mid}
 
 main :: IO ()
 main = do
@@ -60,19 +60,15 @@ main = do
     Nothing -> do
       hPutStrLn stderr "ghc-persistent-worker-client: Please pass --worker-socket=(socket file path)."
       exitFailure
-    Just sockPath ->
-      case workerConfigId <$> mConf of
-        Nothing -> do
-          hPutStrLn stderr "ghc-persistent-worker-client: Please pass --worker-id=(worker id)."
-          exitFailure
-        Just id' -> do
-          env <- getEnvironment
-          process sockPath id' env ghcArgs
+    Just sockPath -> do
+      let mid = workerConfigId =<< mConf
+      env <- getEnvironment
+      process sockPath mid env ghcArgs
 
-process :: FilePath -> Id -> [(String, String)] -> [String] -> IO ()
-process socketPath id' env args = runClient socketPath $ \s -> do
+process :: FilePath -> Maybe Id -> [(String, String)] -> [String] -> IO ()
+process socketPath mid env args = runClient socketPath $ \s -> do
   let req = Request
-        { requestWorkerId = id',
+        { requestWorkerId = mid,
           requestEnv = env,
           requestArgs = args
         }

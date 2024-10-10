@@ -69,10 +69,10 @@ serve :: TVar Pool -> Socket -> IO ()
 serve ref s = do
   !msg <- recvMsg s
   let req :: Request = unwrapMsg msg
-      id' = requestWorkerId req
+      mid = requestWorkerId req
       env = requestEnv req
       args = requestArgs req
-  (i, hset) <- atomically $ assignJob ref id'
+  (i, hset) <- atomically $ assignJob ref mid
   dumpStatus ref
   -- putStrLn $ "id' = " ++ show id'
   -- putStrLn $ "worker = " ++ show i ++ " will handle this req."

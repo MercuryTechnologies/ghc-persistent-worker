@@ -81,7 +81,7 @@ newtype Id = Id String
   deriving (Show, Eq, Binary)
 
 data Request = Request
-  { requestWorkerId :: Id,
+  { requestWorkerId :: Maybe Id,
     requestEnv :: [(String, String)],
     requestArgs :: [String]
   }
