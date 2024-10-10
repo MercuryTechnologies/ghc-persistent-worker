@@ -6,6 +6,7 @@ module Pool
   dumpStatus,
   assignJob,
   finishJob,
+  removeWorker,
 ) where
 
 import Control.Concurrent.STM (STM, TVar, atomically, readTVar, retry, writeTVar)
@@ -61,4 +62,14 @@ finishJob ref i = do
   pool <- readTVar ref
   let workers = poolStatus pool
       !workers' = IM.update (\(_, m)  -> Just (False, m)) i workers
+  writeTVar ref (pool {poolStatus = workers'})
+
+removeWorker :: TVar Pool -> Id -> STM ()
+removeWorker ref id' = do
+  pool <- readTVar ref
+  let workers = poolStatus pool
+      upd (b, m)
+        | m == Just id' = (False, Nothing)
+        | otherwise = (b, m)
+      !workers' = fmap upd workers
   writeTVar ref (pool {poolStatus = workers'})

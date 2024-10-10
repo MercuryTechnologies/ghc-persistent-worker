@@ -6,13 +6,13 @@ import Control.Concurrent (forkFinally, forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (TVar, atomically, newTVarIO)
 import qualified Control.Exception as E
-import Control.Monad (forever, void)
+import Control.Monad (forever, void, when)
 import qualified Data.IntMap as IM
 import Message (Request (..), Response (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Options.Applicative (Parser, (<**>))
 import qualified Options.Applicative as OA
-import Pool (HandleSet (..), Pool (..), assignJob, dumpStatus, finishJob)
+import Pool (HandleSet (..), Pool (..), assignJob, dumpStatus, finishJob, removeWorker)
 import System.IO (Handle, hFlush, hGetLine, hPutStrLn)
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
 
@@ -70,6 +70,7 @@ serve ref s = do
   !msg <- recvMsg s
   let req :: Request = unwrapMsg msg
       mid = requestWorkerId req
+      willClose = requestWorkerClose req
       env = requestEnv req
       args = requestArgs req
   (i, hset) <- atomically $ assignJob ref mid
@@ -93,6 +94,10 @@ serve ref s = do
   res@(Response results _ _) <- takeMVar var
 
   putStrLn $ "worker " ++ show i ++ " returns: " ++ show results
+  when willClose $
+    case mid of
+      Nothing -> pure ()
+      Just id' -> atomically $ removeWorker ref id'
   dumpStatus ref
   --
   atomically $ finishJob ref i
