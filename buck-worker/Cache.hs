@@ -29,8 +29,10 @@ import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (comma, fsep, hang, punctuate, text, ($$), (<+>))
 import Log (Log, logOther, logd)
 
+type SymbolMap = UniqFM FastString (Ptr ())
+
 newtype SymbolCache =
-  SymbolCache { get :: UniqFM FastString (Ptr ()) }
+  SymbolCache { get :: SymbolMap }
   deriving newtype (Semigroup)
 
 data LinkerStats =
@@ -366,6 +368,12 @@ report logVar cacheVar target =
         hang (text "Restore:") 2 restoreStats $$
         hang (text "Update:") 2 updateStats
 
+withHscState :: (MVar OrigNameCache -> MVar (Maybe LoaderState) -> MVar SymbolMap -> IO ()) -> Ghc ()
+withHscState use =
+  withSession \ HscEnv {hsc_interp, hsc_NC = NameCache {nsNames}} ->
+    for_ hsc_interp \ Interp {interpLoader = Loader {loader_state}, interpLookupSymbolCache} ->
+      liftIO $ use nsNames loader_state interpLookupSymbolCache
+
 withCache :: MVar Log -> MVar Cache -> [String] -> Ghc a -> Ghc a
 withCache logVar cacheVar [src] prog = do
   liftIO (initialize cacheVar)
@@ -376,21 +384,20 @@ withCache logVar cacheVar [src] prog = do
   finally (prog <* finalize) (report logVar cacheVar target)
   where
     prepare =
-      withSession \ HscEnv {hsc_interp, hsc_NC = NameCache {nsNames}} -> for_ hsc_interp \ Interp {..} ->
-        liftIO $ modifyMVar_ interpLoader.loader_state \ initialLoaderState ->
-          modifyMVar interpLookupSymbolCache \ initialSymbolCache ->
+      withHscState \ nsNames loaderStateVar symbolCacheVar ->
+        modifyMVar_ loaderStateVar \ initialLoaderState ->
+          modifyMVar symbolCacheVar \ initialSymbolCache ->
             (first coerce) <$>
             modifyMVar nsNames \ names ->
               modifyMVar cacheVar (restoreCache target initialLoaderState (SymbolCache initialSymbolCache) names)
 
     finalize =
-      withSession \ HscEnv {hsc_interp, hsc_NC = NameCache {nsNames}} ->
-        for_ hsc_interp \ Interp {interpLoader = Loader {loader_state}, interpLookupSymbolCache} ->
-          liftIO $ readMVar loader_state >>= traverse_ \ newLoaderState -> do
-            newSymbols <- readMVar interpLookupSymbolCache
-            newNames <- readMVar nsNames
-            modifyMVar_ cacheVar \ c ->
-              maybe initCache (updateCache target) c.interp newLoaderState (SymbolCache newSymbols) newNames c
+      withHscState \ nsNames loaderStateVar symbolCacheVar ->
+        readMVar loaderStateVar >>= traverse_ \ newLoaderState -> do
+          newSymbols <- readMVar symbolCacheVar
+          newNames <- readMVar nsNames
+          modifyMVar_ cacheVar \ c ->
+            maybe initCache (updateCache target) c.interp newLoaderState (SymbolCache newSymbols) newNames c
 
     target = Target src
 
