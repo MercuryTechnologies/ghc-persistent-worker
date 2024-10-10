@@ -121,15 +121,17 @@ newtype Target =
 -- TODO the name cache could in principle be shared directly – try it out
 data Cache =
   Cache {
+    enable :: Bool,
     initialized :: Bool,
     interp :: Maybe InterpCache,
     names :: OrigNameCache,
     stats :: Map Target CacheStats
   }
 
-emptyCache :: IO (MVar Cache)
-emptyCache =
+emptyCache :: Bool -> IO (MVar Cache)
+emptyCache enable =
   newMVar Cache {
+    enable,
     initialized = False,
     interp = Nothing,
     names = emptyModuleEnv,
@@ -379,9 +381,12 @@ withCache logVar cacheVar [src] prog = do
   liftIO (initialize cacheVar)
   -- If we don't initialize the loader here, it will happen at some later point.
   -- When our restored cache is in the loader state then, it will be corrupted.
-  withSession \ hsc_env -> liftIO $ for_ hsc_env.hsc_interp (flip initLoaderState hsc_env)
-  prepare
-  finally (prog <* finalize) (report logVar cacheVar target)
+  liftIO (readMVar cacheVar) >>= \case
+    Cache {enable = True} -> do
+      withSession \ hsc_env -> liftIO $ for_ hsc_env.hsc_interp (flip initLoaderState hsc_env)
+      prepare
+      finally (prog <* finalize) (report logVar cacheVar target)
+    _ -> prog
   where
     prepare =
       withHscState \ nsNames loaderStateVar symbolCacheVar ->

@@ -3,7 +3,7 @@
 module Main where
 
 import Args (parseBuckArgs, writeResult)
-import Cache (Cache, emptyCache)
+import Cache (Cache (..), emptyCache)
 import Compile (compile)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar)
 import Control.Exception (SomeException (SomeException), throwIO, try)
@@ -79,7 +79,7 @@ main = do
   hSetBuffering stderr LineBuffering
   socket <- lookupEnv "WORKER_SOCKET"
   hPutStrLn stderr $ "using worker socket: " <> show socket
-  cache <- emptyCache
+  cache <- emptyCache True
   workerServer (handlers cache) (maybe id setSocket socket defaultServiceOptions)
   where
     setSocket s options = options {serverHost = fromString ("unix://" <> s <> "\x00"), serverPort = 0}
