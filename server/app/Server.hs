@@ -4,9 +4,9 @@ module Main where
 
 import Control.Concurrent (forkFinally, forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Concurrent.STM (TVar, atomically, newTVarIO)
+import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar)
 import qualified Control.Exception as E
-import Control.Monad (forever, void, when)
+import Control.Monad (forever, replicateM_, void, when)
 import qualified Data.IntMap as IM
 import Message (Request (..), Response (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
@@ -146,13 +146,29 @@ main = do
       ghcPath = optionGHC opts
       socketPath = optionSocket opts
       dbPaths = optionPkgDbs opts
-      workers = [1..n]
-  handles <- traverse (\i -> (i,) <$> initWorker ghcPath dbPaths i) workers
+      -- workers = [1..n]
+  -- handles <- traverse (\i -> (i,) <$> initWorker ghcPath dbPaths i) workers
   let thePool = Pool
         { poolLimit = n,
-          poolStatus = IM.fromList $ map (,(False, Nothing)) workers,
-          poolHandles = handles
+          poolNext = 1,
+          poolStatus = IM.empty, -- IM.fromList $ map (,(False, Nothing)) workers,
+          poolHandles = [] --  handles
         }
 
   ref <- newTVarIO thePool
+  replicateM_ n $ do
+    i <- atomically $ do
+      pool <- readTVar ref
+      let i = poolNext pool
+      writeTVar ref (pool {poolNext = i + 1})
+      pure i
+    hset <- initWorker ghcPath dbPaths i
+    atomically $ do
+      pool <- readTVar ref
+      let s = poolStatus pool
+          s' = IM.insert i (False, Nothing) s
+          ihsets = poolHandles pool
+          ihsets' = (i, hset) : ihsets
+      writeTVar ref (pool {poolStatus = s', poolHandles = ihsets'})
+
   runServer socketPath (serve ref)

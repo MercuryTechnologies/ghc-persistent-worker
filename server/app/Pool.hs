@@ -24,6 +24,7 @@ data HandleSet = HandleSet
 
 data Pool = Pool
   { poolLimit :: Int,
+    poolNext :: Int,
     poolStatus :: IntMap (Bool, Maybe Id),
     poolHandles :: [(Int, HandleSet)]
   }
@@ -44,7 +45,11 @@ getAssignableWorker workers mid' = List.find (isAssignable . snd) . IM.toAscList
                   (Just id'', Just id') -> id' == id''
       | otherwise = False
 
-assignJob :: TVar Pool -> Maybe Id -> STM (Either Int (Int, HandleSet))
+assignJob ::
+  TVar Pool ->
+  Maybe Id ->
+  -- | Right assigned, Left new id that will be used for new spawned worker process.
+  STM (Either Int (Int, HandleSet))
 assignJob ref mid' = do
   pool <- readTVar ref
   let workers = poolStatus pool
