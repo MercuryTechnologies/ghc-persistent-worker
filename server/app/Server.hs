@@ -2,92 +2,36 @@
 
 module Main where
 
-import Control.Concurrent (forkFinally, forkIO, threadDelay)
+import Control.Concurrent (forkFinally, forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Concurrent.STM (STM, TVar, atomically, newTVarIO, readTVar, retry, writeTVar)
+import Control.Concurrent.STM (TVar, atomically, newTVarIO)
 import qualified Control.Exception as E
-import Control.Monad (unless, forever, void, when)
-import Data.Binary (decode)
-import qualified Data.ByteString as S
-import qualified Data.ByteString.Lazy as L
-import Data.Foldable (traverse_)
-import Data.Int (Int32)
-import Data.IntMap (IntMap)
+import Control.Monad (forever, void)
 import qualified Data.IntMap as IM
-import qualified Data.List as List
-import Message (Id (..), Msg (..), Request (..), Response (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
+import Message (Request (..), Response (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
-import Network.Socket.ByteString (recv, sendAll)
 import Options.Applicative (Parser, (<**>))
 import qualified Options.Applicative as OA
-import System.Directory (doesFileExist, getCurrentDirectory, getHomeDirectory)
-import System.Environment (getArgs)
-import System.FilePath ((</>), (<.>))
-import System.IO (Handle, IOMode (ReadMode, WriteMode), hFlush, hGetContents, hGetLine, hPutStrLn, openFile)
-import System.Posix.Files (createNamedPipe, fileAccess, ownerModes)
-import System.Posix.IO
-  ( OpenFileFlags (nonBlock),
-    OpenMode (ReadOnly, WriteOnly),
-    defaultFileFlags,
-    fdToHandle,
-    openFd,
-  )
+import Pool (HandleSet (..), Pool (..), assignJob, dumpStatus, finishJob)
+import System.IO (Handle, hFlush, hGetLine, hPutStrLn)
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
-import Util (openFileAfterCheck, openPipeRead, openPipeWrite, whenM)
-
-data HandleSet = HandleSet
-  { handleArgIn :: Handle,
-    handleMsgOut :: Handle
-  }
-
-data Pool = Pool
-  { poolStatus :: IntMap (Maybe Id),
-    poolHandles :: [(Int, HandleSet)]
-  }
-
-dumpStatus :: TVar Pool -> IO ()
-dumpStatus ref = do
-  pool <- atomically (readTVar ref)
-  print $ poolStatus pool
-
 
 runServer :: FilePath -> (Socket -> IO a) -> IO a
 runServer fp server = do
   putStrLn "Start serving"
   withSocketsDo $ E.bracket (open fp) close loop
   where
-    open fp = E.bracketOnError (socket AF_UNIX Stream 0) close $ \sock -> do
-        bind sock (SockAddrUnix fp)
+    open f = E.bracketOnError (socket AF_UNIX Stream 0) close $ \sock -> do
+        bind sock (SockAddrUnix f)
         listen sock 1024
         return sock
     loop sock = forever $ E.bracketOnError (accept sock) (close . fst)
         $ \(conn, _peer) -> void $
             forkFinally (server conn) (const $ gracefulClose conn 5000)
 
-assignJob :: TVar Pool -> Id -> STM (Int, HandleSet)
-assignJob ref id' = do
-  pool <- readTVar ref
-  let workers = poolStatus pool
-  let m = List.find ((== Nothing) . snd) (IM.toAscList workers)
-  case m of
-    Nothing -> retry
-    Just (i, _) -> do
-      let !workers' = IM.update (\_ -> Just (Just id')) i workers
-          Just hset = List.lookup i (poolHandles pool)
-      writeTVar ref (pool {poolStatus = workers'})
-      pure (i, hset)
-
-finishJob :: TVar Pool -> Int -> STM ()
-finishJob ref i = do
-  pool <- readTVar ref
-  let workers = poolStatus pool
-      !workers' = IM.update (\_ -> Just Nothing) i workers
-  writeTVar ref (pool {poolStatus = workers'})
-
 initWorker :: FilePath -> [FilePath] -> Int -> IO HandleSet
 initWorker ghcPath dbPaths i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
-  cwd <- getCurrentDirectory
   let db_options = concatMap (\db -> ["-package-db", db]) dbPaths
       ghc_options =
         db_options ++
@@ -137,7 +81,7 @@ serve ref s = do
   hPutStrLn hi (show (env, args))
   hFlush hi
   var <- newEmptyMVar
-  forkIO $ do
+  _ <- forkIO $ do
     -- get stdout until delimiter
     console_stdout <- fetchUntil "*S*T*D*O*U*T*" ho
     -- get result metatdata until delimiter
@@ -149,7 +93,7 @@ serve ref s = do
 
   res@(Response results _ _) <- takeMVar var
 
-  -- putStrLn $ "worker " ++ show i ++ " returns: " ++ show results
+  putStrLn $ "worker " ++ show i ++ " returns: " ++ show results
   --
   atomically $ finishJob ref i
   sendMsg s (wrapMsg res)
