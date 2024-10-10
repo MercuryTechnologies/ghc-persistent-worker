@@ -16,7 +16,6 @@ import GHC (Ghc, moduleName, moduleNameString)
 import GHC.Data.FastString (FastString)
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Monad (withSession)
-import GHC.Linker.Loader (initLoaderState)
 import GHC.Linker.Types (LinkerEnv (..), Loader (..), LoaderState (..))
 import GHC.Ptr (Ptr)
 import GHC.Runtime.Interpreter (Interp (..))
@@ -379,11 +378,8 @@ withHscState use =
 withCache :: MVar Log -> MVar Cache -> [String] -> Ghc a -> Ghc a
 withCache logVar cacheVar [src] prog = do
   liftIO (initialize cacheVar)
-  -- If we don't initialize the loader here, it will happen at some later point.
-  -- When our restored cache is in the loader state then, it will be corrupted.
   liftIO (readMVar cacheVar) >>= \case
     Cache {enable = True} -> do
-      withSession \ hsc_env -> liftIO $ for_ hsc_env.hsc_interp (flip initLoaderState hsc_env)
       prepare
       finally (prog <* finalize) (report logVar cacheVar target)
     _ -> prog
