@@ -37,6 +37,6 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/tek/proto3-suite
-  tag: 656e0f8cabe71ac318f4278e455ddc4888dd7502
+  tag: 630e141045050cc88051057aa00006fb874ffe70
 
 index-state: 2024-09-19T00:00:00Z
