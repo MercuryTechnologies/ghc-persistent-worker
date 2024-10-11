@@ -16,7 +16,7 @@ import qualified Data.IntMap as IM
 import qualified Data.List as List
 import Message (Id)
 import System.IO (Handle, hFlush, hPrint, hPutStrLn, stdout)
-import System.Process (ProcessHandle)
+import System.Process (ProcessHandle, terminateProcess)
 
 data HandleSet = HandleSet
   { handleProcess :: ProcessHandle,
@@ -78,12 +78,17 @@ finishJob ref i = do
       !workers' = IM.update (\(_, m)  -> Just (False, m)) i workers
   writeTVar ref (pool {poolStatus = workers'})
 
-removeWorker :: TVar Pool -> Id -> STM ()
+removeWorker :: TVar Pool -> Id -> IO ()
 removeWorker ref id' = do
-  pool <- readTVar ref
-  let workers = poolStatus pool
-      upd (b, m)
-        | m == Just id' = (False, Nothing)
-        | otherwise = (b, m)
-      !workers' = fmap upd workers
-  writeTVar ref (pool {poolStatus = workers'})
+  dismissedHandles <-
+    atomically $ do
+      pool <- readTVar ref
+      let workers = poolStatus pool
+          (dismissed, remained) = IM.partition (\(_, m) -> m == Just id') workers
+      let ks = IM.keys dismissed
+          (dismissedHandles, remainedHandles) = List.partition ((`elem` ks) . fst) $ poolHandles pool
+      writeTVar ref (pool {poolStatus = remained, poolHandles = remainedHandles})
+      pure (fmap (handleProcess . snd) dismissedHandles)
+
+  mapM_ terminateProcess dismissedHandles
+      -- atomically $ removeWorker ref id'

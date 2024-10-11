@@ -88,8 +88,6 @@ work :: (Int, HandleSet) -> Request -> IO Response
 work (i, hset) req = do
   let env = requestEnv req
       args = requestArgs req
-  -- putStrLn $ "id' = " ++ show id'
-  -- putStrLn $ "worker = " ++ show i ++ " will handle this req."
   let hi = handleArgIn hset
       ho = handleMsgOut hset
   hPutStrLn hi (show (env, args))
@@ -117,9 +115,7 @@ assignLoop ghcPath dbPaths ref mid = untilJustM $ do
       putStrLn $ "currently " ++ show n ++ " jobs are running. I am spawning a worker."
       _ <- spawnWorker ghcPath dbPaths ref
       pure Nothing
-      -- atomically $ assignJob ref mid
     Right (i, hset) -> pure (Just (i, hset))
-
 
 serve :: FilePath -> [FilePath] -> TVar Pool -> Socket -> IO ()
 serve ghcPath dbPaths ref s = do
@@ -133,7 +129,7 @@ serve ghcPath dbPaths ref s = do
   when (requestWorkerClose req) $
     case mid of
       Nothing -> pure ()
-      Just id' -> atomically $ removeWorker ref id'
+      Just id' -> removeWorker ref id'
   dumpStatus ref
   serve ghcPath dbPaths ref s
 
