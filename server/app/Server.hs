@@ -48,9 +48,10 @@ initWorker ghcPath dbPaths i = do
           { std_in = CreatePipe,
             std_out = CreatePipe
           }
-  (Just hstdin, Just hstdout, _, _) <- createProcess proc_setup
+  (Just hstdin, Just hstdout, _, ph) <- createProcess proc_setup
   let hset = HandleSet
-        { handleArgIn = hstdin,
+        { handleProcess = ph,
+          handleArgIn = hstdin,
           handleMsgOut = hstdout
         }
   pure hset

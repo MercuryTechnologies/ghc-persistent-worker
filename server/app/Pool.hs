@@ -16,9 +16,11 @@ import qualified Data.IntMap as IM
 import qualified Data.List as List
 import Message (Id)
 import System.IO (Handle, hFlush, hPrint, hPutStrLn, stdout)
+import System.Process (ProcessHandle)
 
 data HandleSet = HandleSet
-  { handleArgIn :: Handle,
+  { handleProcess :: ProcessHandle,
+    handleArgIn :: Handle,
     handleMsgOut :: Handle
   }
 
