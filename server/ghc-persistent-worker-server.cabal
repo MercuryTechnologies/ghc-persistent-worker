@@ -22,6 +22,7 @@ executable Server
                       bytestring,
                       containers,
                       directory,
+                      extra,
                       filepath,
                       ghc-persistent-worker-comm,
                       network,

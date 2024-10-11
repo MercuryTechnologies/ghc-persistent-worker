@@ -61,6 +61,7 @@ main = do
   let (workerArgs, ghcArgs) = splitArgs args
       mConf = getWorkerConfig workerArgs
   hPutStrLn stderr (show mConf)
+  hPutStrLn stderr (show args)
   hFlush stderr
   case mConf of
     Nothing -> do

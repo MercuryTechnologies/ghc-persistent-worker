@@ -7,8 +7,9 @@ import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (forever, replicateM_, void, when)
+import Control.Monad.Extra (untilJustM)
 import qualified Data.IntMap as IM
-import Message (Request (..), Response (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
+import Message (Id, Request (..), Response (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Options.Applicative (Parser, (<**>))
 import qualified Options.Applicative as OA
@@ -107,22 +108,27 @@ work (i, hset) req = do
   putStrLn $ "worker " ++ show i ++ " returns: " ++ show results
   pure res
 
+assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe Id -> IO (Int, HandleSet)
+assignLoop ghcPath dbPaths ref mid = untilJustM $ do
+  eassigned <- atomically $ assignJob ref mid
+  case eassigned of
+    Left n -> do
+      putStrLn $ "currently " ++ show n ++ " jobs are running. I am spawning a worker."
+      _ <- spawnWorker ghcPath dbPaths ref
+      pure Nothing
+      -- atomically $ assignJob ref mid
+    Right (i, hset) -> pure (Just (i, hset))
+
 
 serve :: FilePath -> [FilePath] -> TVar Pool -> Socket -> IO ()
 serve ghcPath dbPaths ref s = do
   !msg <- recvMsg s
   let req :: Request = unwrapMsg msg
       mid = requestWorkerId req
-  eassigned <- atomically $ assignJob ref mid
-  (i, hset) <-
-    case eassigned of
-      Left n -> do
-        putStrLn $ "currently " ++ show n ++ " jobs are running. I am spawning a worker."
-        spawnWorker ghcPath dbPaths ref
-      Right (i, hset) -> pure (i, hset)
+  (i, hset) <- assignLoop ghcPath dbPaths ref mid
   res <- work (i, hset) req
-  sendMsg s (wrapMsg res)
   atomically $ finishJob ref i
+  sendMsg s (wrapMsg res)
   when (requestWorkerClose req) $
     case mid of
       Nothing -> pure ()

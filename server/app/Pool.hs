@@ -15,7 +15,7 @@ import Data.IntMap (IntMap)
 import qualified Data.IntMap as IM
 import qualified Data.List as List
 import Message (Id)
-import System.IO (Handle, hFlush, hPrint, stdout)
+import System.IO (Handle, hFlush, hPrint, hPutStrLn, stdout)
 
 data HandleSet = HandleSet
   { handleArgIn :: Handle,
@@ -32,6 +32,7 @@ data Pool = Pool
 dumpStatus :: TVar Pool -> IO ()
 dumpStatus ref = do
   pool <- atomically (readTVar ref)
+  hPutStrLn stdout $ "poolLimit = " ++ show (poolLimit pool)
   mapM_ (hPrint stdout) $ IM.toAscList (poolStatus pool)
   hFlush stdout
 
