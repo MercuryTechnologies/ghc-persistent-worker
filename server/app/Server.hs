@@ -13,7 +13,7 @@ import Message (TargetId, Request (..), Response (..), recvMsg, sendMsg, unwrapM
 import Network.Socket
 import Options.Applicative (Parser, (<**>))
 import qualified Options.Applicative as OA
-import Pool (HandleSet (..), Pool (..), assignJob, dumpStatus, finishJob, removeWorker)
+import Pool (HandleSet (..), Pool (..), WorkerId, assignJob, dumpStatus, finishJob, removeWorker)
 import System.IO (Handle, hFlush, hGetLine, hPutStrLn)
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
 
@@ -30,7 +30,7 @@ runServer socketFile server = do
         $ \(conn, _peer) -> void $
             forkFinally (server conn) (const $ gracefulClose conn 5000)
 
-initWorker :: FilePath -> [FilePath] -> Int -> IO HandleSet
+initWorker :: FilePath -> [FilePath] -> WorkerId -> IO HandleSet
 initWorker ghcPath dbPaths i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
   let db_options = concatMap (\db -> ["-package-db", db]) dbPaths
@@ -56,7 +56,7 @@ initWorker ghcPath dbPaths i = do
         }
   pure hset
 
-spawnWorker :: FilePath -> [FilePath] -> TVar Pool -> IO (Int, HandleSet)
+spawnWorker :: FilePath -> [FilePath] -> TVar Pool -> IO (WorkerId, HandleSet)
 spawnWorker ghcPath dbPaths ref = do
   i <- atomically $ do
     pool <- readTVar ref
@@ -84,7 +84,7 @@ fetchUntil delim h = do
         then pure acc
         else go (acc . (s:))
 
-work :: (Int, HandleSet) -> Request -> IO Response
+work :: (WorkerId, HandleSet) -> Request -> IO Response
 work (i, hset) req = do
   let env = requestEnv req
       args = requestArgs req
@@ -107,7 +107,7 @@ work (i, hset) req = do
   putStrLn $ "worker " ++ show i ++ " returns: " ++ show results
   pure res
 
-assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe TargetId -> IO (Int, HandleSet)
+assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe TargetId -> IO (WorkerId, HandleSet)
 assignLoop ghcPath dbPaths ref mid = untilJustM $ do
   eassigned <- atomically $ assignJob ref mid
   case eassigned of

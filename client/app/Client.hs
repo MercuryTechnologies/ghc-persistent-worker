@@ -77,7 +77,7 @@ main = do
 process :: FilePath -> Maybe TargetId -> Bool -> [(String, String)] -> [String] -> IO ()
 process socketPath mid willClose env args = runClient socketPath $ \s -> do
   let req = Request
-        { requestWorkerId = mid,
+        { requestWorkerTargetId = mid,
           requestWorkerClose = willClose,
           requestEnv = env,
           requestArgs = args

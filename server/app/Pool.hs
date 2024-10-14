@@ -1,7 +1,8 @@
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
 module Pool
-( HandleSet (..),
+( WorkerId,
+  HandleSet (..),
   Pool (..),
   dumpStatus,
   assignJob,
@@ -19,6 +20,9 @@ import Message (TargetId)
 import System.IO (Handle, hFlush, hPrint, hPutStrLn, stdout)
 import System.Process (ProcessHandle, terminateProcess)
 
+type WorkerStatus = IntMap (Bool, Maybe TargetId)
+type WorkerId = Key
+
 data HandleSet = HandleSet
   { handleProcess :: ProcessHandle,
     handleArgIn :: Handle,
@@ -28,7 +32,7 @@ data HandleSet = HandleSet
 data Pool = Pool
   { poolLimit :: Int,
     poolNext :: Int,
-    poolStatus :: IntMap (Bool, Maybe TargetId),
+    poolStatus :: WorkerStatus,
     poolHandles :: [(Int, HandleSet)]
   }
 
@@ -39,7 +43,10 @@ dumpStatus ref = do
   mapM_ (hPrint stdout) $ IM.toAscList (poolStatus pool)
   hFlush stdout
 
-getAssignableWorker :: IntMap (Bool, Maybe TargetId) -> Maybe TargetId -> Maybe (Key, (Bool, Maybe TargetId))
+getAssignableWorker ::
+  IntMap (Bool, Maybe TargetId) ->
+  Maybe TargetId ->
+  Maybe (WorkerId, (Bool, Maybe TargetId))
 getAssignableWorker workers mid' = List.find (isAssignable . snd) . IM.toAscList $ workers
   where
     isAssignable (b, mid)
@@ -53,7 +60,7 @@ assignJob ::
   TVar Pool ->
   Maybe TargetId ->
   -- | Right assigned, Left new id that will be used for new spawned worker process.
-  STM (Either Int (Int, HandleSet))
+  STM (Either Int (WorkerId, HandleSet))
 assignJob ref mid' = do
   pool <- readTVar ref
   let workers = poolStatus pool
@@ -72,7 +79,7 @@ assignJob ref mid' = do
       writeTVar ref (pool {poolStatus = workers'})
       pure $ Right (i, hset)
 
-finishJob :: TVar Pool -> Int -> STM ()
+finishJob :: TVar Pool -> WorkerId -> STM ()
 finishJob ref i = do
   pool <- readTVar ref
   let workers = poolStatus pool
