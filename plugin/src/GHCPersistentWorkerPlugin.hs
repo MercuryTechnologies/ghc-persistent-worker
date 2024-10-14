@@ -66,6 +66,7 @@ workerMain flags = do
     liftIO $ do
       mapM_ (\_ -> hPutStrLn stderr "=================================") [1..5]
       time <- getCurrentTime
+      hPutStrLn stderr $ "worker: " ++ (show n)
       hPutStrLn stderr (show time)
       mapM_ (\_ -> hPutStrLn stderr "=================================") [1..5]
     --
@@ -74,6 +75,7 @@ workerMain flags = do
     liftIO $ do
       mapM_ (\_ -> hPutStrLn stderr "|||||||||||||||||||||||||||||||||") [1..5]
       time <- getCurrentTime
+      hPutStrLn stderr $ "worker: " ++ (show n)
       hPutStrLn stderr (show time)
       mapM_ (\_ -> hPutStrLn stderr "|||||||||||||||||||||||||||||||||") [1..5]
     --

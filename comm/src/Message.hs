@@ -8,6 +8,7 @@ module Message
     wrapMsg,
     unwrapMsg,
     --
+    Id (..),
     Request (..),
     Response (..),
   ) where
@@ -76,8 +77,13 @@ wrapMsg x =
 unwrapMsg :: (Binary a) => Msg -> a
 unwrapMsg (Msg _n bs) = decode (L.fromStrict bs)
 
+newtype Id = Id String
+  deriving (Show, Eq, Binary)
+
 data Request = Request
-  { requestEnv :: [(String, String)],
+  { requestWorkerId :: Maybe Id,
+    requestWorkerClose :: Bool,
+    requestEnv :: [(String, String)],
     requestArgs :: [String]
   }
   deriving (Show, Generic)
@@ -92,10 +98,3 @@ data Response = Response
   deriving (Show, Generic)
 
 instance Binary Response
-
-{-
-newtype ConsoleOutput = ConsoleOutput
-  { unConsoleOutput :: [String]
-  }
-  deriving Binary
--}
