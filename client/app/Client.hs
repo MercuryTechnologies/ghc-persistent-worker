@@ -10,7 +10,7 @@ import Data.Int (Int32)
 import Data.List (isPrefixOf, lookup, partition, stripPrefix)
 import Data.Monoid (First (..))
 import Message
-  ( Id (..),
+  ( TargetId (..),
     Msg (..),
     Request (..),
     Response (..),
@@ -36,7 +36,7 @@ import System.IO (hFlush, hPutStrLn, stderr, stdout)
 
 data WorkerConfig = WorkerConfig
   { workerConfigSocket :: String,
-    workerConfigId :: Maybe Id,
+    workerConfigId :: Maybe TargetId,
     workerConfigClose :: Bool
   }
   deriving (Show)
@@ -51,7 +51,7 @@ getWorkerConfig args = do
       willClose = any ("--worker-close" `isPrefixOf`) args
   pure WorkerConfig
     { workerConfigSocket = socket,
-      workerConfigId = Id <$> mid,
+      workerConfigId = TargetId <$> mid,
       workerConfigClose = willClose
     }
 
@@ -74,7 +74,7 @@ main = do
       env <- getEnvironment
       process sockPath mid willClose env ghcArgs
 
-process :: FilePath -> Maybe Id -> Bool -> [(String, String)] -> [String] -> IO ()
+process :: FilePath -> Maybe TargetId -> Bool -> [(String, String)] -> [String] -> IO ()
 process socketPath mid willClose env args = runClient socketPath $ \s -> do
   let req = Request
         { requestWorkerId = mid,

@@ -9,7 +9,7 @@ import qualified Control.Exception as E
 import Control.Monad (forever, replicateM_, void, when)
 import Control.Monad.Extra (untilJustM)
 import qualified Data.IntMap as IM
-import Message (Id, Request (..), Response (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
+import Message (TargetId, Request (..), Response (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
 import Options.Applicative (Parser, (<**>))
 import qualified Options.Applicative as OA
@@ -107,7 +107,7 @@ work (i, hset) req = do
   putStrLn $ "worker " ++ show i ++ " returns: " ++ show results
   pure res
 
-assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe Id -> IO (Int, HandleSet)
+assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe TargetId -> IO (Int, HandleSet)
 assignLoop ghcPath dbPaths ref mid = untilJustM $ do
   eassigned <- atomically $ assignJob ref mid
   case eassigned of
@@ -121,7 +121,7 @@ serve :: FilePath -> [FilePath] -> TVar Pool -> Socket -> IO ()
 serve ghcPath dbPaths ref s = do
   !msg <- recvMsg s
   let req :: Request = unwrapMsg msg
-      mid = requestWorkerId req
+      mid = requestWorkerTargetId req
   (i, hset) <- assignLoop ghcPath dbPaths ref mid
   res <- work (i, hset) req
   atomically $ finishJob ref i

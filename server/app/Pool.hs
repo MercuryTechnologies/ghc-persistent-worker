@@ -12,10 +12,10 @@ module Pool
 import Control.Concurrent.STM (STM, TVar, atomically, readTVar, retry, writeTVar)
 import Control.Exception (mask)
 import qualified Data.Foldable as F
-import Data.IntMap (IntMap)
+import Data.IntMap (IntMap, Key)
 import qualified Data.IntMap as IM
 import qualified Data.List as List
-import Message (Id)
+import Message (TargetId)
 import System.IO (Handle, hFlush, hPrint, hPutStrLn, stdout)
 import System.Process (ProcessHandle, terminateProcess)
 
@@ -28,7 +28,7 @@ data HandleSet = HandleSet
 data Pool = Pool
   { poolLimit :: Int,
     poolNext :: Int,
-    poolStatus :: IntMap (Bool, Maybe Id),
+    poolStatus :: IntMap (Bool, Maybe TargetId),
     poolHandles :: [(Int, HandleSet)]
   }
 
@@ -39,7 +39,7 @@ dumpStatus ref = do
   mapM_ (hPrint stdout) $ IM.toAscList (poolStatus pool)
   hFlush stdout
 
-getAssignableWorker :: IntMap (Bool, Maybe Id) -> Maybe Id -> Maybe (Int, (Bool, Maybe Id))
+getAssignableWorker :: IntMap (Bool, Maybe TargetId) -> Maybe TargetId -> Maybe (Key, (Bool, Maybe TargetId))
 getAssignableWorker workers mid' = List.find (isAssignable . snd) . IM.toAscList $ workers
   where
     isAssignable (b, mid)
@@ -51,7 +51,7 @@ getAssignableWorker workers mid' = List.find (isAssignable . snd) . IM.toAscList
 
 assignJob ::
   TVar Pool ->
-  Maybe Id ->
+  Maybe TargetId ->
   -- | Right assigned, Left new id that will be used for new spawned worker process.
   STM (Either Int (Int, HandleSet))
 assignJob ref mid' = do
@@ -79,7 +79,7 @@ finishJob ref i = do
       !workers' = IM.update (\(_, m)  -> Just (False, m)) i workers
   writeTVar ref (pool {poolStatus = workers'})
 
-removeWorker :: TVar Pool -> Id -> IO ()
+removeWorker :: TVar Pool -> TargetId -> IO ()
 removeWorker ref id' = mask $ \_restore -> do
   dismissedHandles <-
     atomically $ do
