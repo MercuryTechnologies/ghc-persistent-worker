@@ -10,6 +10,7 @@ module Pool
 ) where
 
 import Control.Concurrent.STM (STM, TVar, atomically, readTVar, retry, writeTVar)
+import Control.Exception (mask)
 import qualified Data.Foldable as F
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IM
@@ -79,7 +80,7 @@ finishJob ref i = do
   writeTVar ref (pool {poolStatus = workers'})
 
 removeWorker :: TVar Pool -> Id -> IO ()
-removeWorker ref id' = do
+removeWorker ref id' = mask $ \_restore -> do
   dismissedHandles <-
     atomically $ do
       pool <- readTVar ref
@@ -89,6 +90,5 @@ removeWorker ref id' = do
           (dismissedHandles, remainedHandles) = List.partition ((`elem` ks) . fst) $ poolHandles pool
       writeTVar ref (pool {poolStatus = remained, poolHandles = remainedHandles})
       pure (fmap (handleProcess . snd) dismissedHandles)
-
   mapM_ terminateProcess dismissedHandles
-      -- atomically $ removeWorker ref id'
+
