@@ -18,12 +18,12 @@ import System.IO (Handle, hFlush, hGetLine, hPutStrLn)
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
 
 runServer :: FilePath -> (Socket -> IO a) -> IO a
-runServer fp server = do
+runServer socketFile server = do
   putStrLn "Start serving"
-  withSocketsDo $ E.bracket (open fp) close loop
+  withSocketsDo $ E.bracket (open socketFile) close loop
   where
-    open f = E.bracketOnError (socket AF_UNIX Stream 0) close $ \sock -> do
-        bind sock (SockAddrUnix f)
+    open fp = E.bracketOnError (socket AF_UNIX Stream 0) close $ \sock -> do
+        bind sock (SockAddrUnix fp)
         listen sock 1024
         return sock
     loop sock = forever $ E.bracketOnError (accept sock) (close . fst)
