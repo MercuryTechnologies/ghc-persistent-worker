@@ -1,14 +1,14 @@
 module Worker (work) where
 
 import Control.Concurrent (forkIO)
-import Control.Concurrent.STM (TVar, atomically, newTChanIO, readTChan, writeTChan)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar, newTChan, readTChan, writeTChan, readTVar, writeTVar)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader (ReaderT, ask)
-import Pool (HandleSet (..), JobId, Pool, WorkerId, finishJob)
+import Pool (HandleSet (..), JobId, JobStatus (..), Pool, WorkerId, finishJob)
 import Message (Request (..), Response (..))
 import System.IO (Handle, hFlush, hGetLine, hPutStrLn)
 
-type JobM = ReaderT (JobId, WorkerId, HandleSet, TVar Pool) IO
+type JobM = ReaderT (JobId, WorkerId, HandleSet, TVar Pool, TVar JobStatus) IO
 
 fetchUntil :: String -> Handle -> IO [String]
 fetchUntil delim h = do
@@ -23,7 +23,7 @@ fetchUntil delim h = do
 
 work :: Request -> JobM Response
 work req = do
-  (j, i, hset, ref) <- ask
+  (j, i, hset, poolRef, jobStatusRef) <- ask
   let env = requestEnv req
       args = requestArgs req
   let hi = handleArgIn hset
@@ -32,7 +32,11 @@ work req = do
   liftIO $ do
     hPutStrLn hi (show (env, args))
     hFlush hi
-  chan <- liftIO newTChanIO
+  chan <- liftIO $ atomically $ do
+    c <- newTChan
+    JobStatus lst <- readTVar jobStatusRef
+    writeTVar jobStatusRef (JobStatus ((j, c) : lst))
+    pure c
   _ <- liftIO $ forkIO $ do
     -- get stdout until delimiter
     console_stdout <- fetchUntil "*S*T*D*O*U*T*" ho
@@ -46,7 +50,10 @@ work req = do
 
   res@(Response results _ _) <- liftIO $ atomically $ do
     r <- readTChan chan
-    finishJob ref i
+    finishJob poolRef i
+    modifyTVar jobStatusRef $ \(JobStatus lst) ->
+      let lst' = filter ((j /=) . fst) lst
+       in JobStatus lst'
     pure r
 
   liftIO $ putStrLn $ "worker " ++ show i ++ " returns: " ++ show results

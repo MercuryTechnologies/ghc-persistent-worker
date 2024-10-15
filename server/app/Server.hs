@@ -26,6 +26,7 @@ import Network.Socket
 import Pool
   ( HandleSet (..),
     JobId (..),
+    JobStatus (..),
     Pool (..),
     WorkerId,
     assignJob,
@@ -101,18 +102,18 @@ assignLoop ghcPath dbPaths ref mid = untilJustM $ do
       putStrLn $ "Job assigned with ID: " ++ show j
       pure (Just (j, i, hset))
 
-serve :: FilePath -> [FilePath] -> TVar Pool -> Socket -> IO ()
-serve ghcPath dbPaths ref s = do
+serve :: FilePath -> [FilePath] -> (TVar Pool, TVar JobStatus) -> Socket -> IO ()
+serve ghcPath dbPaths (poolRef, jobStatusRef) s = do
   !msg <- recvMsg s
   let req :: Request = unwrapMsg msg
       mid = requestWorkerTargetId req
-  (j, i, hset) <- assignLoop ghcPath dbPaths ref mid
+  (j, i, hset) <- assignLoop ghcPath dbPaths poolRef mid
   
-  res <- runReaderT (work req) (j, i, hset, ref)
+  res <- runReaderT (work req) (j, i, hset, poolRef, jobStatusRef)
   sendMsg s (wrapMsg res)
   when (requestWorkerClose req) $
     case mid of
       Nothing -> pure ()
-      Just id' -> removeWorker ref id'
-  dumpStatus ref
-  serve ghcPath dbPaths ref s
+      Just id' -> removeWorker poolRef id'
+  dumpStatus poolRef
+  serve ghcPath dbPaths (poolRef, jobStatusRef) s

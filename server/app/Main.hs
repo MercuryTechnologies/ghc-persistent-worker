@@ -5,7 +5,7 @@ import Control.Monad (replicateM_)
 import qualified Data.IntMap as IM
 import Options.Applicative (Parser, (<**>))
 import qualified Options.Applicative as OA
-import Pool (Pool (..))
+import Pool (JobStatus (..), Pool (..))
 import Server (runServer, serve, spawnWorker)
 
 -- cli args
@@ -48,7 +48,9 @@ main = do
           poolStatus = IM.empty,
           poolHandles = []
         }
+      theJobStatus = JobStatus []
 
-  ref <- newTVarIO thePool
-  replicateM_ n $ spawnWorker ghcPath dbPaths ref
-  runServer socketPath (serve ghcPath dbPaths ref)
+  poolRef <- newTVarIO thePool
+  jobStatusRef <- newTVarIO theJobStatus
+  replicateM_ n $ spawnWorker ghcPath dbPaths poolRef
+  runServer socketPath (serve ghcPath dbPaths (poolRef, jobStatusRef))

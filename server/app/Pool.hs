@@ -5,6 +5,7 @@ module Pool
   JobId (..),
   HandleSet (..),
   Pool (..),
+  JobStatus (..),
   newWorkerId,
   newJobId,
   dumpStatus,
@@ -13,13 +14,13 @@ module Pool
   removeWorker,
 ) where
 
-import Control.Concurrent.STM (STM, TVar, atomically, readTVar, retry, writeTVar)
+import Control.Concurrent.STM (STM, TChan, TVar, atomically, readTVar, retry, writeTVar)
 import Control.Exception (mask)
 import qualified Data.Foldable as F
 import Data.IntMap (IntMap, Key)
 import qualified Data.IntMap as IM
 import qualified Data.List as List
-import Message (TargetId)
+import Message (Response, TargetId)
 import System.IO (Handle, hFlush, hPrint, hPutStrLn, stdout)
 import System.Process (ProcessHandle, terminateProcess)
 
@@ -41,6 +42,10 @@ data Pool = Pool
     poolNewJobId :: JobId,
     poolStatus :: WorkerStatus,
     poolHandles :: [(WorkerId, HandleSet)]
+  }
+
+data JobStatus = JobStatus
+  { jobStatusChan :: [(JobId, TChan Response)]
   }
 
 newWorkerId :: TVar Pool -> STM WorkerId
