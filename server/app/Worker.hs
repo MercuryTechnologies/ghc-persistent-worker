@@ -56,6 +56,19 @@ addJobChan poolRef wid jid = do
       writeTVar poolRef pool {poolHandles = hsets'}
       pure (chan, hset')
 
+removeJobChan :: TVar Pool -> WorkerId -> JobId -> STM ()
+removeJobChan poolRef wid jid =
+  modifyTVar poolRef $ \pool ->
+    let hsets = poolHandles pool
+     in case L.lookup wid hsets of
+       Nothing -> pool
+       Just hset ->
+         let Mailbox lst = handleMailbox hset
+             lst' = filter ((jid /=) . fst) lst
+             hset' = hset {handleMailbox = Mailbox lst'}
+             hsets' = (wid, hset') : (filter ((/= wid) . fst) hsets)
+          in pool {poolHandles = hsets'}
+
 work :: Request -> JobM Response
 work req = do
   (jid, wid, hset, poolRef) <- ask
@@ -82,9 +95,7 @@ work req = do
   res@(Response results _ _) <- liftIO $ atomically $ do
     r <- readTChan chan
     finishJob poolRef wid
-    -- modifyTVar mailboxRef $ \(Mailbox lst) ->
-    --   let lst' = filter ((j /=) . fst) lst
-    --    in Mailbox lst'
+    removeJobChan poolRef wid jid
     pure r
 
   liftIO $ putStrLn $ "worker " ++ show wid ++ " returns: " ++ show results
