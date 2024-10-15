@@ -44,6 +44,7 @@ main = do
   let thePool = Pool
         { poolLimit = n,
           poolNewWorkerId = 1,
+          poolNewJobId = 1,
           poolStatus = IM.empty,
           poolHandles = []
         }

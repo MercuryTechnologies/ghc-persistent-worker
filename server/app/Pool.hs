@@ -2,9 +2,11 @@
 
 module Pool
 ( WorkerId,
+  JobId (..),
   HandleSet (..),
   Pool (..),
-  issueNewWorkerId,
+  newWorkerId,
+  newJobId,
   dumpStatus,
   assignJob,
   finishJob,
@@ -24,7 +26,8 @@ import System.Process (ProcessHandle, terminateProcess)
 type WorkerStatus = IntMap (Bool, Maybe TargetId)
 type WorkerId = Key
 
--- newtype JobId = JobId Int
+newtype JobId = JobId Int
+  deriving (Eq, Num, Ord, Show)
 
 data HandleSet = HandleSet
   { handleProcess :: ProcessHandle,
@@ -35,16 +38,24 @@ data HandleSet = HandleSet
 data Pool = Pool
   { poolLimit :: Int,
     poolNewWorkerId :: WorkerId,
+    poolNewJobId :: JobId,
     poolStatus :: WorkerStatus,
     poolHandles :: [(WorkerId, HandleSet)]
   }
 
-issueNewWorkerId :: TVar Pool -> STM WorkerId
-issueNewWorkerId ref = do
+newWorkerId :: TVar Pool -> STM WorkerId
+newWorkerId ref = do
   pool <- readTVar ref
   let i = poolNewWorkerId pool
   writeTVar ref (pool {poolNewWorkerId = i + 1})
   pure i
+
+newJobId :: TVar Pool -> STM JobId
+newJobId ref = do
+  pool <- readTVar ref
+  let JobId i = poolNewJobId pool
+  writeTVar ref (pool {poolNewJobId = JobId (i + 1)})
+  pure (JobId i)
 
 dumpStatus :: TVar Pool -> IO ()
 dumpStatus ref = do
@@ -70,7 +81,7 @@ assignJob ::
   TVar Pool ->
   Maybe TargetId ->
   -- | Right assigned, Left new id that will be used for new spawned worker process.
-  STM (Either Int (WorkerId, HandleSet))
+  STM (Either Int (JobId, WorkerId, HandleSet))
 assignJob ref mid' = do
   pool <- readTVar ref
   let workers = poolStatus pool
@@ -81,13 +92,14 @@ assignJob ref mid' = do
       if (nRunningJobs >= poolLimit pool)
         then retry
         else pure (Left nRunningJobs)
-    Just (i, _) -> do
+    Just (wid, _) -> do
       let upd (_, Nothing) = Just (True, mid')
           upd (_, Just id'') = Just (True, Just id'')
-          !workers' = IM.update upd i workers
-          Just hset = List.lookup i (poolHandles pool)
+          !workers' = IM.update upd wid workers
+          Just hset = List.lookup wid (poolHandles pool)
       writeTVar ref (pool {poolStatus = workers'})
-      pure $ Right (i, hset)
+      jid <- newJobId ref
+      pure $ Right (jid, wid, hset)
 
 finishJob :: TVar Pool -> WorkerId -> STM ()
 finishJob ref i = do
@@ -108,4 +120,3 @@ removeWorker ref id' = mask $ \_restore -> do
       writeTVar ref (pool {poolStatus = remained, poolHandles = remainedHandles})
       pure (fmap (handleProcess . snd) dismissedHandles)
   mapM_ terminateProcess dismissedHandles
-

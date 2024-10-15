@@ -23,7 +23,16 @@ import Network.Socket
     socket,
     withSocketsDo,
   )
-import Pool (HandleSet (..), Pool (..), WorkerId, assignJob, dumpStatus, finishJob, issueNewWorkerId, removeWorker)
+import Pool
+  ( HandleSet (..),
+    JobId (..),
+    Pool (..),
+    WorkerId,
+    assignJob,
+    dumpStatus,
+    newWorkerId,
+    removeWorker,
+  )
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
 import Worker (work)
 
@@ -68,7 +77,7 @@ initWorker ghcPath dbPaths i = do
 
 spawnWorker :: FilePath -> [FilePath] -> TVar Pool -> IO (WorkerId, HandleSet)
 spawnWorker ghcPath dbPaths ref = do
-  i <- atomically $ issueNewWorkerId ref
+  i <- atomically $ newWorkerId ref
   hset <- initWorker ghcPath dbPaths i
   atomically $ do
     pool <- readTVar ref
@@ -80,7 +89,7 @@ spawnWorker ghcPath dbPaths ref = do
   pure (i, hset)
 
 
-assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe TargetId -> IO (WorkerId, HandleSet)
+assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe TargetId -> IO (JobId, WorkerId, HandleSet)
 assignLoop ghcPath dbPaths ref mid = untilJustM $ do
   eassigned <- atomically $ assignJob ref mid
   case eassigned of
@@ -88,17 +97,18 @@ assignLoop ghcPath dbPaths ref mid = untilJustM $ do
       putStrLn $ "currently " ++ show n ++ " jobs are running. I am spawning a worker."
       _ <- spawnWorker ghcPath dbPaths ref
       pure Nothing
-    Right (i, hset) -> pure (Just (i, hset))
+    Right (j, i, hset) -> do
+      putStrLn $ "Job assigned with ID: " ++ show j
+      pure (Just (j, i, hset))
 
 serve :: FilePath -> [FilePath] -> TVar Pool -> Socket -> IO ()
 serve ghcPath dbPaths ref s = do
   !msg <- recvMsg s
   let req :: Request = unwrapMsg msg
       mid = requestWorkerTargetId req
-  (i, hset) <- assignLoop ghcPath dbPaths ref mid
+  (j, i, hset) <- assignLoop ghcPath dbPaths ref mid
   
-  res <- runReaderT (work req) (i, hset)
-  atomically $ finishJob ref i
+  res <- runReaderT (work req) (j, i, hset, ref)
   sendMsg s (wrapMsg res)
   when (requestWorkerClose req) $
     case mid of
