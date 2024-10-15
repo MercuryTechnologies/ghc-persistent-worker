@@ -36,7 +36,7 @@ import System.IO (hFlush, hPutStrLn, stderr, stdout)
 
 data WorkerConfig = WorkerConfig
   { workerConfigSocket :: String,
-    workerConfigId :: Maybe TargetId,
+    workerConfigTargetId :: Maybe TargetId,
     workerConfigClose :: Bool
   }
   deriving (Show)
@@ -47,11 +47,11 @@ splitArgs = partition ("--worker-" `isPrefixOf`)
 getWorkerConfig :: [String] -> Maybe WorkerConfig
 getWorkerConfig args = do
   socket <- getFirst $ foldMap (First . stripPrefix "--worker-socket=") args
-  let mid = getFirst $ foldMap (First . stripPrefix "--worker-id=") args
+  let mid = getFirst $ foldMap (First . stripPrefix "--worker-target-id=") args
       willClose = any ("--worker-close" `isPrefixOf`) args
   pure WorkerConfig
     { workerConfigSocket = socket,
-      workerConfigId = TargetId <$> mid,
+      workerConfigTargetId = TargetId <$> mid,
       workerConfigClose = willClose
     }
 
@@ -69,7 +69,7 @@ main = do
       exitFailure
     Just conf -> do
       let sockPath = workerConfigSocket conf
-          mid = workerConfigId conf
+          mid = workerConfigTargetId conf
           willClose = workerConfigClose conf
       env <- getEnvironment
       process sockPath mid willClose env ghcArgs
