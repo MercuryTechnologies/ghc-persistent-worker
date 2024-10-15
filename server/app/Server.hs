@@ -26,7 +26,6 @@ import Network.Socket
 import Pool
   ( HandleSet (..),
     JobId (..),
-    JobStatus (..),
     Pool (..),
     WorkerId,
     assignJob,
@@ -35,7 +34,7 @@ import Pool
     removeWorker,
   )
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
-import Worker (work)
+import Worker (Mailbox (..), mailboxForWorker, work)
 
 runServer :: FilePath -> (Socket -> IO a) -> IO a
 runServer socketFile server = do
@@ -72,48 +71,50 @@ initWorker ghcPath dbPaths i = do
   let hset = HandleSet
         { handleProcess = ph,
           handleArgIn = hstdin,
-          handleMsgOut = hstdout
+          handleMsgOut = hstdout,
+          handleMailbox = Mailbox []
         }
   pure hset
 
 spawnWorker :: FilePath -> [FilePath] -> TVar Pool -> IO (WorkerId, HandleSet)
-spawnWorker ghcPath dbPaths ref = do
-  i <- atomically $ newWorkerId ref
+spawnWorker ghcPath dbPaths poolRef = do
+  i <- atomically $ newWorkerId poolRef
   hset <- initWorker ghcPath dbPaths i
   atomically $ do
-    pool <- readTVar ref
+    pool <- readTVar poolRef
     let s = poolStatus pool
         s' = IM.insert i (False, Nothing) s
         ihsets = poolHandles pool
         ihsets' = (i, hset) : ihsets
-    writeTVar ref (pool {poolStatus = s', poolHandles = ihsets'})
+    writeTVar poolRef (pool {poolStatus = s', poolHandles = ihsets'})
+  mailboxForWorker poolRef
   pure (i, hset)
 
 
 assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe TargetId -> IO (JobId, WorkerId, HandleSet)
-assignLoop ghcPath dbPaths ref mid = untilJustM $ do
-  eassigned <- atomically $ assignJob ref mid
+assignLoop ghcPath dbPaths poolRef mid = untilJustM $ do
+  eassigned <- atomically $ assignJob poolRef mid
   case eassigned of
     Left n -> do
       putStrLn $ "currently " ++ show n ++ " jobs are running. I am spawning a worker."
-      _ <- spawnWorker ghcPath dbPaths ref
+      _ <- spawnWorker ghcPath dbPaths poolRef
       pure Nothing
     Right (j, i, hset) -> do
       putStrLn $ "Job assigned with ID: " ++ show j
       pure (Just (j, i, hset))
 
-serve :: FilePath -> [FilePath] -> (TVar Pool, TVar JobStatus) -> Socket -> IO ()
-serve ghcPath dbPaths (poolRef, jobStatusRef) s = do
+serve :: FilePath -> [FilePath] -> TVar Pool -> Socket -> IO ()
+serve ghcPath dbPaths poolRef s = do
   !msg <- recvMsg s
   let req :: Request = unwrapMsg msg
       mid = requestWorkerTargetId req
   (j, i, hset) <- assignLoop ghcPath dbPaths poolRef mid
   
-  res <- runReaderT (work req) (j, i, hset, poolRef, jobStatusRef)
+  res <- runReaderT (work req) (j, i, hset, poolRef)
   sendMsg s (wrapMsg res)
   when (requestWorkerClose req) $
     case mid of
       Nothing -> pure ()
       Just id' -> removeWorker poolRef id'
   dumpStatus poolRef
-  serve ghcPath dbPaths (poolRef, jobStatusRef) s
+  serve ghcPath dbPaths poolRef s

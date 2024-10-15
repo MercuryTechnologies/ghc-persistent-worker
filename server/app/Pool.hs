@@ -3,9 +3,9 @@
 module Pool
 ( WorkerId,
   JobId (..),
+  Mailbox (..),
   HandleSet (..),
   Pool (..),
-  JobStatus (..),
   newWorkerId,
   newJobId,
   dumpStatus,
@@ -30,10 +30,16 @@ type WorkerId = Key
 newtype JobId = JobId Int
   deriving (Eq, Num, Ord, Show)
 
+data Mailbox = Mailbox
+  { mailboxJobChan :: [(JobId, TChan Response)]
+  }
+
 data HandleSet = HandleSet
   { handleProcess :: ProcessHandle,
     handleArgIn :: Handle,
-    handleMsgOut :: Handle
+    handleMsgOut :: Handle,
+    handleMailbox :: Mailbox
+
   }
 
 data Pool = Pool
@@ -42,10 +48,6 @@ data Pool = Pool
     poolNewJobId :: JobId,
     poolStatus :: WorkerStatus,
     poolHandles :: [(WorkerId, HandleSet)]
-  }
-
-data JobStatus = JobStatus
-  { jobStatusChan :: [(JobId, TChan Response)]
   }
 
 newWorkerId :: TVar Pool -> STM WorkerId
@@ -87,8 +89,8 @@ assignJob ::
   Maybe TargetId ->
   -- | Right assigned, Left new id that will be used for new spawned worker process.
   STM (Either Int (JobId, WorkerId, HandleSet))
-assignJob ref mid' = do
-  pool <- readTVar ref
+assignJob poolRef mid' = do
+  pool <- readTVar poolRef
   let workers = poolStatus pool
   let m = getAssignableWorker workers mid'
   case m of
@@ -102,8 +104,8 @@ assignJob ref mid' = do
           upd (_, Just id'') = Just (True, Just id'')
           !workers' = IM.update upd wid workers
           Just hset = List.lookup wid (poolHandles pool)
-      writeTVar ref (pool {poolStatus = workers'})
-      jid <- newJobId ref
+      writeTVar poolRef (pool {poolStatus = workers'})
+      jid <- newJobId poolRef
       pure $ Right (jid, wid, hset)
 
 finishJob :: TVar Pool -> WorkerId -> STM ()
