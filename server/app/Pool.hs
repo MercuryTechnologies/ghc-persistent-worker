@@ -4,6 +4,7 @@ module Pool
 ( WorkerId,
   HandleSet (..),
   Pool (..),
+  issueNewWorkerId,
   dumpStatus,
   assignJob,
   finishJob,
@@ -23,6 +24,8 @@ import System.Process (ProcessHandle, terminateProcess)
 type WorkerStatus = IntMap (Bool, Maybe TargetId)
 type WorkerId = Key
 
+-- newtype JobId = JobId Int
+
 data HandleSet = HandleSet
   { handleProcess :: ProcessHandle,
     handleArgIn :: Handle,
@@ -31,10 +34,17 @@ data HandleSet = HandleSet
 
 data Pool = Pool
   { poolLimit :: Int,
-    poolNext :: WorkerId,
+    poolNewWorkerId :: WorkerId,
     poolStatus :: WorkerStatus,
     poolHandles :: [(WorkerId, HandleSet)]
   }
+
+issueNewWorkerId :: TVar Pool -> STM WorkerId
+issueNewWorkerId ref = do
+  pool <- readTVar ref
+  let i = poolNewWorkerId pool
+  writeTVar ref (pool {poolNewWorkerId = i + 1})
+  pure i
 
 dumpStatus :: TVar Pool -> IO ()
 dumpStatus ref = do

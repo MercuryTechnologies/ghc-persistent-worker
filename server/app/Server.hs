@@ -23,7 +23,7 @@ import Network.Socket
     socket,
     withSocketsDo,
   )
-import Pool (HandleSet (..), Pool (..), WorkerId, assignJob, dumpStatus, finishJob, removeWorker)
+import Pool (HandleSet (..), Pool (..), WorkerId, assignJob, dumpStatus, finishJob, issueNewWorkerId, removeWorker)
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
 import Worker (work)
 
@@ -68,11 +68,7 @@ initWorker ghcPath dbPaths i = do
 
 spawnWorker :: FilePath -> [FilePath] -> TVar Pool -> IO (WorkerId, HandleSet)
 spawnWorker ghcPath dbPaths ref = do
-  i <- atomically $ do
-    pool <- readTVar ref
-    let i = poolNext pool
-    writeTVar ref (pool {poolNext = i + 1})
-    pure i
+  i <- atomically $ issueNewWorkerId ref
   hset <- initWorker ghcPath dbPaths i
   atomically $ do
     pool <- readTVar ref

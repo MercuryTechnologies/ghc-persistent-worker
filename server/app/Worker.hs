@@ -8,7 +8,7 @@ import Pool (HandleSet (..), WorkerId)
 import Message (Request (..), Response (..))
 import System.IO (Handle, hFlush, hGetLine, hPutStrLn)
 
-type WorkInstance = ReaderT (WorkerId, HandleSet) IO
+type JobM = ReaderT (WorkerId, HandleSet) IO
 
 fetchUntil :: String -> Handle -> IO [String]
 fetchUntil delim h = do
@@ -21,7 +21,7 @@ fetchUntil delim h = do
         then pure acc
         else go (acc . (s:))
 
-work :: Request -> WorkInstance Response
+work :: Request -> JobM Response
 work req = do
   (i, hset) <- ask
   let env = requestEnv req

@@ -43,7 +43,7 @@ main = do
       dbPaths = optionPkgDbs opts
   let thePool = Pool
         { poolLimit = n,
-          poolNext = 1,
+          poolNewWorkerId = 1,
           poolStatus = IM.empty,
           poolHandles = []
         }
