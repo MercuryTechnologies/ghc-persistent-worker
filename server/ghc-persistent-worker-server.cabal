@@ -13,9 +13,10 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 
 executable Server
-    main-is:          Server.hs
+    main-is:          Main.hs
     ghc-options:      -Wall -Werror
     other-modules:    Pool
+                      Server
     hs-source-dirs:   app
     build-depends:    base >=4.19,
                       binary,

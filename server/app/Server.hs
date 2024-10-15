@@ -1,18 +1,28 @@
 {-# LANGUAGE NumericUnderscores #-}
 
-module Main where
+module Server where
 
 import Control.Concurrent (forkFinally, forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar)
+import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
 import qualified Control.Exception as E
-import Control.Monad (forever, replicateM_, void, when)
+import Control.Monad (forever, void, when)
 import Control.Monad.Extra (untilJustM)
 import qualified Data.IntMap as IM
 import Message (TargetId, Request (..), Response (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
-import Options.Applicative (Parser, (<**>))
-import qualified Options.Applicative as OA
+  ( Family (AF_UNIX),
+    SockAddr (..),
+    Socket,
+    SocketType (Stream),
+    accept,
+    bind,
+    close,
+    gracefulClose,
+    listen,
+    socket,
+    withSocketsDo,
+  )
 import Pool (HandleSet (..), Pool (..), WorkerId, assignJob, dumpStatus, finishJob, removeWorker)
 import System.IO (Handle, hFlush, hGetLine, hPutStrLn)
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
@@ -132,48 +142,3 @@ serve ghcPath dbPaths ref s = do
       Just id' -> removeWorker ref id'
   dumpStatus ref
   serve ghcPath dbPaths ref s
-
--- cli args
-
-data Option = Option
-  { optionNumWorkers :: Int,
-    optionGHC :: FilePath,
-    optionSocket :: FilePath,
-    optionPkgDbs :: [FilePath]
-  }
-
-p_option :: Parser Option
-p_option =
-  Option
-    <$> OA.option OA.auto
-        ( OA.long "num"
-            <> OA.short 'n'
-            <> OA.help "number of workers"
-        )
-    <*> OA.strOption
-        ( OA.long "ghc"
-            <> OA.help "GHC path"
-        )
-    <*> OA.strOption
-        ( OA.long "socket-file"
-            <> OA.help "UNIX socket file accepting compilation requests"
-        )
-    <*> OA.many (OA.strOption (OA.long "package-db" <> OA.help "Package DB Path"))
-
-main :: IO ()
-main = do
-  opts <- OA.execParser (OA.info (p_option <**> OA.helper) OA.fullDesc)
-  let n = optionNumWorkers opts
-      ghcPath = optionGHC opts
-      socketPath = optionSocket opts
-      dbPaths = optionPkgDbs opts
-  let thePool = Pool
-        { poolLimit = n,
-          poolNext = 1,
-          poolStatus = IM.empty,
-          poolHandles = []
-        }
-
-  ref <- newTVarIO thePool
-  replicateM_ n $ spawnWorker ghcPath dbPaths ref
-  runServer socketPath (serve ghcPath dbPaths ref)
