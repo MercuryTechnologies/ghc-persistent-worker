@@ -31,9 +31,9 @@ data HandleSet = HandleSet
 
 data Pool = Pool
   { poolLimit :: Int,
-    poolNext :: Int,
+    poolNext :: WorkerId,
     poolStatus :: WorkerStatus,
-    poolHandles :: [(Int, HandleSet)]
+    poolHandles :: [(WorkerId, HandleSet)]
   }
 
 dumpStatus :: TVar Pool -> IO ()

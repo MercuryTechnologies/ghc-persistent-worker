@@ -2,14 +2,14 @@
 
 module Server where
 
-import Control.Concurrent (forkFinally, forkIO)
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Concurrent (forkFinally)
 import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (forever, void, when)
 import Control.Monad.Extra (untilJustM)
+import Control.Monad.Trans.Reader (runReaderT)
 import qualified Data.IntMap as IM
-import Message (TargetId, Request (..), Response (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
+import Message (TargetId, Request (..), recvMsg, sendMsg, unwrapMsg, wrapMsg)
 import Network.Socket
   ( Family (AF_UNIX),
     SockAddr (..),
@@ -24,8 +24,8 @@ import Network.Socket
     withSocketsDo,
   )
 import Pool (HandleSet (..), Pool (..), WorkerId, assignJob, dumpStatus, finishJob, removeWorker)
-import System.IO (Handle, hFlush, hGetLine, hPutStrLn)
 import System.Process (CreateProcess (std_in, std_out), StdStream (CreatePipe), createProcess, proc)
+import Worker (work)
 
 runServer :: FilePath -> (Socket -> IO a) -> IO a
 runServer socketFile server = do
@@ -33,12 +33,12 @@ runServer socketFile server = do
   withSocketsDo $ E.bracket (open socketFile) close loop
   where
     open fp = E.bracketOnError (socket AF_UNIX Stream 0) close $ \sock -> do
-        bind sock (SockAddrUnix fp)
-        listen sock 1024
-        return sock
+      bind sock (SockAddrUnix fp)
+      listen sock 1024
+      return sock
     loop sock = forever $ E.bracketOnError (accept sock) (close . fst)
-        $ \(conn, _peer) -> void $
-            forkFinally (server conn) (const $ gracefulClose conn 5000)
+      $ \(conn, _peer) -> void $
+        forkFinally (server conn) (const $ gracefulClose conn 5000)
 
 initWorker :: FilePath -> [FilePath] -> WorkerId -> IO HandleSet
 initWorker ghcPath dbPaths i = do
@@ -83,39 +83,6 @@ spawnWorker ghcPath dbPaths ref = do
     writeTVar ref (pool {poolStatus = s', poolHandles = ihsets'})
   pure (i, hset)
 
-fetchUntil :: String -> Handle -> IO [String]
-fetchUntil delim h = do
-    f <- go id
-    pure (f [])
-  where
-    go acc = do
-      s <- hGetLine h
-      if s == delim
-        then pure acc
-        else go (acc . (s:))
-
-work :: (WorkerId, HandleSet) -> Request -> IO Response
-work (i, hset) req = do
-  let env = requestEnv req
-      args = requestArgs req
-  let hi = handleArgIn hset
-      ho = handleMsgOut hset
-  hPutStrLn hi (show (env, args))
-  hFlush hi
-  var <- newEmptyMVar
-  _ <- forkIO $ do
-    -- get stdout until delimiter
-    console_stdout <- fetchUntil "*S*T*D*O*U*T*" ho
-    -- get result metatdata until delimiter
-    results <- fetchUntil "*R*E*S*U*L*T*" ho
-    -- get stderr until delimiter
-    console_stderr <- fetchUntil "*D*E*L*I*M*I*T*E*D*" ho
-    let res = Response results console_stdout console_stderr
-    putMVar var res
-
-  res@(Response results _ _) <- takeMVar var
-  putStrLn $ "worker " ++ show i ++ " returns: " ++ show results
-  pure res
 
 assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe TargetId -> IO (WorkerId, HandleSet)
 assignLoop ghcPath dbPaths ref mid = untilJustM $ do
@@ -133,7 +100,8 @@ serve ghcPath dbPaths ref s = do
   let req :: Request = unwrapMsg msg
       mid = requestWorkerTargetId req
   (i, hset) <- assignLoop ghcPath dbPaths ref mid
-  res <- work (i, hset) req
+  
+  res <- runReaderT (work req) (i, hset)
   atomically $ finishJob ref i
   sendMsg s (wrapMsg res)
   when (requestWorkerClose req) $
