@@ -144,15 +144,13 @@ withTempLogger session wid jobid action = do
 
 loopShot :: Interp -> NameCache -> Handle -> MVar Handle -> Int -> Ghc ()
 loopShot interp nc hin chanOut wid = do
+  (jobid, env, args) <- liftIO $ recvRequestFromServer hin wid
   modifySession $ \env ->
     env
       { hsc_interp = Just interp,
-        -- hsc_unit_env = unit_env,
         hsc_NC = nc
       }
-  lock2 <- liftIO $ newEmptyMVar
   reifyGhc $ \session -> void $ forkOS $ do
-    (jobid, env, args) <- recvRequestFromServer hin wid
     setEnvForJob env
     --
     bannerJobStart wid
@@ -162,11 +160,7 @@ loopShot interp nc hin chanOut wid = do
     -- TODO: will have more useful info
     let result = "DUMMY RESULT"
     sendResultToServer chanOut jobid result bs
-    putMVar lock2 ()
-  liftIO $ takeMVar lock2
-  GHC.initGhcMonad Nothing
-  liftIO $ putMVar lock2 ()
-
+    reflectGhc (GHC.initGhcMonad Nothing) session
 
 workerMain :: [String] -> Ghc ()
 workerMain flags = do
