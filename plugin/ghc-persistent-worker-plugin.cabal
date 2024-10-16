@@ -24,11 +24,13 @@ library
     if (impl(ghc > 9.11))
         hs-source-dirs: src-ghcHEAD
         other-modules:  GHC.Main
+                        Logger
         build-depends: base ^>=4.20,
 
     if (impl(ghc >= 9.8) && impl(ghc < 9.9))
         hs-source-dirs: src-ghc98
         other-modules:  GHC.Main
+                        Logger
         build-depends: base ^>=4.19,
 
     build-depends:    binary,

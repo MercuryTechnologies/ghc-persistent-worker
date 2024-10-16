@@ -47,7 +47,7 @@ mailboxForWorker poolRef wid hout = void (forkIO $ forever go)
     blockUntilActive = do
       pool <- readTVar poolRef
       case fst <$> IM.lookup wid (poolStatus pool) of
-        Just True -> pure ()
+        Just n | n > 0 -> pure ()
         _ -> retry
     sendResult jobid res = do
       pool <- readTVar poolRef

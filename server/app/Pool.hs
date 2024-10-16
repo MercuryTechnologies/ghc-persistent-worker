@@ -24,7 +24,7 @@ import Message (Response, TargetId)
 import System.IO (Handle, hFlush, hPrint, hPutStrLn, stdout)
 import System.Process (ProcessHandle, terminateProcess)
 
-type WorkerStatus = IntMap (Bool, Maybe TargetId)
+type WorkerStatus = IntMap (Int, Maybe TargetId)
 type WorkerId = Key
 
 newtype JobId = JobId Int
@@ -72,13 +72,13 @@ dumpStatus ref = do
   hFlush stdout
 
 getAssignableWorker ::
-  IntMap (Bool, Maybe TargetId) ->
+  IntMap (Int, Maybe TargetId) ->
   Maybe TargetId ->
-  Maybe (WorkerId, (Bool, Maybe TargetId))
+  Maybe (WorkerId, (Int, Maybe TargetId))
 getAssignableWorker workers mid' = List.find (isAssignable . snd) . IM.toAscList $ workers
   where
-    isAssignable (b, mid)
-      | not b = case (mid, mid') of
+    isAssignable (numActive, mid)
+      | numActive == 0 = case (mid, mid') of
                   (Nothing, _) -> True
                   (Just _, Nothing) -> True
                   (Just id'', Just id') -> id' == id''
@@ -95,13 +95,13 @@ assignJob poolRef mid' = do
   let m = getAssignableWorker workers mid'
   case m of
     Nothing -> do
-      let nRunningJobs = length $ filter (\(b, _) -> b) $ F.toList workers
+      let nRunningJobs = length $ filter (\(n, _) -> n > 0) $ F.toList workers
       if (nRunningJobs >= poolLimit pool)
         then retry
         else pure (Left nRunningJobs)
     Just (wid, _) -> do
-      let upd (_, Nothing) = Just (True, mid')
-          upd (_, Just id'') = Just (True, Just id'')
+      let upd (_, Nothing) = Just (1, mid')
+          upd (_, Just id'') = Just (1, Just id'')
           !workers' = IM.update upd wid workers
           Just hset = List.lookup wid (poolHandles pool)
       writeTVar poolRef (pool {poolStatus = workers'})
@@ -112,7 +112,7 @@ finishJob :: TVar Pool -> WorkerId -> STM ()
 finishJob ref i = do
   pool <- readTVar ref
   let workers = poolStatus pool
-      !workers' = IM.update (\(_, m)  -> Just (False, m)) i workers
+      !workers' = IM.update (\(_, m)  -> Just (0, m)) i workers
   writeTVar ref (pool {poolStatus = workers'})
 
 removeWorker :: TVar Pool -> TargetId -> IO ()
