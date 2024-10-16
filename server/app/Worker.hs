@@ -22,6 +22,7 @@ import Control.Concurrent.STM
 import Control.Monad (forever, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader (ReaderT, ask)
+import qualified Data.IntMap as IM
 import qualified Data.List as L
 import Pool (HandleSet (..), JobId (..), Mailbox (..), Pool (..), WorkerId, finishJob)
 import Message (Request (..), Response (..))
@@ -43,9 +44,24 @@ fetchUntil delim h = do
 mailboxForWorker :: TVar Pool -> WorkerId -> Handle -> IO ()
 mailboxForWorker poolRef wid hout = void (forkIO $ forever go)
   where
+    blockUntilActive = do
+      pool <- readTVar poolRef
+      case fst <$> IM.lookup wid (poolStatus pool) of
+        Just True -> pure ()
+        _ -> retry
+    sendResult jobid res = do
+      pool <- readTVar poolRef
+      let hsets = poolHandles pool
+      case L.lookup wid hsets of
+        Nothing -> retry
+        Just hset -> do
+          let Mailbox lst = handleMailbox hset
+          case L.lookup (JobId jobid) lst of
+            Nothing -> retry
+            Just chan -> writeTChan chan res
     go = do
+      atomically blockUntilActive
       jobid <- read . unlines <$> fetchUntil "*J*O*B*I*D*" hout
-      print jobid
       -- get stdout until delimiter
       console_stdout <- fetchUntil "*S*T*D*O*U*T*" hout
       -- get result metatdata until delimiter
@@ -53,16 +69,7 @@ mailboxForWorker poolRef wid hout = void (forkIO $ forever go)
       -- get stderr until delimiter
       console_stderr <- fetchUntil "*D*E*L*I*M*I*T*E*D*" hout
       let res = Response results console_stdout console_stderr
-      atomically $ do
-        pool <- readTVar poolRef
-        let hsets = poolHandles pool
-        case L.lookup wid hsets of
-          Nothing -> retry
-          Just hset -> do
-            let Mailbox lst = handleMailbox hset
-            case L.lookup (JobId jobid) lst of
-              Nothing -> retry
-              Just chan -> writeTChan chan res
+      atomically $ sendResult jobid res
 
 addJobChan :: TVar Pool -> WorkerId -> JobId -> STM (TChan Response, HandleSet)
 addJobChan poolRef wid jid = do
