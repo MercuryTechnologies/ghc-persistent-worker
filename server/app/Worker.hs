@@ -61,6 +61,7 @@ mailboxForWorker poolRef wid hout = void (forkIO $ forever go)
             Just chan -> writeTChan chan res
     go = do
       atomically blockUntilActive
+      _ <- fetchUntil "*S*T*A*R*T*" hout
       jobid <- read . unlines <$> fetchUntil "*J*O*B*I*D*" hout
       -- get stdout until delimiter
       console_stdout <- fetchUntil "*S*T*D*O*U*T*" hout
