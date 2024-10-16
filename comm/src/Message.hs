@@ -8,7 +8,7 @@ module Message
     wrapMsg,
     unwrapMsg,
     --
-    Id (..),
+    TargetId (..),
     Request (..),
     Response (..),
   ) where
@@ -77,11 +77,11 @@ wrapMsg x =
 unwrapMsg :: (Binary a) => Msg -> a
 unwrapMsg (Msg _n bs) = decode (L.fromStrict bs)
 
-newtype Id = Id String
+newtype TargetId = TargetId String
   deriving (Show, Eq, Binary)
 
 data Request = Request
-  { requestWorkerId :: Maybe Id,
+  { requestWorkerTargetId :: Maybe TargetId,
     requestWorkerClose :: Bool,
     requestEnv :: [(String, String)],
     requestArgs :: [String]

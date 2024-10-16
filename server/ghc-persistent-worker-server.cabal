@@ -13,9 +13,11 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 
 executable Server
-    main-is:          Server.hs
+    main-is:          Main.hs
     ghc-options:      -Wall -Werror
     other-modules:    Pool
+                      Server
+                      Worker
     hs-source-dirs:   app
     build-depends:    base >=4.19,
                       binary,
@@ -29,5 +31,6 @@ executable Server
                       optparse-applicative,
                       process,
                       stm,
+                      transformers,
                       unix
     default-language: GHC2021

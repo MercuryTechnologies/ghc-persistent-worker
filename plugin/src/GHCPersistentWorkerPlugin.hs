@@ -49,24 +49,31 @@ workerMain flags = do
     hSetBuffering stdout LineBuffering
     hSetBuffering stderr LineBuffering
 
-  let n :: Int = read (flags !! 0)
-      prompt = "[Worker:" ++ show n ++ "]"
+  let wid :: Int = read (flags !! 0)
+      prompt = "[Worker:" ++ show wid ++ "]"
+
   let (hin, hout) = (stdin, stdout)
   logMessage (prompt ++ " Started")
   GHC.initGhcMonad Nothing
   forever $ do
     s <- liftIO $ hGetLine hin
-    let (env, args) :: ([(String, String)], [String]) = read s
+    let (env, args0) :: ([(String, String)], [String]) = read s
+    let jid_str : args = args0
+        jid :: Int
+        jid = read jid_str
     for_ (lookup "PWD" env) $ \pwd -> liftIO $
       setCurrentDirectory pwd
     for_ env $ \(var, val) -> liftIO $
       setEnv var val
+    logMessage (prompt ++ " job id = " ++ show jid)
+    liftIO $ hPutStrLn hout (show jid)
+    liftIO $ hPutStrLn hout "*J*O*B*I*D*"
     logMessage (prompt ++ " Got args: " ++ intercalate " " args)
     --
     liftIO $ do
       mapM_ (\_ -> hPutStrLn stderr "=================================") [1..5]
       time <- getCurrentTime
-      hPutStrLn stderr $ "worker: " ++ (show n)
+      hPutStrLn stderr $ "worker: " ++ (show wid)
       hPutStrLn stderr (show time)
       mapM_ (\_ -> hPutStrLn stderr "=================================") [1..5]
     --
@@ -75,7 +82,7 @@ workerMain flags = do
     liftIO $ do
       mapM_ (\_ -> hPutStrLn stderr "|||||||||||||||||||||||||||||||||") [1..5]
       time <- getCurrentTime
-      hPutStrLn stderr $ "worker: " ++ (show n)
+      hPutStrLn stderr $ "worker: " ++ (show wid)
       hPutStrLn stderr (show time)
       mapM_ (\_ -> hPutStrLn stderr "|||||||||||||||||||||||||||||||||") [1..5]
     --
