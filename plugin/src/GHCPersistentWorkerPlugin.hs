@@ -2,7 +2,7 @@
 module GHCPersistentWorkerPlugin (frontendPlugin) where
 
 import Control.Concurrent (forkOS)
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Concurrent.MVar (newEmptyMVar, newMVar, putMVar, takeMVar)
 import Control.Monad (forever, replicateM_)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as B
@@ -13,6 +13,7 @@ import qualified GHC
 import GHC.Driver.Env (HscEnv (hsc_NC, hsc_interp, hsc_logger, hsc_unit_env))
 import GHC.Driver.Monad (Ghc, Session, withSession, withTempSession, modifySession, reflectGhc, reifyGhc)
 import GHC.Driver.Plugins (FrontendPlugin (..), defaultFrontendPlugin)
+import qualified GHC.Linker.Loader as Loader
 import GHC.Main
   ( PreStartupMode (..),
     main',
@@ -21,7 +22,9 @@ import GHC.Main
     showVersion,
     showOptions,
   )
+import GHC.Runtime.Interpreter.Types (Interp (..), InterpInstance (..))
 import GHC.Settings.Config (cProjectVersion)
+import GHC.Types.Unique.FM (emptyUFM)
 import GHC.Utils.Logger (pushLogHook)
 import Logger (logHook)
 import System.Directory (getTemporaryDirectory, removeFile, setCurrentDirectory)
@@ -90,19 +93,19 @@ sendResultToServer hout result bs = do
 
 bannerJobStart :: Int -> IO ()
 bannerJobStart wid = do
-  mapM_ (\_ -> hPutStrLn stderr "=================================") [1..5]
+  replicateM_ 5 (hPutStrLn stderr "=================================")
   time <- getCurrentTime
   hPutStrLn stderr $ "worker: " ++ (show wid)
   hPutStrLn stderr (show time)
-  mapM_ (\_ -> hPutStrLn stderr "=================================") [1..5]
+  replicateM_ 5 (hPutStrLn stderr "=================================")
 
 bannerJobEnd :: Int -> IO ()
 bannerJobEnd wid = do
-  mapM_ (\_ -> hPutStrLn stderr "|||||||||||||||||||||||||||||||||") [1..5]
+  replicateM_ 5 (hPutStrLn stderr "|||||||||||||||||||||||||||||||||")
   time <- getCurrentTime
   hPutStrLn stderr $ "worker: " ++ (show wid)
   hPutStrLn stderr (show time)
-  mapM_ (\_ -> hPutStrLn stderr "|||||||||||||||||||||||||||||||||") [1..5]
+  replicateM_ 5 (hPutStrLn stderr "|||||||||||||||||||||||||||||||||")
 
 withTempLogger :: Session -> Int -> Int -> (Ghc a) -> IO (B.ByteString, a)
 withTempLogger session wid jobid action = do
@@ -136,7 +139,6 @@ withTempLogger session wid jobid action = do
   removeFile file_stderr
   pure (bs, r)
 
-
 workerMain :: [String] -> Ghc ()
 workerMain flags = do
   liftIO $ do
@@ -147,6 +149,11 @@ workerMain flags = do
       (hin, hout) = (stdin, stdout)
   liftIO $ logMessage (prompt wid ++ " Started")
   GHC.initGhcMonad Nothing
+  -- explicitly initialize loader.
+  lookup_cache <- liftIO $ newMVar emptyUFM
+  loader <- liftIO Loader.uninitializedLoader
+  let interp = Interp InternalInterp loader lookup_cache
+  modifySession $ \env -> env {hsc_interp = Just interp}
   forever $ do
     lock <- liftIO newEmptyMVar
     reifyGhc $ \session -> forkOS $ do
