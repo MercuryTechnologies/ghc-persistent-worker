@@ -33,8 +33,7 @@ logHook :: (Handle, Handle) -> LogAction -> LogAction
 logHook (nstdout, nstderr) _ logflags msg_class srcSpan msg
   | log_dopt Opt_D_dump_json logflags = jsonLogAction' logflags msg_class srcSpan msg
   | otherwise = case msg_class of
-      MCOutput                     -> -- putStrLn "AHAHAHAHA" >>
-                                      printOut msg
+      MCOutput                     -> printOut msg
       MCDump                       -> printOut (msg $$ blankLine)
       MCInteractive                -> putStrSDoc msg
       MCInfo                       -> printErrs msg
