@@ -24,6 +24,7 @@ import GHC.Main
   )
 import GHC.Runtime.Interpreter.Types (Interp (..), InterpInstance (..))
 import GHC.Settings.Config (cProjectVersion)
+import GHC.Types.Name.Cache (NameCache)
 import GHC.Types.Unique.FM (emptyUFM)
 import GHC.Utils.Logger (pushLogHook)
 import Logger (logHook)
@@ -76,11 +77,12 @@ setEnvForJob env = do
 
 sendJobIdToServer :: Handle -> Int -> IO ()
 sendJobIdToServer hout jobid = do
+  -- hPutStrLn hout "*S*T*A*R*T*"
   hPutStrLn hout (show jobid)
   hPutStrLn hout "*J*O*B*I*D*"
 
-sendResultToServer :: Handle -> String -> B.ByteString -> IO ()
-sendResultToServer hout result bs = do
+sendResultToServer :: Handle -> Int -> String -> B.ByteString -> IO ()
+sendResultToServer hout jobid result bs = do
   B.hPut hout bs
   hPutStrLn hout "" -- important to delimit with a new line.
   hPutStrLn hout "*S*T*D*O*U*T*"
@@ -139,6 +141,34 @@ withTempLogger session wid jobid action = do
   removeFile file_stderr
   pure (bs, r)
 
+loopShot :: Interp -> NameCache -> (Handle, Handle) -> Int -> Ghc ()
+loopShot interp nc (hin, hout) wid = do
+  modifySession $ \env ->
+    env
+      { hsc_interp = Just interp,
+        -- hsc_unit_env = unit_env,
+        hsc_NC = nc
+      }
+  lock <- liftIO newEmptyMVar
+  reifyGhc $ \session -> forkOS $ do
+    (jobid, env, args) <- recvRequestFromServer hin wid
+    setEnvForJob env
+    sendJobIdToServer hout jobid
+    --
+    bannerJobStart wid
+    (bs, _) <- withTempLogger session wid jobid (compileMain args)
+    bannerJobEnd wid
+    --
+    -- TODO: will have more useful info
+    let result = "DUMMY RESULT"
+    sendResultToServer hout jobid result bs
+    putMVar lock ()
+    --
+  () <- liftIO $ takeMVar lock
+  GHC.initGhcMonad Nothing
+  liftIO $ putMVar lock ()
+
+
 workerMain :: [String] -> Ghc ()
 workerMain flags = do
   liftIO $ do
@@ -153,36 +183,8 @@ workerMain flags = do
   lookup_cache <- liftIO $ newMVar emptyUFM
   loader <- liftIO Loader.uninitializedLoader
   let interp = Interp InternalInterp loader lookup_cache
-  modifySession $ \env -> env {hsc_interp = Just interp}
-  forever $ do
-    lock <- liftIO newEmptyMVar
-    reifyGhc $ \session -> forkOS $ do
-      (jobid, env, args) <- recvRequestFromServer hin wid
-      setEnvForJob env
-      sendJobIdToServer hout jobid
-      --
-      bannerJobStart wid
-      (bs, _) <- withTempLogger session wid jobid (compileMain args)
-      bannerJobEnd wid
-      --
-      -- TODO: will have more useful info
-      let result = "DUMMY RESULT"
-      sendResultToServer hout result bs
-      putMVar lock ()
-      --
-    () <- liftIO $ takeMVar lock
-    (minterp, unit_env, nc) <-
-      withSession $ \env ->
-        pure $ (hsc_interp env, hsc_unit_env env, hsc_NC env)
-    GHC.initGhcMonad Nothing
-    modifySession $ \env ->
-      env
-        { hsc_interp = minterp,
-          -- hsc_unit_env = unit_env,
-          hsc_NC = nc
-        }
-    liftIO $ putMVar lock ()
-
+  nc <- hsc_NC <$> GHC.getSession
+  forever $ loopShot interp nc (hin, hout) wid
 
 compileMain :: [String] -> Ghc ()
 compileMain args = do
