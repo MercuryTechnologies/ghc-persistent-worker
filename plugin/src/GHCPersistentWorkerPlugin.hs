@@ -2,6 +2,7 @@
 module GHCPersistentWorkerPlugin (frontendPlugin) where
 
 import Control.Concurrent (forkOS)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Monad (forever)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
@@ -24,6 +25,7 @@ import System.Directory (setCurrentDirectory)
 import System.Environment (setEnv)
 import System.IO
   ( BufferMode (..),
+    Handle,
     hFlush,
     hGetLine,
     hPutStrLn,
@@ -41,8 +43,18 @@ frontendPlugin = defaultFrontendPlugin
     frontend = \flags _args -> workerMain flags
   }
 
-logMessage :: String -> Ghc ()
-logMessage = liftIO . hPutStrLn stderr
+logMessage :: String -> IO ()
+logMessage = hPutStrLn stderr
+
+sendResultToServer :: Handle -> String -> IO ()
+sendResultToServer hout result = do
+  hPutStrLn hout "*S*T*D*O*U*T*"
+  hFlush hout
+  hPutStrLn hout result
+  hPutStrLn hout "*R*E*S*U*L*T*"
+  hFlush hout
+  hPutStrLn hout "*D*E*L*I*M*I*T*E*D*"
+  hFlush hout
 
 workerMain :: [String] -> Ghc ()
 workerMain flags = do
@@ -54,10 +66,11 @@ workerMain flags = do
       prompt = "[Worker:" ++ show wid ++ "]"
 
   let (hin, hout) = (stdin, stdout)
-  logMessage (prompt ++ " Started")
+  liftIO $ logMessage (prompt ++ " Started")
   GHC.initGhcMonad Nothing
   forever $ do
-    reifyGhc $ \session -> do
+    lock <- liftIO newEmptyMVar
+    reifyGhc $ \session -> forkOS $ do
       -- lock <- newEmptyMVar
       -- forkOS $ do
       s <- hGetLine hin
@@ -67,10 +80,10 @@ workerMain flags = do
           jid = read jid_str
       for_ (lookup "PWD" env) setCurrentDirectory
       for_ env $ \(var, val) -> setEnv var val
-      reflectGhc (logMessage (prompt ++ " job id = " ++ show jid)) session
+      logMessage (prompt ++ " job id = " ++ show jid)
       hPutStrLn hout (show jid)
       hPutStrLn hout "*J*O*B*I*D*"
-      reflectGhc (logMessage (prompt ++ " Got args: " ++ intercalate " " args)) session
+      logMessage (prompt ++ " Got args: " ++ intercalate " " args)
       --
       mapM_ (\_ -> hPutStrLn stderr "=================================") [1..5]
       time <- getCurrentTime
@@ -88,19 +101,12 @@ workerMain flags = do
       --
       -- TODO: will have more useful info
       let result = "DUMMY RESULT"
-      --
-      hPutStrLn hout "*S*T*D*O*U*T*"
-      hFlush hout
-      hPutStrLn hout result
-      hPutStrLn hout "*R*E*S*U*L*T*"
-      hFlush hout
-      hPutStrLn hout "*D*E*L*I*M*I*T*E*D*"
-      hFlush hout
-      -- liftIO $ putMVar lock ()
+      sendResultToServer hout result
+      putMVar lock ()
 
       --
       -- () <- readMVar lock
-
+    () <- liftIO $ takeMVar lock
     (minterp, unit_env, nc) <-
       withSession $ \env ->
         pure $ (hsc_interp env, hsc_unit_env env, hsc_NC env)
@@ -111,6 +117,7 @@ workerMain flags = do
           -- hsc_unit_env = unit_env,
           hsc_NC = nc
         }
+    liftIO $ putMVar lock ()
 
 compileMain :: [String] -> Ghc ()
 compileMain args = do
