@@ -78,17 +78,17 @@ initWorker ghcPath dbPaths i = do
 
 spawnWorker :: FilePath -> [FilePath] -> TVar Pool -> IO (WorkerId, HandleSet)
 spawnWorker ghcPath dbPaths poolRef = do
-  i <- atomically $ newWorkerId poolRef
-  hset <- initWorker ghcPath dbPaths i
+  wid <- atomically $ newWorkerId poolRef
+  hset <- initWorker ghcPath dbPaths wid
   atomically $ do
     pool <- readTVar poolRef
     let s = poolStatus pool
-        s' = IM.insert i (False, Nothing) s
+        s' = IM.insert wid (False, Nothing) s
         ihsets = poolHandles pool
-        ihsets' = (i, hset) : ihsets
+        ihsets' = (wid, hset) : ihsets
     writeTVar poolRef (pool {poolStatus = s', poolHandles = ihsets'})
-  mailboxForWorker poolRef
-  pure (i, hset)
+  mailboxForWorker poolRef wid (handleMsgOut hset)
+  pure (wid, hset)
 
 
 assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe TargetId -> IO (JobId, WorkerId, HandleSet)

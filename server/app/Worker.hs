@@ -5,7 +5,7 @@ module Worker
   work,
 ) where
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.STM
   ( STM,
     TChan,
@@ -19,10 +19,11 @@ import Control.Concurrent.STM
     retry,
     writeTVar,
   )
+import Control.Monad (forever, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader (ReaderT, ask)
 import qualified Data.List as L
-import Pool (HandleSet (..), JobId, Mailbox (..), Pool (..), WorkerId, finishJob)
+import Pool (HandleSet (..), JobId (..), Mailbox (..), Pool (..), WorkerId, finishJob)
 import Message (Request (..), Response (..))
 import System.IO (Handle, hFlush, hGetLine, hPutStrLn)
 
@@ -39,8 +40,29 @@ fetchUntil delim h = do
         then pure acc
         else go (acc . (s:))
 
-mailboxForWorker :: TVar Pool -> IO ()
-mailboxForWorker _poolRef = pure ()
+mailboxForWorker :: TVar Pool -> WorkerId -> Handle -> IO ()
+mailboxForWorker poolRef wid hout = void (forkIO $ forever go)
+  where
+    go = do
+      jobid <- read . unlines <$> fetchUntil "*J*O*B*I*D*" hout
+      print jobid
+      -- get stdout until delimiter
+      console_stdout <- fetchUntil "*S*T*D*O*U*T*" hout
+      -- get result metatdata until delimiter
+      results <- fetchUntil "*R*E*S*U*L*T*" hout
+      -- get stderr until delimiter
+      console_stderr <- fetchUntil "*D*E*L*I*M*I*T*E*D*" hout
+      let res = Response results console_stdout console_stderr
+      atomically $ do
+        pool <- readTVar poolRef
+        let hsets = poolHandles pool
+        case L.lookup wid hsets of
+          Nothing -> retry
+          Just hset -> do
+            let Mailbox lst = handleMailbox hset
+            case L.lookup (JobId jobid) lst of
+              Nothing -> retry
+              Just chan -> writeTChan chan res
 
 addJobChan :: TVar Pool -> WorkerId -> JobId -> STM (TChan Response, HandleSet)
 addJobChan poolRef wid jid = do
@@ -69,34 +91,32 @@ removeJobChan poolRef wid jid =
              hsets' = (wid, hset') : (filter ((/= wid) . fst) hsets)
           in pool {poolHandles = hsets'}
 
-work :: Request -> JobM Response
-work req = do
-  (jid, wid, hset, poolRef) <- ask
+sendRequest :: Request -> JobM ()
+sendRequest req = do
+  (JobId jid, _, hset, _) <- ask
   let env = requestEnv req
       args = requestArgs req
   let hi = handleArgIn hset
-      ho = handleMsgOut hset
-  liftIO $ print jid
   liftIO $ do
-    hPutStrLn hi (show (env, args))
+    hPutStrLn hi (show (env, show jid : args))
     hFlush hi
-  (chan, _) <- liftIO $ atomically $ addJobChan poolRef wid jid
-  _ <- liftIO $ forkIO $ do
-    -- get stdout until delimiter
-    console_stdout <- fetchUntil "*S*T*D*O*U*T*" ho
-    -- get result metatdata until delimiter
-    results <- fetchUntil "*R*E*S*U*L*T*" ho
-    -- get stderr until delimiter
-    console_stderr <- fetchUntil "*D*E*L*I*M*I*T*E*D*" ho
-    let res = Response results console_stdout console_stderr
-    -- putMVar var res
-    atomically $ writeTChan chan res
 
-  res@(Response results _ _) <- liftIO $ atomically $ do
+waitResponse :: TChan Response -> JobM Response
+waitResponse chan = do
+  (jid, wid, _, poolRef) <- ask
+  liftIO $ atomically $ do
     r <- readTChan chan
     finishJob poolRef wid
     removeJobChan poolRef wid jid
     pure r
+
+work :: Request -> JobM Response
+work req = do
+  (jid, wid, hset, poolRef) <- ask
+  (chan, _) <- liftIO $ atomically $ addJobChan poolRef wid jid
+
+  sendRequest req
+  res@(Response results _ _) <- waitResponse chan
 
   liftIO $ putStrLn $ "worker " ++ show wid ++ " returns: " ++ show results
   pure res
