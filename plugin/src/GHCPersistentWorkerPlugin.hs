@@ -1,13 +1,14 @@
 {-# LANGUAGE NumericUnderscores #-}
 module GHCPersistentWorkerPlugin (frontendPlugin) where
 
+import Control.Concurrent (forkOS)
 import Control.Monad (forever)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
 import Data.List (intercalate)
 import Data.Time.Clock (getCurrentTime)
 import GHC.Driver.Env (HscEnv (hsc_NC, hsc_interp, hsc_unit_env))
-import GHC.Driver.Monad (Ghc, withSession, modifySession)
+import GHC.Driver.Monad (Ghc, withSession, modifySession, reflectGhc, reifyGhc)
 import GHC.Driver.Plugins (FrontendPlugin (..), defaultFrontendPlugin)
 import GHC.Main
   ( PreStartupMode (..),
@@ -56,47 +57,49 @@ workerMain flags = do
   logMessage (prompt ++ " Started")
   GHC.initGhcMonad Nothing
   forever $ do
-    s <- liftIO $ hGetLine hin
-    let (env, args0) :: ([(String, String)], [String]) = read s
-    let jid_str : args = args0
-        jid :: Int
-        jid = read jid_str
-    for_ (lookup "PWD" env) $ \pwd -> liftIO $
-      setCurrentDirectory pwd
-    for_ env $ \(var, val) -> liftIO $
-      setEnv var val
-    logMessage (prompt ++ " job id = " ++ show jid)
-    liftIO $ hPutStrLn hout (show jid)
-    liftIO $ hPutStrLn hout "*J*O*B*I*D*"
-    logMessage (prompt ++ " Got args: " ++ intercalate " " args)
-    --
-    liftIO $ do
+    reifyGhc $ \session -> do
+      -- lock <- newEmptyMVar
+      -- forkOS $ do
+      s <- hGetLine hin
+      let (env, args0) :: ([(String, String)], [String]) = read s
+      let jid_str : args = args0
+          jid :: Int
+          jid = read jid_str
+      for_ (lookup "PWD" env) setCurrentDirectory
+      for_ env $ \(var, val) -> setEnv var val
+      reflectGhc (logMessage (prompt ++ " job id = " ++ show jid)) session
+      hPutStrLn hout (show jid)
+      hPutStrLn hout "*J*O*B*I*D*"
+      reflectGhc (logMessage (prompt ++ " Got args: " ++ intercalate " " args)) session
+      --
       mapM_ (\_ -> hPutStrLn stderr "=================================") [1..5]
       time <- getCurrentTime
       hPutStrLn stderr $ "worker: " ++ (show wid)
       hPutStrLn stderr (show time)
       mapM_ (\_ -> hPutStrLn stderr "=================================") [1..5]
-    --
-    compileMain args
-    --
-    liftIO $ do
+      --
+      reflectGhc (compileMain args) session
+      --
       mapM_ (\_ -> hPutStrLn stderr "|||||||||||||||||||||||||||||||||") [1..5]
       time <- getCurrentTime
       hPutStrLn stderr $ "worker: " ++ (show wid)
       hPutStrLn stderr (show time)
       mapM_ (\_ -> hPutStrLn stderr "|||||||||||||||||||||||||||||||||") [1..5]
-    --
-    -- TODO: will have more useful info
-    let result = "DUMMY RESULT"
-    --
-    liftIO $ hPutStrLn hout "*S*T*D*O*U*T*"
-    liftIO $ hFlush hout
-    liftIO $ hPutStrLn hout result
-    liftIO $ hPutStrLn hout "*R*E*S*U*L*T*"
-    liftIO $ hFlush hout
-    liftIO $ hPutStrLn hout "*D*E*L*I*M*I*T*E*D*"
-    liftIO $ hFlush hout
-    --
+      --
+      -- TODO: will have more useful info
+      let result = "DUMMY RESULT"
+      --
+      hPutStrLn hout "*S*T*D*O*U*T*"
+      hFlush hout
+      hPutStrLn hout result
+      hPutStrLn hout "*R*E*S*U*L*T*"
+      hFlush hout
+      hPutStrLn hout "*D*E*L*I*M*I*T*E*D*"
+      hFlush hout
+      -- liftIO $ putMVar lock ()
+
+      --
+      -- () <- readMVar lock
 
     (minterp, unit_env, nc) <-
       withSession $ \env ->
