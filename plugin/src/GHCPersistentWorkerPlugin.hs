@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module GHCPersistentWorkerPlugin (frontendPlugin) where
 
-import Control.Concurrent (forkOS, threadDelay)
+import Control.Concurrent (forkOS)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, takeMVar)
 import Control.Monad (forever, replicateM_, void, when)
 import Control.Monad.IO.Class (liftIO)
