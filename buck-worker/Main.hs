@@ -1,4 +1,4 @@
-{-# language DataKinds, OverloadedLists, OverloadedStrings, GADTs, OverloadedRecordDot #-}
+{-# language DataKinds, OverloadedLists, OverloadedStrings, GADTs #-}
 
 module Main where
 
@@ -7,6 +7,8 @@ import Cache (Cache (..), emptyCache)
 import Compile (compile)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar)
 import Control.Exception (SomeException (SomeException), throwIO, try)
+import Data.Map (Map)
+import qualified Data.Map.Strict as Map
 import Data.String (fromString)
 import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
@@ -25,19 +27,34 @@ import Prelude hiding (log)
 import Session (Env (..), withGhc)
 import System.Environment (lookupEnv)
 import System.IO (BufferMode (LineBuffering), hPutStrLn, hSetBuffering, stderr, stdout)
-import Worker (ExecuteCommand (..), ExecuteEvent (..), ExecuteResponse (..), Worker (..), workerServer)
+import Worker (
+  ExecuteCommand (..),
+  ExecuteCommand_EnvironmentEntry (..),
+  ExecuteEvent (..),
+  ExecuteResponse (..),
+  Worker (..),
+  workerServer,
+  )
+
+commandEnv :: Vector.Vector ExecuteCommand_EnvironmentEntry -> Map String String
+commandEnv =
+  Map.fromList .
+  fmap (\ (ExecuteCommand_EnvironmentEntry key value) -> (fromBs key, fromBs value)) .
+  Vector.toList
+  where
+    fromBs = Text.unpack . decodeUtf8Lenient
 
 executeHandler ::
   MVar Cache ->
   ServerRequest 'Normal ExecuteCommand ExecuteResponse ->
   IO (ServerResponse 'Normal ExecuteResponse)
-executeHandler cache (ServerNormalRequest _ ExecuteCommand {executeCommandArgv}) = do
+executeHandler cache (ServerNormalRequest _ ExecuteCommand {executeCommandArgv, executeCommandEnv}) = do
   -- hPutStrLn stderr (unlines argv)
   response <- either exceptionResponse successResponse =<< try run
   pure (ServerNormalResponse response [] StatusOk "")
   where
     run = do
-      args <- either (throwIO . userError) pure (parseBuckArgs argv)
+      args <- either (throwIO . userError) pure (parseBuckArgs (commandEnv executeCommandEnv) argv)
       log <- newMVar Log {diagnostics = [], other = [], debug = False}
       let env = Env {log, cache, args}
       result <- withGhc env (compile args)

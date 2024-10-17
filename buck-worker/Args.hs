@@ -3,6 +3,8 @@ module Args where
 import AbiHash (AbiHash (..))
 import Data.Foldable (for_)
 import Data.Int (Int32)
+import Data.Map (Map)
+import Data.Map.Strict ((!?))
 
 data Args =
   Args {
@@ -11,6 +13,7 @@ data Args =
     buck2PackageDb :: [String],
     buck2PackageDbDep :: Maybe String,
     binPath :: [String],
+    tempDir :: Maybe String,
     ghcDirFile :: Maybe String,
     ghcDbFile :: Maybe String,
     ghcOptions :: [String]
@@ -23,14 +26,15 @@ data CompileResult =
   }
   deriving stock (Eq, Show)
 
-emptyArgs :: Args
-emptyArgs =
+emptyArgs :: Map String String -> Args
+emptyArgs env =
   Args {
     abiOut = Nothing,
     buck2Dep = Nothing,
     buck2PackageDb = [],
     buck2PackageDbDep = Nothing,
     binPath = [],
+    tempDir = env !? "TMPDIR",
     ghcDirFile = Nothing,
     ghcDbFile = Nothing,
     ghcOptions = []
