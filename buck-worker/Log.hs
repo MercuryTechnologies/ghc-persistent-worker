@@ -1,6 +1,7 @@
 module Log where
 
 import Control.Concurrent.MVar (MVar, modifyMVar_)
+import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHC (Severity (SevIgnore))
 import GHC.Types.Error (MessageClass (..), getCaretDiagnostic, mkLocMessageWarningGroups)
@@ -23,7 +24,8 @@ import System.IO (hPutStrLn, stderr)
 data Log =
   Log {
     diagnostics :: [String],
-    other :: [String]
+    other :: [String],
+    debug :: Bool
   }
   deriving stock (Eq, Show)
 
@@ -33,7 +35,9 @@ logDiagnostics ::
   String ->
   m ()
 logDiagnostics logVar msg =
-  liftIO $ modifyMVar_ logVar \ Log {diagnostics, ..} -> pure Log {diagnostics = msg : diagnostics, ..}
+  liftIO $ modifyMVar_ logVar \ Log {diagnostics, ..} -> do
+    when debug (dbg msg)
+    pure Log {diagnostics = msg : diagnostics, ..}
 
 logOther ::
   MonadIO m =>
@@ -41,7 +45,9 @@ logOther ::
   String ->
   m ()
 logOther logVar msg =
-  liftIO $ modifyMVar_ logVar \ Log {other, ..} -> pure Log {other = msg : other, ..}
+  liftIO $ modifyMVar_ logVar \ Log {other, ..} -> do
+    when debug (dbg msg)
+    pure Log {other = msg : other, ..}
 
 logToState :: MVar Log -> LogAction
 logToState logVar logflags msg_class srcSpan msg = case msg_class of

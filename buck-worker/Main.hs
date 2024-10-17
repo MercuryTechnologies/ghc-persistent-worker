@@ -38,7 +38,7 @@ executeHandler cache (ServerNormalRequest _ ExecuteCommand {executeCommandArgv})
   where
     run = do
       args <- either (throwIO . userError) pure (parseBuckArgs argv)
-      log <- newMVar Log {diagnostics = [], other = []}
+      log <- newMVar Log {diagnostics = [], other = [], debug = False}
       let env = Env {log, cache, args}
       result <- withGhc env (compile args)
       pure (env, result)
