@@ -6,6 +6,7 @@ import Control.Concurrent.MVar (MVar, modifyMVar_)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (toList)
+import Data.IORef (newIORef)
 import Data.List (dropWhileEnd, intercalate)
 import Data.List.NonEmpty (nonEmpty)
 import Data.Maybe (maybeToList)
@@ -22,17 +23,20 @@ import GHC (
   parseTargetFiles,
   prettyPrintGhcErrors,
   pushLogHookM,
-  runGhc,
+  setSession,
   setSessionDynFlags,
+  withSignalHandlers,
   )
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
 import GHC.Driver.Errors (printOrThrowDiagnostics)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
+import GHC.Driver.Main (initHscEnv)
+import GHC.Driver.Monad (Session (Session), unGhc)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
-import GHC.Utils.Panic (throwGhcException, GhcException (UsageError))
+import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
 import Log (Log (..), logToState)
 import Prelude hiding (log)
 import System.Environment (setEnv)
@@ -64,7 +68,10 @@ runSession Env {log, args, cache} prog = do
   packageDb <- readPath args.ghcDbFile
   let packageDbArg path = ["-package-db", path]
       argv = args.ghcOptions ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb
-  runGhc topdir do
+  ref <- newIORef (panic "empty session")
+  let session = Session ref
+  flip unGhc session $ withSignalHandlers do
+    setSession =<< liftIO (initHscEnv topdir)
     handleExceptions log Nothing (prog (map loc argv))
   where
     readPath = fmap (fmap (dropWhileEnd ('\n' ==))) . traverse readFile
