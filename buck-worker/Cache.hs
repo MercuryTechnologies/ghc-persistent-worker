@@ -4,8 +4,6 @@ import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar
 import Control.Monad (unless)
 import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Data.Bifunctor (first)
-import Data.Coerce (coerce)
 import Data.Foldable (for_, traverse_)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -33,7 +31,7 @@ type SymbolMap = UniqFM FastString (Ptr ())
 
 newtype SymbolCache =
   SymbolCache { get :: SymbolMap }
-  deriving newtype (Semigroup)
+  deriving newtype (Semigroup, Monoid)
 
 data LinkerStats =
   LinkerStats {
@@ -109,8 +107,7 @@ emptyStats =
 
 data InterpCache =
   InterpCache {
-    loaderState :: LoaderState,
-    symbols :: SymbolCache
+    loaderState :: LoaderState
   }
 
 newtype Target =
@@ -256,11 +253,10 @@ pushStats _ _ _ _ _ cache =
 restoreCache ::
   Target ->
   Maybe LoaderState ->
-  SymbolCache ->
   OrigNameCache ->
   Cache ->
-  IO (Cache, (OrigNameCache, (SymbolCache, Maybe LoaderState)))
-restoreCache target initialLoaderState initialSymbolCache initialNames cache
+  IO (Cache, (OrigNameCache, Maybe LoaderState))
+restoreCache target initialLoaderState initialNames cache
   | Just InterpCache {..} <- cache.interp
   = do
     (restoredLs, loaderStats) <- case initialLoaderState of
@@ -269,26 +265,24 @@ restoreCache target initialLoaderState initialSymbolCache initialNames cache
       Nothing ->
         pure (loaderState, Nothing)
     let
-      newSymbols = initialSymbolCache <> symbols
-      symbolsStats = basicSymbolsStats initialSymbolCache symbols
+      symbolsStats = basicSymbolsStats mempty mempty
       namesStats = basicNamesStats initialNames cache.names
       newCache = pushStats True target loaderStats symbolsStats namesStats cache
       -- this overwrites entire modules, since OrigNameCache is a three-level map.
       -- eventually we'll want to merge properly.
       names = plusModuleEnv initialNames cache.names
-    pure (newCache, (names, (newSymbols, Just restoredLs)))
+    pure (newCache, (names, Just restoredLs))
 
   | otherwise
-  = pure (cache, (initialNames, (initialSymbolCache, initialLoaderState)))
+  = pure (cache, (initialNames, initialLoaderState))
 
 -- TODO filter all cached items to include only external Names if possible
 initCache ::
   LoaderState ->
-  SymbolCache ->
   OrigNameCache ->
   Cache ->
   IO Cache
-initCache loaderState symbols names Cache {names = _, ..} =
+initCache loaderState names Cache {names = _, ..} =
   pure Cache {interp = Just InterpCache {..}, ..}
 
 updateLinkerEnv :: LinkerEnv -> LinkerEnv -> (LinkerEnv, LinkerStats)
@@ -335,16 +329,14 @@ updateCache ::
   Target ->
   InterpCache ->
   LoaderState ->
-  SymbolCache ->
   OrigNameCache ->
   Cache ->
   IO Cache
-updateCache target InterpCache {..} newLoaderState newSymbols newNames cache = do
+updateCache target InterpCache {..} newLoaderState newNames cache = do
   (updatedLs, stats) <- updateLoaderState loaderState newLoaderState
   pure $ pushStats False target stats symbolsStats namesStats cache {
     interp = Just InterpCache {
-      loaderState = updatedLs,
-      symbols = symbols <> newSymbols
+      loaderState = updatedLs
     },
     -- for now: when a module is compiled, its names are definitely complete, so when a downstream module uses it as a
     -- dep, we don't want to overwrite the previous entry.
@@ -352,7 +344,7 @@ updateCache target InterpCache {..} newLoaderState newSymbols newNames cache = d
     names = plusModuleEnv newNames cache.names
   }
   where
-    symbolsStats = basicSymbolsStats symbols newSymbols
+    symbolsStats = SymbolsStats 0
     namesStats = basicNamesStats cache.names newNames
 
 report ::
@@ -383,11 +375,11 @@ report logVar cacheVar target =
         hang (text "Restore:") 2 restoreStats $$
         hang (text "Update:") 2 updateStats
 
-withHscState :: (MVar OrigNameCache -> MVar (Maybe LoaderState) -> MVar SymbolMap -> IO ()) -> Ghc ()
+withHscState :: (MVar OrigNameCache -> MVar (Maybe LoaderState) -> IO ()) -> Ghc ()
 withHscState use =
   withSession \ HscEnv {hsc_interp, hsc_NC = NameCache {nsNames}} ->
-    for_ hsc_interp \ Interp {interpLoader = Loader {loader_state}, interpLookupSymbolCache} ->
-      liftIO $ use nsNames loader_state interpLookupSymbolCache
+    for_ hsc_interp \ Interp {interpLoader = Loader {loader_state}} ->
+      liftIO $ use nsNames loader_state
 
 withCache :: MVar Log -> MVar Cache -> [String] -> Ghc a -> Ghc a
 withCache logVar cacheVar [src] prog = do
@@ -399,20 +391,17 @@ withCache logVar cacheVar [src] prog = do
     _ -> prog
   where
     prepare =
-      withHscState \ nsNames loaderStateVar symbolCacheVar ->
+      withHscState \ nsNames loaderStateVar ->
         modifyMVar_ loaderStateVar \ initialLoaderState ->
-          modifyMVar symbolCacheVar \ initialSymbolCache ->
-            (first coerce) <$>
-            modifyMVar nsNames \ names ->
-              modifyMVar cacheVar (restoreCache target initialLoaderState (SymbolCache initialSymbolCache) names)
+          modifyMVar nsNames \ names ->
+            modifyMVar cacheVar (restoreCache target initialLoaderState names)
 
     finalize =
-      withHscState \ nsNames loaderStateVar symbolCacheVar ->
+      withHscState \ nsNames loaderStateVar ->
         readMVar loaderStateVar >>= traverse_ \ newLoaderState -> do
-          newSymbols <- readMVar symbolCacheVar
           newNames <- readMVar nsNames
           modifyMVar_ cacheVar \ c ->
-            maybe initCache (updateCache target) c.interp newLoaderState (SymbolCache newSymbols) newNames c
+            maybe initCache (updateCache target) c.interp newLoaderState newNames c
 
     target = Target src
 
