@@ -102,12 +102,12 @@ assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe TargetId -> IO (JobId
 assignLoop ghcPath dbPaths poolRef mid = untilJustM $ do
   eassigned <- atomically $ assignJob poolRef mid
   case eassigned of
-    Left n -> do
-      putStrLn $ "currently " ++ show n ++ " jobs are running. I am spawning a worker."
+    Left _n -> do
+      -- putStrLn $ "currently " ++ show n ++ " jobs are running. I am spawning a worker."
       _ <- spawnWorker ghcPath dbPaths poolRef
       pure Nothing
     Right (j, i, hset) -> do
-      putStrLn $ "Job assigned with ID: " ++ show j
+      -- putStrLn $ "Job assigned with ID: " ++ show j
       pure (Just (j, i, hset))
 
 serve :: FilePath -> [FilePath] -> TVar Pool -> Socket -> IO ()
