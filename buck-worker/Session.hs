@@ -29,6 +29,7 @@ import GHC (
   )
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
+import GHC.Driver.Env (hscUpdateFlags)
 import GHC.Driver.Errors (printOrThrowDiagnostics)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
 import GHC.Driver.Main (initHscEnv)
@@ -37,6 +38,7 @@ import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
+import GHC.Utils.TmpFs (TempDir (..))
 import Log (Log (..), logToState)
 import Prelude hiding (log)
 import System.Environment (setEnv)
@@ -71,11 +73,12 @@ runSession Env {log, args, cache} prog = do
   ref <- newIORef (panic "empty session")
   let session = Session ref
   flip unGhc session $ withSignalHandlers do
-    setSession =<< liftIO (initHscEnv topdir)
+    setSession . maybe id setTempDir args.tempDir =<< liftIO (initHscEnv topdir)
     handleExceptions log Nothing (prog (map loc argv))
   where
     readPath = fmap (fmap (dropWhileEnd ('\n' ==))) . traverse readFile
     loc = mkGeneralLocated "by Buck2"
+    setTempDir dir = hscUpdateFlags \ dflags -> dflags {tmpDir = TempDir dir}
 
 parseFlags :: [Located String] -> Ghc (DynFlags, Logger, [Located String], DriverMessages)
 parseFlags argv = do
