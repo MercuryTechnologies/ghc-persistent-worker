@@ -1,7 +1,7 @@
 module Args where
 
-import Data.Foldable (for_)
 import AbiHash (AbiHash (..))
+import Data.Foldable (for_)
 import Data.Int (Int32)
 
 data Args =
@@ -10,6 +10,7 @@ data Args =
     buck2Dep :: Maybe String,
     buck2PackageDb :: [String],
     buck2PackageDbDep :: Maybe String,
+    binPath :: [String],
     ghcDirFile :: Maybe String,
     ghcDbFile :: Maybe String,
     ghcOptions :: [String]
@@ -29,14 +30,15 @@ emptyArgs =
     buck2Dep = Nothing,
     buck2PackageDb = [],
     buck2PackageDbDep = Nothing,
+    binPath = [],
     ghcDirFile = Nothing,
     ghcDbFile = Nothing,
     ghcOptions = []
   }
 
-parseBuckArgs :: [String] -> Either String Args
-parseBuckArgs =
-  spin emptyArgs
+parseBuckArgs :: Map String String -> [String] -> Either String Args
+parseBuckArgs env =
+  spin (emptyArgs env)
   where
     spin Args {..} = \case
       "--abi-out" : rest -> takeArg "--abi-out" rest \ v -> Args {abiOut = Just v, ..}
@@ -46,6 +48,7 @@ parseBuckArgs =
       "--ghc" : rest -> takeArg "--ghc" rest \ _ -> Args {ghcOptions = [], ..}
       "--ghc-dir" : rest -> takeArg "--ghc-dir" rest \ f -> Args {ghcOptions = [], ghcDirFile = Just f, ..}
       "--extra-pkg-db" : rest -> takeArg "--extra-pkg-db" rest \ f -> Args {ghcOptions = [], ghcDbFile = Just f, ..}
+      "--bin-path" : rest -> takeArg "--bin-path" rest \ v -> Args {binPath = v : binPath, ..}
       "-c" : rest -> spin Args {ghcOptions = ghcOptions, ..} rest
       arg : rest -> spin Args {ghcOptions = arg : ghcOptions, ..} rest
       [] -> Right Args {ghcOptions = reverse ghcOptions, ..}

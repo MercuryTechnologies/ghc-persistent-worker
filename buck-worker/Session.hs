@@ -1,10 +1,14 @@
 module Session where
 
 import Args (Args (..))
-import Cache (Cache, withCache)
-import Control.Concurrent.MVar (MVar)
+import Cache (BinPath (..), Cache (..), withCache)
+import Control.Concurrent.MVar (MVar, modifyMVar_)
 import Control.Monad.IO.Class (liftIO)
-import Data.List (dropWhileEnd)
+import Data.Foldable (toList)
+import Data.List (dropWhileEnd, intercalate)
+import Data.List.NonEmpty (nonEmpty)
+import Data.Maybe (maybeToList)
+import qualified Data.Set as Set
 import Error (handleExceptions)
 import GHC (
   DynFlags (..),
@@ -29,6 +33,7 @@ import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import Log (Log (..), logToState)
 import Prelude hiding (log)
+import System.Environment (setEnv)
 
 data Env =
   Env {
@@ -37,8 +42,22 @@ data Env =
     args :: Args
   }
 
+setupPath :: Args -> Cache -> IO Cache
+setupPath args old = do
+  setEnv "PATH" (intercalate ":" (toList path.extra ++ maybeToList path.initial))
+  pure new
+  where
+    path = new.path
+    new = old {path = old.path {extra}}
+    extra
+      | Just cur <- nonEmpty args.binPath
+      = Set.union old.path.extra (Set.fromList (toList cur))
+      | otherwise
+      = old.path.extra
+
 runSession :: Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
-runSession Env {log, args} prog = do
+runSession Env {log, args, cache} prog = do
+  modifyMVar_ cache (setupPath args)
   topdir <- readPath args.ghcDirFile
   packageDb <- readPath args.ghcDbFile
   let packageDbArg path = ["-package-db", path]

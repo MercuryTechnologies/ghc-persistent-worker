@@ -11,7 +11,7 @@ import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
-import Data.Set ((\\))
+import Data.Set (Set, (\\))
 import GHC (Ghc, moduleName, moduleNameString)
 import GHC.Data.FastString (FastString)
 import GHC.Driver.Env (HscEnv (..))
@@ -27,6 +27,7 @@ import GHC.Unit.Module.Env (emptyModuleEnv, moduleEnvKeys, plusModuleEnv)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (comma, fsep, hang, punctuate, text, ($$), (<+>))
 import Log (Log, logOther, logd)
+import System.Environment (lookupEnv)
 
 type SymbolMap = UniqFM FastString (Ptr ())
 
@@ -117,6 +118,13 @@ newtype Target =
   deriving stock (Eq, Show)
   deriving newtype (Ord)
 
+data BinPath =
+  BinPath {
+    initial :: Maybe String,
+    extra :: Set String
+  }
+  deriving stock (Eq, Show)
+
 -- TODO the name cache could in principle be shared directly – try it out
 data Cache =
   Cache {
@@ -124,17 +132,23 @@ data Cache =
     initialized :: Bool,
     interp :: Maybe InterpCache,
     names :: OrigNameCache,
-    stats :: Map Target CacheStats
+    stats :: Map Target CacheStats,
+    path :: BinPath
   }
 
 emptyCache :: Bool -> IO (MVar Cache)
-emptyCache enable =
+emptyCache enable = do
+  initialPath <- lookupEnv "PATH"
   newMVar Cache {
     enable,
     initialized = False,
     interp = Nothing,
     names = emptyModuleEnv,
-    stats = mempty
+    stats = mempty,
+    path = BinPath {
+      initial = initialPath,
+      extra = mempty
+    }
   }
 
 initialize ::
