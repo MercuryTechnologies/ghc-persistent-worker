@@ -106,7 +106,7 @@ sendRequest req = do
   (JobId jid, _, hset, _) <- ask
   let env = requestEnv req
       args = requestArgs req
-  liftIO $ hPutStrLn stderr (show req)
+  liftIO $ hPutStrLn stderr ("Req: " ++ show jid ++ ": " ++ show args)
   liftIO $ hFlush stderr
   liftIO $ do
     hi <- takeMVar (handleArgIn hset)

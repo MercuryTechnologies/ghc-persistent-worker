@@ -1,9 +1,10 @@
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
 module GHCPersistentWorkerPlugin (frontendPlugin) where
 
 import Control.Concurrent (forkOS, threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, takeMVar)
-import Control.Monad (forever, replicateM_, void)
+import Control.Monad (forever, replicateM_, void, when)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as B
 import Data.Foldable (for_)
@@ -68,8 +69,8 @@ recvRequestFromServer hin wid = do
   let jobid_str : args = args0
       jobid :: Int
       jobid = read jobid_str
-  logMessage (prompt wid ++ " job id = " ++ show jobid)
-  logMessage (prompt wid ++ " Got args: " ++ intercalate " " args)
+  -- logMessage (prompt wid ++ " job id = " ++ show jobid)
+  -- logMessage (prompt wid ++ " Got args: " ++ intercalate " " args)
   pure (jobid, env, args)
 
 setEnvForJob :: [(String, String)] -> IO ()
@@ -116,28 +117,35 @@ withTempLogger :: Session -> Int -> Int -> (Ghc a) -> IO B.ByteString
 withTempLogger session wid jobid action = do
   let file_stdout = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stdout.log"
       file_stderr = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stderr.log"
-  knob <- Data.Knob.newKnob B.empty
-  nstdout <- Data.Knob.newFileHandle knob file_stdout WriteMode
-  let nstderr = stderr
+  knob_out <- Data.Knob.newKnob B.empty
+  knob_err <- Data.Knob.newKnob B.empty
+  nstdout <- Data.Knob.newFileHandle knob_out file_stdout WriteMode
+  nstderr <- Data.Knob.newFileHandle knob_err file_stderr WriteMode
+  -- let nstderr = stderr
   -- for now
-  withFile "/dev/null" AppendMode $ \nstderr -> do
-    flip reflectGhc session $
-      withTempSession
-        (\env ->
-           env {
-             hsc_logger = pushLogHook (logHook (nstdout, nstderr)) (hsc_logger env)
-           }
-        )
-        action
-    hFlush nstdout
-    hClose nstdout
-    hFlush nstderr
-  bs <- Data.Knob.getContents knob
-  pure bs
+  -- withFile "/dev/null" AppendMode $ \nstderr -> do
+  flip reflectGhc session $
+    withTempSession
+      (\env ->
+         env {
+           hsc_logger = pushLogHook (logHook (nstdout, nstderr)) (hsc_logger env)
+         }
+      )
+      action
+  -- hFlush nstdout
+  hClose nstdout
+  hClose nstderr
+  -- hFlush nstderr
+  bs <- Data.Knob.getContents knob_out
+  bs2 <- Data.Knob.getContents knob_err
+  pure (bs <> "\n" <> bs2)
 
 loopShot :: Interp -> NameCache -> Handle -> MVar Handle -> Int -> Ghc ()
 loopShot interp nc hin chanOut wid = do
   (jobid, env, args) <- liftIO $ recvRequestFromServer hin wid
+  liftIO $ hPutStrLn stderr ("In loopShot: " ++ show (jobid, args))
+  let isShowIfaceAbiHash = any (== "--show-iface-abi-hash") args
+
   modifySession $ \env ->
     env
       { hsc_interp = Just interp,
@@ -147,16 +155,17 @@ loopShot interp nc hin chanOut wid = do
   reifyGhc $ \session -> void $ forkOS $ do
     setEnvForJob env
     --
-    bannerJobStart wid
+    -- bannerJobStart wid
     bs <- withTempLogger session wid jobid (compileMain args)
-    bannerJobEnd wid
+    -- bannerJobEnd wid
     --
     -- TODO: will have more useful info
     let result = "DUMMY RESULT"
     sendResultToServer chanOut jobid result bs
     reflectGhc (GHC.initGhcMonad Nothing) session
     putMVar lock ()
-  liftIO $ takeMVar lock
+  -- AD HOC TREATMENT
+  when isShowIfaceAbiHash $ liftIO $ takeMVar lock
 
 workerMain :: [String] -> Ghc ()
 workerMain flags = do
@@ -166,7 +175,7 @@ workerMain flags = do
 
   let wid :: Int = read (flags !! 0)
       (hin, hout) = (stdin, stdout)
-  liftIO $ logMessage (prompt wid ++ " Started")
+  -- liftIO $ logMessage (prompt wid ++ " Started")
   GHC.initGhcMonad Nothing
   -- explicitly initialize loader.
   lookup_cache <- liftIO $ newMVar emptyUFM
