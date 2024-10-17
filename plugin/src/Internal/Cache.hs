@@ -1,3 +1,5 @@
+{-# language CPP, NoFieldSelectors #-}
+
 module Internal.Cache where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
@@ -33,7 +35,7 @@ type SymbolMap = UniqFM FastString (Ptr ())
 
 newtype SymbolCache =
   SymbolCache { get :: SymbolMap }
-  deriving newtype (Semigroup)
+  deriving newtype (Semigroup, Monoid)
 
 data LinkerStats =
   LinkerStats {
@@ -386,8 +388,15 @@ report logVar cacheVar target =
 withHscState :: (MVar OrigNameCache -> MVar (Maybe LoaderState) -> MVar SymbolMap -> IO ()) -> Ghc ()
 withHscState use =
   withSession \ HscEnv {hsc_interp, hsc_NC = NameCache {nsNames}} ->
+#if __GLASGOW_HASKELL__ >= 910
     for_ hsc_interp \ Interp {interpLoader = Loader {loader_state}, interpLookupSymbolCache} ->
       liftIO $ use nsNames loader_state interpLookupSymbolCache
+#else
+    for_ hsc_interp \ Interp {interpLoader = Loader {loader_state}} ->
+      liftIO do
+      symbolCacheVar <- newMVar mempty
+      use nsNames loader_state symbolCacheVar
+#endif
 
 withCache :: MVar Log -> MVar Cache -> [String] -> Ghc a -> Ghc a
 withCache logVar cacheVar [src] prog = do
