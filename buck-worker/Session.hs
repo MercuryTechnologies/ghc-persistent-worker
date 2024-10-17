@@ -87,7 +87,7 @@ parseFlags argv = do
   logger1 <- getLogger
   let logger2 = setLogFlags logger1 (initLogFlags dflags1)
   (dflags, fileish_args, dynamicFlagWarnings) <- parseDynamicFlags logger2 dflags1 argv
-  pure (dflags {verbosity = 0}, setLogFlags logger2 (initLogFlags dflags), fileish_args, dynamicFlagWarnings)
+  pure (dflags, setLogFlags logger2 (initLogFlags dflags), fileish_args, dynamicFlagWarnings)
 
 initGhc ::
   DynFlags ->
