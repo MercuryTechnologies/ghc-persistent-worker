@@ -3,6 +3,7 @@ module Session where
 import Args (Args (..))
 import Cache (BinPath (..), Cache (..), withCache)
 import Control.Concurrent.MVar (MVar, modifyMVar_)
+import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (toList)
 import Data.List (dropWhileEnd, intercalate)
@@ -31,6 +32,7 @@ import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
+import GHC.Utils.Panic (throwGhcException, GhcException (UsageError))
 import Log (Log (..), logToState)
 import Prelude hiding (log)
 import System.Environment (setEnv)
@@ -85,7 +87,8 @@ initGhc ::
   Ghc [(String, Maybe Phase)]
 initGhc dflags0 logger fileish_args dynamicFlagWarnings = do
   liftIO $ printOrThrowDiagnostics logger (initPrintConfig dflags0) (initDiagOpts dflags0) flagWarnings'
-  let (dflags1, srcs, _objs) = parseTargetFiles dflags0 (map unLoc fileish_args)
+  let (dflags1, srcs, objs) = parseTargetFiles dflags0 (map unLoc fileish_args)
+  unless (null objs) $ throwGhcException (UsageError "Targets contain object files")
   setSessionDynFlags dflags1
   pure srcs
   where
