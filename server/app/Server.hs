@@ -53,8 +53,10 @@ runServer socketFile server = do
 initWorker :: FilePath -> [FilePath] -> WorkerId -> IO HandleSet
 initWorker ghcPath dbPaths i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
-  let db_options = concatMap (\db -> ["-package-db", db]) dbPaths
+  let rts_options = ["+RTS", "-N", "-RTS"]
+      db_options = concatMap (\db -> ["-package-db", db]) dbPaths
       ghc_options =
+        rts_options ++
         db_options ++
           [ "-plugin-package",
             "ghc-persistent-worker-plugin",
