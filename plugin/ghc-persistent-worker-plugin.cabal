@@ -40,6 +40,8 @@ library
                       filepath,
                       ghc,
                       ghc-boot,
+                      -- for now
+                      knob,
                       time,
                       transformers,
                       unix

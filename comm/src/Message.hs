@@ -9,6 +9,7 @@ module Message
     unwrapMsg,
     --
     TargetId (..),
+    JobId (..),
     Request (..),
     Response (..),
   ) where
@@ -80,6 +81,9 @@ unwrapMsg (Msg _n bs) = decode (L.fromStrict bs)
 newtype TargetId = TargetId String
   deriving (Show, Eq, Binary)
 
+newtype JobId = JobId Int
+  deriving (Eq, Num, Ord, Show, Binary)
+
 data Request = Request
   { requestWorkerTargetId :: Maybe TargetId,
     requestWorkerClose :: Bool,
@@ -91,7 +95,8 @@ data Request = Request
 instance Binary Request
 
 data Response = Response
-  { responseResult :: [String],
+  { responseJobId :: JobId,
+    responseResult :: [String],
     responseConsoleStdOut :: [String],
     responseConsoleStdErr :: [String]
   }

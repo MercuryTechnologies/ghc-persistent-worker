@@ -3,6 +3,7 @@
 module Server where
 
 import Control.Concurrent (forkFinally)
+import Control.Concurrent.MVar (newMVar)
 import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (forever, void, when)
@@ -68,9 +69,11 @@ initWorker ghcPath dbPaths i = do
             std_out = CreatePipe
           }
   (Just hstdin, Just hstdout, _, ph) <- createProcess proc_setup
+  -- exclusive channel.
+  chanArgIn <- newMVar hstdin
   let hset = HandleSet
         { handleProcess = ph,
-          handleArgIn = hstdin,
+          handleArgIn = chanArgIn,
           handleMsgOut = hstdout,
           handleMailbox = Mailbox []
         }
@@ -90,6 +93,11 @@ spawnWorker ghcPath dbPaths poolRef = do
   mailboxForWorker poolRef wid (handleMsgOut hset)
   pure (wid, hset)
 
+-- | Assign a worker corresponding to the target ID of a new job.
+--   If such a worker does not exist, spawn a new worker process.
+--   Then, a new Job Id is issued and the communication channel
+--   (HandleSet) between the orchestrator and the worker process is
+--   established.
 assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe TargetId -> IO (JobId, WorkerId, HandleSet)
 assignLoop ghcPath dbPaths poolRef mid = untilJustM $ do
   eassigned <- atomically $ assignJob poolRef mid
@@ -108,7 +116,7 @@ serve ghcPath dbPaths poolRef s = do
   let req :: Request = unwrapMsg msg
       mid = requestWorkerTargetId req
   (j, i, hset) <- assignLoop ghcPath dbPaths poolRef mid
-  
+
   res <- runReaderT (work req) (j, i, hset, poolRef)
   sendMsg s (wrapMsg res)
   when (requestWorkerClose req) $
