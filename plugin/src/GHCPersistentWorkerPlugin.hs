@@ -1,12 +1,13 @@
 {-# LANGUAGE NumericUnderscores #-}
 module GHCPersistentWorkerPlugin (frontendPlugin) where
 
-import Control.Concurrent (forkOS)
+import Control.Concurrent (forkOS, threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, takeMVar)
 import Control.Monad (forever, replicateM_, void)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as B
 import Data.Foldable (for_)
+import qualified Data.Knob
 import Data.List (intercalate)
 import Data.Time.Clock (getCurrentTime)
 import qualified GHC
@@ -35,6 +36,7 @@ import System.IO
   ( BufferMode (..),
     Handle,
     IOMode (..),
+    hClose,
     hFlush,
     hGetLine,
     hPutStrLn,
@@ -110,37 +112,28 @@ bannerJobEnd wid = do
   hPutStrLn stderr (show time)
   replicateM_ 5 (hPutStrLn stderr "|||||||||||||||||||||||||||||||||")
 
-withTempLogger :: Session -> Int -> Int -> (Ghc a) -> IO (B.ByteString, a)
+withTempLogger :: Session -> Int -> Int -> (Ghc a) -> IO B.ByteString
 withTempLogger session wid jobid action = do
-  tmpdir <- getTemporaryDirectory
-  let file_stdout = tmpdir </> "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stdout.log"
-      file_stderr = tmpdir </> "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stderr.log"
-  r <-
-    withFile file_stdout WriteMode $ \nstdout ->
-      withFile file_stderr WriteMode $ \nstderr -> do
-        r <-
-          flip reflectGhc session $
-            withTempSession
-              (\env ->
-                 env {
-                   hsc_logger = pushLogHook (logHook (nstdout, nstderr)) (hsc_logger env)
-                 }
-              )
-              action
-        hFlush nstdout
-        hFlush nstderr
-        pure r
-  bs <-
-    withFile file_stdout ReadMode $ \nstdout -> do
-      -- TODO: stderr as well
-      bs <- B.hGetContents nstdout
-      replicateM_ 5 (hPutStrLn stderr "****************")
-      B.hPut stderr bs
-      replicateM_ 5 (hPutStrLn stderr "****************")
-      pure bs
-  removeFile file_stdout
-  removeFile file_stderr
-  pure (bs, r)
+  let file_stdout = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stdout.log"
+      file_stderr = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stderr.log"
+  knob <- Data.Knob.newKnob B.empty
+  nstdout <- Data.Knob.newFileHandle knob file_stdout WriteMode
+  let nstderr = stderr
+  -- for now
+  withFile "/dev/null" AppendMode $ \nstderr -> do
+    flip reflectGhc session $
+      withTempSession
+        (\env ->
+           env {
+             hsc_logger = pushLogHook (logHook (nstdout, nstderr)) (hsc_logger env)
+           }
+        )
+        action
+    hFlush nstdout
+    hClose nstdout
+    hFlush nstderr
+  bs <- Data.Knob.getContents knob
+  pure bs
 
 loopShot :: Interp -> NameCache -> Handle -> MVar Handle -> Int -> Ghc ()
 loopShot interp nc hin chanOut wid = do
@@ -150,17 +143,20 @@ loopShot interp nc hin chanOut wid = do
       { hsc_interp = Just interp,
         hsc_NC = nc
       }
+  lock <- liftIO $ newEmptyMVar
   reifyGhc $ \session -> void $ forkOS $ do
     setEnvForJob env
     --
     bannerJobStart wid
-    (bs, _) <- withTempLogger session wid jobid (compileMain args)
+    bs <- withTempLogger session wid jobid (compileMain args)
     bannerJobEnd wid
     --
     -- TODO: will have more useful info
     let result = "DUMMY RESULT"
     sendResultToServer chanOut jobid result bs
     reflectGhc (GHC.initGhcMonad Nothing) session
+    putMVar lock ()
+  liftIO $ takeMVar lock
 
 workerMain :: [String] -> Ghc ()
 workerMain flags = do

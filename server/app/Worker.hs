@@ -6,6 +6,7 @@ module Worker
 ) where
 
 import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.MVar (putMVar, takeMVar)
 import Control.Concurrent.STM
   ( STM,
     TChan,
@@ -26,7 +27,7 @@ import qualified Data.IntMap as IM
 import qualified Data.List as L
 import Pool (HandleSet (..), JobId (..), Mailbox (..), Pool (..), WorkerId, finishJob)
 import Message (Request (..), Response (..))
-import System.IO (Handle, hFlush, hGetLine, hPutStrLn)
+import System.IO (Handle, hFlush, hGetLine, hPutStrLn, stderr)
 
 type JobM = ReaderT (JobId, WorkerId, HandleSet, TVar Pool) IO
 
@@ -56,20 +57,21 @@ mailboxForWorker poolRef wid hout = void (forkIO $ forever go)
         Nothing -> retry
         Just hset -> do
           let Mailbox lst = handleMailbox hset
-          case L.lookup (JobId jobid) lst of
+          case L.lookup jobid lst of
             Nothing -> retry
             Just chan -> writeTChan chan res
     go = do
       atomically blockUntilActive
       _ <- fetchUntil "*S*T*A*R*T*" hout
-      jobid <- read . unlines <$> fetchUntil "*J*O*B*I*D*" hout
+      jobid' <- read . unlines <$> fetchUntil "*J*O*B*I*D*" hout
       -- get stdout until delimiter
       console_stdout <- fetchUntil "*S*T*D*O*U*T*" hout
       -- get result metatdata until delimiter
       results <- fetchUntil "*R*E*S*U*L*T*" hout
       -- get stderr until delimiter
       console_stderr <- fetchUntil "*D*E*L*I*M*I*T*E*D*" hout
-      let res = Response results console_stdout console_stderr
+      let jobid = JobId jobid'
+          res = Response jobid results console_stdout console_stderr
       atomically $ sendResult jobid res
 
 addJobChan :: TVar Pool -> WorkerId -> JobId -> STM (TChan Response, HandleSet)
@@ -104,10 +106,13 @@ sendRequest req = do
   (JobId jid, _, hset, _) <- ask
   let env = requestEnv req
       args = requestArgs req
-  let hi = handleArgIn hset
+  liftIO $ hPutStrLn stderr (show req)
+  liftIO $ hFlush stderr
   liftIO $ do
+    hi <- takeMVar (handleArgIn hset)
     hPutStrLn hi (show (env, show jid : args))
     hFlush hi
+    putMVar (handleArgIn hset) hi
 
 waitResponse :: TChan Response -> JobM Response
 waitResponse chan = do
@@ -124,7 +129,7 @@ work req = do
   (chan, _) <- liftIO $ atomically $ addJobChan poolRef wid jid
 
   sendRequest req
-  res@(Response results _ _) <- waitResponse chan
+  res@(Response _ results _ _) <- waitResponse chan
 
-  liftIO $ putStrLn $ "worker " ++ show wid ++ " returns: " ++ show results
+  liftIO $ putStrLn $ "worker " ++ show wid ++ " returns: " ++ show res
   pure res
