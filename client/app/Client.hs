@@ -86,7 +86,7 @@ process socketPath mid willClose env args = runClient socketPath $ \s -> do
   sendMsg s msg
   --
   msg' <- recvMsg s
-  let Response res ss_out ss_err = unwrapMsg msg'
+  let Response jobid res ss_out ss_err = unwrapMsg msg'
   mapM_ (hPutStrLn stdout) ss_out
   hFlush stdout
   mapM_ (hPutStrLn stderr) ss_err

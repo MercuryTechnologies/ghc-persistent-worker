@@ -14,21 +14,19 @@ module Pool
   removeWorker,
 ) where
 
+import Control.Concurrent.MVar (MVar)
 import Control.Concurrent.STM (STM, TChan, TVar, atomically, readTVar, retry, writeTVar)
 import Control.Exception (mask)
 import qualified Data.Foldable as F
 import Data.IntMap (IntMap, Key)
 import qualified Data.IntMap as IM
 import qualified Data.List as List
-import Message (Response, TargetId)
+import Message (JobId (..), Response, TargetId)
 import System.IO (Handle, hFlush, hPrint, hPutStrLn, stdout)
 import System.Process (ProcessHandle, terminateProcess)
 
 type WorkerStatus = IntMap (Int, Maybe TargetId)
 type WorkerId = Key
-
-newtype JobId = JobId Int
-  deriving (Eq, Num, Ord, Show)
 
 data Mailbox = Mailbox
   { mailboxJobChan :: [(JobId, TChan Response)]
@@ -36,7 +34,7 @@ data Mailbox = Mailbox
 
 data HandleSet = HandleSet
   { handleProcess :: ProcessHandle,
-    handleArgIn :: Handle,
+    handleArgIn :: MVar Handle,
     handleMsgOut :: Handle,
     handleMailbox :: Mailbox
 
@@ -77,12 +75,13 @@ getAssignableWorker ::
   Maybe (WorkerId, (Int, Maybe TargetId))
 getAssignableWorker workers mid' = List.find (isAssignable . snd) . IM.toAscList $ workers
   where
-    isAssignable (numActive, mid)
-      | numActive == 0 = case (mid, mid') of
-                  (Nothing, _) -> True
-                  (Just _, Nothing) -> True
-                  (Just id'', Just id') -> id' == id''
-      | otherwise = False
+    isAssignable (_numActive, mid)
+      --   | numActive == 0
+      = case (mid, mid') of
+         (Nothing, _) -> True
+         (Just _, Nothing) -> True
+         (Just id'', Just id') -> id' == id''
+      --  | otherwise = False
 
 assignJob ::
   TVar Pool ->
@@ -95,13 +94,13 @@ assignJob poolRef mid' = do
   let m = getAssignableWorker workers mid'
   case m of
     Nothing -> do
-      let nRunningJobs = length $ filter (\(n, _) -> n > 0) $ F.toList workers
+      let nRunningJobs = sum $ fmap fst $ F.toList workers
       if (nRunningJobs >= poolLimit pool)
         then retry
         else pure (Left nRunningJobs)
     Just (wid, _) -> do
-      let upd (_, Nothing) = Just (1, mid')
-          upd (_, Just id'') = Just (1, Just id'')
+      let upd (n, Nothing) = Just (n + 1, mid')
+          upd (n, Just id'') = Just (n + 1, Just id'')
           !workers' = IM.update upd wid workers
           Just hset = List.lookup wid (poolHandles pool)
       writeTVar poolRef (pool {poolStatus = workers'})
@@ -112,7 +111,7 @@ finishJob :: TVar Pool -> WorkerId -> STM ()
 finishJob ref i = do
   pool <- readTVar ref
   let workers = poolStatus pool
-      !workers' = IM.update (\(_, m)  -> Just (0, m)) i workers
+      !workers' = IM.update (\(n, m)  -> Just (n - 1, m)) i workers
   writeTVar ref (pool {poolStatus = workers'})
 
 removeWorker :: TVar Pool -> TargetId -> IO ()
