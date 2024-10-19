@@ -14,7 +14,8 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Time.Clock (getCurrentTime)
 import qualified GHC
-import GHC.Driver.Env (HscEnv (hsc_NC, hsc_interp, hsc_logger, hsc_unit_env))
+import GHC.Driver.DynFlags (defaultDynFlags, initDynFlags)
+import GHC.Driver.Env (HscEnv (hsc_NC, hsc_dflags, hsc_interp, hsc_logger, hsc_unit_env))
 import GHC.Driver.Monad (Ghc, Session, withSession, withTempSession, modifySession, reflectGhc, reifyGhc)
 import GHC.Driver.Plugins (FrontendPlugin (..), defaultFrontendPlugin)
 import qualified GHC.Linker.Loader as Loader
@@ -28,6 +29,8 @@ import GHC.Main
   )
 import GHC.Runtime.Interpreter.Types (Interp (..), InterpInstance (..))
 import GHC.Settings.Config (cProjectVersion)
+import GHC.SysTools (initSysTools)
+import GHC.SysTools.BaseDir (findTopDir)
 import GHC.Types.Name.Cache (NameCache (..))
 import GHC.Types.Unique.FM (emptyUFM)
 import GHC.Unit.Module.Env (plusModuleEnv)
@@ -130,18 +133,7 @@ withTempLogger session logVar wid jobid action = do
   nstderr <- Data.Knob.newFileHandle knob_err file_stderr WriteMode
   modifyMVar_ logVar $ \m ->
     pure $ M.insert tid (nstdout, nstderr) m
-  -- let nstderr = stderr
-  -- for now
-  -- withFile "/dev/null" AppendMode $ \nstderr -> do
   reflectGhc action session
-    {- withTempSession
-    #  (\env ->
-    #     env {
-           hsc_logger = pushLogHook (logHook logVar) (hsc_logger env)
-         }
-      ) -}
-  --    action
-  -- hFlush nstdout
   hClose nstdout
   hClose nstderr
   modifyMVar_ logVar $ \m ->
@@ -156,6 +148,7 @@ loopShot interp nc hin chanOut wid = do
   (jobid, env, args) <- liftIO $ recvRequestFromServer hin wid
   -- liftIO $ hPutStrLn stderr ("In loopShot: " ++ show (jobid, args))
   let isShowIfaceAbiHash = any (== "--show-iface-abi-hash") args
+      isDepJson = any (== "-dep-json") args
   logVar <- liftIO $ newMVar M.empty
 
   modifySession $ \env ->
@@ -172,50 +165,23 @@ loopShot interp nc hin chanOut wid = do
     -- bannerJobStart wid
     bs <-
       withTempLogger session logVar wid jobid $ do
-        {-do
-           nc' <- hsc_NC <$> GHC.getSession
-           liftIO $ do
-             monc' <- tryTakeMVar (nsNames nc')
-             case monc' of
-               Nothing -> pure ()
-               Just onc' -> do
-                 mapM_ (hPutStrLn stderr) $ fmap showPprUnsafe (moduleEnvKeys onc')
-                 putStrLn "=================="
-                 putMVar (nsNames nc') onc'
-        -}
         compileMain args
-        {-
-        do
-           nc' <- hsc_NC <$> GHC.getSession
-           liftIO $ do
-             monc' <- tryTakeMVar (nsNames nc')
-             case monc' of
-               Nothing -> pure ()
-               Just onc' -> do
-                 mapM_ (hPutStrLn stderr) $ fmap showPprUnsafe (moduleEnvKeys onc')
-                 putStrLn "************"
-                 putMVar (nsNames nc') onc'
-        -}
-        nc' <- hsc_NC <$> GHC.getSession
-        liftIO $ do
-          monc' <- tryTakeMVar (nsNames nc')
-          case monc' of
-            Nothing -> pure ()
-            Just onc' -> do
-              monc <- tryTakeMVar (nsNames nc)
-              case monc of
-                Nothing -> pure ()
-                Just onc -> putMVar (nsNames nc) (plusModuleEnv onc onc')
-              putMVar (nsNames nc') onc'
     -- bannerJobEnd wid
     --
     -- TODO: will have more useful info
     let result = "DUMMY RESULT"
     sendResultToServer chanOut jobid result bs
-    reflectGhc (GHC.initGhcMonad Nothing) session
+    -- AD HOC TREATMENT
+    top_dir <- findTopDir Nothing
+    mySettings <- initSysTools top_dir
+    dflags <- initDynFlags (defaultDynFlags mySettings)
+    flip reflectGhc session $
+      if isShowIfaceAbiHash || isDepJson
+        then GHC.initGhcMonad Nothing
+        else modifySession $ \env -> env {hsc_dflags = dflags}
     putMVar lock ()
   -- AD HOC TREATMENT
-  when isShowIfaceAbiHash $ liftIO $ takeMVar lock
+  when (isShowIfaceAbiHash || isDepJson) $ liftIO $ takeMVar lock
 
 workerMain :: [String] -> Ghc ()
 workerMain flags = do
