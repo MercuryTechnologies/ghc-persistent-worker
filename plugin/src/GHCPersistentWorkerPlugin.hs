@@ -2,14 +2,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 module GHCPersistentWorkerPlugin (frontendPlugin) where
 
-import Control.Concurrent (forkOS)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, takeMVar)
+import Control.Concurrent (ThreadId, forkOS, myThreadId)
+import Control.Concurrent.MVar (MVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, takeMVar, tryTakeMVar)
 import Control.Monad (forever, replicateM_, void, when)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as B
 import Data.Foldable (for_)
 import qualified Data.Knob
 import Data.List (intercalate)
+import Data.Map (Map)
+import qualified Data.Map as M
 import Data.Time.Clock (getCurrentTime)
 import qualified GHC
 import GHC.Driver.Env (HscEnv (hsc_NC, hsc_interp, hsc_logger, hsc_unit_env))
@@ -26,8 +28,9 @@ import GHC.Main
   )
 import GHC.Runtime.Interpreter.Types (Interp (..), InterpInstance (..))
 import GHC.Settings.Config (cProjectVersion)
-import GHC.Types.Name.Cache (NameCache)
+import GHC.Types.Name.Cache (NameCache (..))
 import GHC.Types.Unique.FM (emptyUFM)
+import GHC.Unit.Module.Env (plusModuleEnv)
 import GHC.Utils.Logger (pushLogHook)
 import Logger (logHook)
 import System.Directory (getTemporaryDirectory, removeFile, setCurrentDirectory)
@@ -49,6 +52,8 @@ import System.IO
   )
 import Util (openFileAfterCheck, openPipeRead, openPipeWrite)
 
+import GHC.Utils.Outputable (showPprUnsafe)
+import GHC.Unit.Module.Env (moduleEnvKeys)
 
 frontendPlugin :: FrontendPlugin
 frontendPlugin = defaultFrontendPlugin
@@ -113,28 +118,34 @@ bannerJobEnd wid = do
   hPutStrLn stderr (show time)
   replicateM_ 5 (hPutStrLn stderr "|||||||||||||||||||||||||||||||||")
 
-withTempLogger :: Session -> Int -> Int -> (Ghc a) -> IO B.ByteString
-withTempLogger session wid jobid action = do
+withTempLogger :: Session -> MVar (Map ThreadId (Handle, Handle)) -> Int -> Int -> (Ghc a) -> IO B.ByteString
+withTempLogger session logVar wid jobid action = do
+  tid <- myThreadId
   let file_stdout = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stdout.log"
       file_stderr = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stderr.log"
+   
   knob_out <- Data.Knob.newKnob B.empty
   knob_err <- Data.Knob.newKnob B.empty
   nstdout <- Data.Knob.newFileHandle knob_out file_stdout WriteMode
   nstderr <- Data.Knob.newFileHandle knob_err file_stderr WriteMode
+  modifyMVar_ logVar $ \m ->
+    pure $ M.insert tid (nstdout, nstderr) m
   -- let nstderr = stderr
   -- for now
   -- withFile "/dev/null" AppendMode $ \nstderr -> do
-  flip reflectGhc session $
-    withTempSession
-      (\env ->
-         env {
-           hsc_logger = pushLogHook (logHook (nstdout, nstderr)) (hsc_logger env)
+  reflectGhc action session
+    {- withTempSession
+    #  (\env ->
+    #     env {
+           hsc_logger = pushLogHook (logHook logVar) (hsc_logger env)
          }
-      )
-      action
+      ) -}
+  --    action
   -- hFlush nstdout
   hClose nstdout
   hClose nstderr
+  modifyMVar_ logVar $ \m ->
+    pure $ M.delete tid m
   -- hFlush nstderr
   bs <- Data.Knob.getContents knob_out
   bs2 <- Data.Knob.getContents knob_err
@@ -143,20 +154,59 @@ withTempLogger session wid jobid action = do
 loopShot :: Interp -> NameCache -> Handle -> MVar Handle -> Int -> Ghc ()
 loopShot interp nc hin chanOut wid = do
   (jobid, env, args) <- liftIO $ recvRequestFromServer hin wid
-  liftIO $ hPutStrLn stderr ("In loopShot: " ++ show (jobid, args))
+  -- liftIO $ hPutStrLn stderr ("In loopShot: " ++ show (jobid, args))
   let isShowIfaceAbiHash = any (== "--show-iface-abi-hash") args
+  logVar <- liftIO $ newMVar M.empty
 
   modifySession $ \env ->
     env
       { hsc_interp = Just interp,
+        hsc_logger = pushLogHook (logHook logVar) (hsc_logger env),        
         hsc_NC = nc
       }
+
   lock <- liftIO $ newEmptyMVar
   reifyGhc $ \session -> void $ forkOS $ do
     setEnvForJob env
     --
     -- bannerJobStart wid
-    bs <- withTempLogger session wid jobid (compileMain args)
+    bs <-
+      withTempLogger session logVar wid jobid $ do
+        {-do
+           nc' <- hsc_NC <$> GHC.getSession
+           liftIO $ do
+             monc' <- tryTakeMVar (nsNames nc')
+             case monc' of
+               Nothing -> pure ()
+               Just onc' -> do
+                 mapM_ (hPutStrLn stderr) $ fmap showPprUnsafe (moduleEnvKeys onc')
+                 putStrLn "=================="
+                 putMVar (nsNames nc') onc'
+        -}
+        compileMain args
+        {-
+        do
+           nc' <- hsc_NC <$> GHC.getSession
+           liftIO $ do
+             monc' <- tryTakeMVar (nsNames nc')
+             case monc' of
+               Nothing -> pure ()
+               Just onc' -> do
+                 mapM_ (hPutStrLn stderr) $ fmap showPprUnsafe (moduleEnvKeys onc')
+                 putStrLn "************"
+                 putMVar (nsNames nc') onc'
+        -}
+        nc' <- hsc_NC <$> GHC.getSession
+        liftIO $ do
+          monc' <- tryTakeMVar (nsNames nc')
+          case monc' of
+            Nothing -> pure ()
+            Just onc' -> do
+              monc <- tryTakeMVar (nsNames nc)
+              case monc of
+                Nothing -> pure ()
+                Just onc -> putMVar (nsNames nc) (plusModuleEnv onc onc')
+              putMVar (nsNames nc') onc'
     -- bannerJobEnd wid
     --
     -- TODO: will have more useful info

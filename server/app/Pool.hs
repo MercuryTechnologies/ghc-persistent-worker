@@ -65,8 +65,10 @@ newJobId ref = do
 dumpStatus :: TVar Pool -> IO ()
 dumpStatus ref = do
   pool <- atomically (readTVar ref)
+  hPutStrLn stdout $ "----------------"
   hPutStrLn stdout $ "poolLimit = " ++ show (poolLimit pool)
   mapM_ (hPrint stdout) $ IM.toAscList (poolStatus pool)
+  hPutStrLn stdout $ "----------------"  
   hFlush stdout
 
 getAssignableWorker ::
