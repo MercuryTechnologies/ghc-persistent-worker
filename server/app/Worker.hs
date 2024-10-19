@@ -106,8 +106,8 @@ sendRequest req = do
   (JobId jid, _, hset, _) <- ask
   let env = requestEnv req
       args = requestArgs req
-  liftIO $ hPutStrLn stderr ("Req: " ++ show jid ++ ": " ++ show args)
-  liftIO $ hFlush stderr
+  -- liftIO $ hPutStrLn stderr ("Req: " ++ show jid ++ ": " ++ show args)
+  -- liftIO $ hFlush stderr
   liftIO $ do
     hi <- takeMVar (handleArgIn hset)
     hPutStrLn hi (show (env, show jid : args))
@@ -129,7 +129,7 @@ work req = do
   (chan, _) <- liftIO $ atomically $ addJobChan poolRef wid jid
 
   sendRequest req
-  res@(Response _ results _ _) <- waitResponse chan
+  res <- waitResponse chan
 
-  liftIO $ putStrLn $ "worker " ++ show wid ++ " returns: " ++ show res
+  -- liftIO $ putStrLn $ "worker " ++ show wid ++ " returns: " ++ show res
   pure res

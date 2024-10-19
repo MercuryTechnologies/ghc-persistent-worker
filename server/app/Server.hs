@@ -52,7 +52,7 @@ runServer socketFile server = do
 
 initWorker :: FilePath -> [FilePath] -> WorkerId -> IO HandleSet
 initWorker ghcPath dbPaths i = do
-  putStrLn $ "worker " ++ show i ++ " is initialized"
+  -- putStrLn $ "worker " ++ show i ++ " is initialized"
   let rts_options = ["+RTS", "-N", "-RTS"]
       db_options = concatMap (\db -> ["-package-db", db]) dbPaths
       ghc_options =
@@ -118,12 +118,11 @@ serve ghcPath dbPaths poolRef s = do
   let req :: Request = unwrapMsg msg
       mid = requestWorkerTargetId req
   (j, i, hset) <- assignLoop ghcPath dbPaths poolRef mid
-
+  dumpStatus poolRef
   res <- runReaderT (work req) (j, i, hset, poolRef)
   sendMsg s (wrapMsg res)
   when (requestWorkerClose req) $
     case mid of
       Nothing -> pure ()
       Just id' -> removeWorker poolRef id'
-  dumpStatus poolRef
   serve ghcPath dbPaths poolRef s
