@@ -20,6 +20,13 @@ library
     import:           warnings
     hs-source-dirs:   src
     exposed-modules:  GHCPersistentWorkerPlugin
+                      Internal.AbiHash
+                      Internal.Args
+                      Internal.Cache
+                      Internal.Compile
+                      Internal.Error
+                      Internal.Log
+                      Internal.Session
                       Util
     if (impl(ghc > 9.11))
         hs-source-dirs: src-ghcHEAD
@@ -37,6 +44,7 @@ library
                       bytestring,
                       containers,
                       directory,
+                      exceptions,
                       filepath,
                       ghc,
                       ghc-boot,
@@ -44,3 +52,12 @@ library
                       transformers,
                       unix
     default-language: GHC2021
+    default-extensions:
+      BlockArguments,
+      DerivingStrategies,
+      DuplicateRecordFields,
+      LambdaCase,
+      NoFieldSelectors,
+      OverloadedRecordDot,
+      RecordWildCards,
+      StrictData
