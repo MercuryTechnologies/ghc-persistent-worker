@@ -1,6 +1,6 @@
 {-# language BlockArguments #-}
 
-module Error where
+module Internal.Error where
 
 import Control.Concurrent.MVar (MVar)
 import Control.Exception (AsyncException (..), Exception (..), IOException, throwIO)
@@ -8,7 +8,7 @@ import qualified Control.Monad.Catch as MC
 import Control.Monad.IO.Class (liftIO)
 import GHC (Ghc, GhcException (..), printException)
 import GHC.Types.SourceError (SourceError)
-import Log (Log, logOther)
+import Internal.Log (Log, logOther)
 import System.Environment (getProgName)
 import System.Exit (ExitCode)
 

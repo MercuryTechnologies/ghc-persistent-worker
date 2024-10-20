@@ -1,4 +1,4 @@
-module AbiHash where
+module Internal.AbiHash where
 
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import GHC.Driver.Config.Logger (initLogFlags)

@@ -1,7 +1,5 @@
-module Session where
+module Internal.Session where
 
-import Args (Args (..))
-import Cache (BinPath (..), Cache (..), withCache)
 import Control.Concurrent.MVar (MVar, modifyMVar_)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
@@ -11,7 +9,6 @@ import Data.List (dropWhileEnd, intercalate)
 import Data.List.NonEmpty (nonEmpty)
 import Data.Maybe (maybeToList)
 import qualified Data.Set as Set
-import Error (handleExceptions)
 import GHC (
   DynFlags (..),
   Ghc,
@@ -39,7 +36,10 @@ import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
 import GHC.Utils.TmpFs (TempDir (..))
-import Log (Log (..), logToState)
+import Internal.Args (Args (..))
+import Internal.Cache (BinPath (..), Cache (..), withCache)
+import Internal.Error (handleExceptions)
+import Internal.Log (Log (..), logToState)
 import Prelude hiding (log)
 import System.Environment (setEnv)
 
