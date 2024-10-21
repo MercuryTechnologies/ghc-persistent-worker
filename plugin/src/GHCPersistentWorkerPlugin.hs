@@ -126,14 +126,20 @@ withTempLogger session logVar wid jobid action = do
   tid <- myThreadId
   let file_stdout = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stdout.log"
       file_stderr = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stderr.log"
-   
+
   knob_out <- Data.Knob.newKnob B.empty
   knob_err <- Data.Knob.newKnob B.empty
   nstdout <- Data.Knob.newFileHandle knob_out file_stdout WriteMode
   nstderr <- Data.Knob.newFileHandle knob_err file_stderr WriteMode
   modifyMVar_ logVar $ \m ->
     pure $ M.insert tid (nstdout, nstderr) m
-  reflectGhc action session
+
+  -- reinit dynFlags
+  top_dir <- findTopDir Nothing
+  mySettings <- initSysTools top_dir
+  dflags <- initDynFlags (defaultDynFlags mySettings)
+
+  reflectGhc (withTempSession (\env -> env {hsc_dflags = dflags}) action) session
   hClose nstdout
   hClose nstderr
   modifyMVar_ logVar $ \m ->
@@ -154,7 +160,7 @@ loopShot interp nc hin chanOut wid = do
   modifySession $ \env ->
     env
       { hsc_interp = Just interp,
-        hsc_logger = pushLogHook (logHook logVar) (hsc_logger env),        
+        hsc_logger = pushLogHook (logHook logVar) (hsc_logger env),
         hsc_NC = nc
       }
 
@@ -172,13 +178,10 @@ loopShot interp nc hin chanOut wid = do
     let result = "DUMMY RESULT"
     sendResultToServer chanOut jobid result bs
     -- AD HOC TREATMENT
-    top_dir <- findTopDir Nothing
-    mySettings <- initSysTools top_dir
-    dflags <- initDynFlags (defaultDynFlags mySettings)
     flip reflectGhc session $
       if isShowIfaceAbiHash || isDepJson
         then GHC.initGhcMonad Nothing
-        else modifySession $ \env -> env {hsc_dflags = dflags}
+        else pure ()  -- modifySession $ \env -> env {hsc_dflags = dflags}
     putMVar lock ()
   -- AD HOC TREATMENT
   when (isShowIfaceAbiHash || isDepJson) $ liftIO $ takeMVar lock
