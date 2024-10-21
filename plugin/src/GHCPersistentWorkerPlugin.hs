@@ -35,7 +35,7 @@ import GHC.SysTools.BaseDir (findTopDir)
 import GHC.Types.Name.Cache (NameCache (..))
 import GHC.Types.Unique.FM (emptyUFM)
 import GHC.Unit.Module.Env (plusModuleEnv)
-import GHC.Utils.Logger (pushLogHook)
+import GHC.Utils.Logger (makeThreadSafe, pushLogHook)
 import Logger (logHook)
 import System.Directory (getTemporaryDirectory, removeFile, setCurrentDirectory)
 import System.Environment (setEnv)
@@ -131,7 +131,7 @@ withTempLogger session wid jobid action = do
   knob_out <- Data.Knob.newKnob B.empty
   knob_err <- Data.Knob.newKnob B.empty
   nstdout <- Data.Knob.newFileHandle knob_out file_stdout WriteMode
-  nstderr <- Data.Knob.newFileHandle knob_err file_stderr WriteMode
+  -- nstderr <- Data.Knob.newFileHandle knob_err file_stderr WriteMode
 
   -- reinit dynFlags
   top_dir <- findTopDir Nothing
@@ -142,30 +142,23 @@ withTempLogger session wid jobid action = do
     withTempSession
       ( \env ->
            env {
-             hsc_logger = pushLogHook (logHook (nstdout, nstderr)) (hsc_logger env),
+             hsc_logger = pushLogHook (logHook (nstdout, stderr)) (hsc_logger env),
              hsc_dflags = dflags
            }
       )
       action
   hClose nstdout
-  hClose nstderr
+  -- hClose nstderr
 
   bs <- Data.Knob.getContents knob_out
   bs2 <- Data.Knob.getContents knob_err
   pure (bs <> "\n" <> bs2)
 
-loopShot :: Interp -> NameCache -> Handle -> MVar Handle -> Int -> Ghc ()
-loopShot interp nc hin chanOut wid = do
+loopShot :: Handle -> MVar Handle -> Int -> Ghc ()
+loopShot hin chanOut wid = do
   (jobid, env, args) <- liftIO $ recvRequestFromServer hin wid
-  -- liftIO $ hPutStrLn stderr ("In loopShot: " ++ show (jobid, args))
   let isShowIfaceAbiHash = any (== "--show-iface-abi-hash") args
       isDepJson = any (== "-dep-json") args
-
-  modifySession $ \env ->
-    env
-      { hsc_interp = Just interp,
-        hsc_NC = nc
-      }
 
   lock <- liftIO $ newEmptyMVar
   reifyGhc $ \session -> void $ forkOS $ do
@@ -181,11 +174,9 @@ loopShot interp nc hin chanOut wid = do
     -- TODO: will have more useful info
     let result = "DUMMY RESULT"
     sendResultToServer chanOut jobid result bs
-    -- AD HOC TREATMENT
-    flip reflectGhc session $
-      if isShowIfaceAbiHash || isDepJson
-        then GHC.initGhcMonad Nothing
-        else pure ()  -- modifySession $ \env -> env {hsc_dflags = dflags}
+    -- AD HOC TREATMENT: Somehow, show-iface-abi-hash and dep-json need a full re-initialization.
+    when (isShowIfaceAbiHash || isDepJson) $
+      reflectGhc (GHC.initGhcMonad Nothing) session
     putMVar lock ()
   -- AD HOC TREATMENT
   when (isShowIfaceAbiHash || isDepJson) $ liftIO $ takeMVar lock
@@ -205,9 +196,21 @@ workerMain flags = do
   loader <- liftIO Loader.uninitializedLoader
   let interp = Interp InternalInterp loader lookup_cache
   nc <- hsc_NC <$> GHC.getSession
+  logger <- hsc_logger <$> GHC.getSession
+
   -- exclusive message channel
   chanOut <- liftIO $ newMVar hout
-  forever $ loopShot interp nc hin chanOut wid
+
+  thread_safe_logger <- liftIO $ makeThreadSafe logger
+  modifySession $ \env ->
+    env
+      { hsc_interp = Just interp,
+        hsc_logger = thread_safe_logger,
+        hsc_NC = nc
+      }
+
+
+  forever $ loopShot hin chanOut wid
 
 compileMain :: [String] -> Ghc ()
 compileMain args = do
