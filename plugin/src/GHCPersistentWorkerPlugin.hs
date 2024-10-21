@@ -7,7 +7,7 @@ import Control.Concurrent.MVar (MVar, modifyMVar_, newEmptyMVar, newMVar, putMVa
 import qualified Control.Exception as Ex
 import Control.Monad (forever, replicateM_, void, when)
 import Control.Monad.IO.Class (liftIO)
-import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B
 import Data.Foldable (for_)
 import qualified Data.Knob
 import Data.Map (Map)
@@ -86,21 +86,19 @@ setEnvForJob env0 = do
   for_ (lookup "PWD" env) setCurrentDirectory
   for_ env $ \(var, val) -> setEnv var val
 
-sendResultToServer :: MVar Handle -> Int -> String -> B.ByteString -> IO ()
-sendResultToServer chanOut jobid result bs = do
+sendResultToServer :: MVar Handle -> Int -> String -> (B.ByteString, B.ByteString) -> IO ()
+sendResultToServer chanOut jobid result (bs_out, bs_err) = do
   hout <- takeMVar chanOut
   hPutStrLn hout "*S*T*A*R*T*"
-  hFlush hout
   hPutStrLn hout (show jobid)
   hPutStrLn hout "*J*O*B*I*D*"
-  hFlush hout
-  B.hPut hout bs
+  B.hPut hout (bs_out)
   hPutStrLn hout "" -- important to delimit with a new line.
   hPutStrLn hout "*S*T*D*O*U*T*"
-  hFlush hout
   hPutStrLn hout result
   hPutStrLn hout "*R*E*S*U*L*T*"
-  hFlush hout
+  B.hPut hout (bs_err)
+  hPutStrLn hout "" -- important to delimit with a new line.
   hPutStrLn hout "*D*E*L*I*M*I*T*E*D*"
   hFlush hout
   putMVar chanOut hout
@@ -121,7 +119,7 @@ bannerJobEnd wid = do
   hPutStrLn stderr (show time)
   replicateM_ 5 (hPutStrLn stderr "|||||||||||||||||||||||||||||||||")
 
-withTempLogger :: Session -> Int -> Int -> (Ghc a) -> IO B.ByteString
+withTempLogger :: Session -> Int -> Int -> (Ghc a) -> IO (B.ByteString, B.ByteString)
 withTempLogger session wid jobid action = do
   let file_stdout = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stdout.log"
       file_stderr = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stderr.log"
@@ -129,7 +127,7 @@ withTempLogger session wid jobid action = do
   knob_out <- Data.Knob.newKnob B.empty
   knob_err <- Data.Knob.newKnob B.empty
   nstdout <- Data.Knob.newFileHandle knob_out file_stdout WriteMode
-  -- nstderr <- Data.Knob.newFileHandle knob_err file_stderr WriteMode
+  nstderr <- Data.Knob.newFileHandle knob_err file_stderr WriteMode
 
   -- reinit dynFlags
   top_dir <- findTopDir Nothing
@@ -140,17 +138,17 @@ withTempLogger session wid jobid action = do
     withTempSession
       ( \env ->
            env {
-             hsc_logger = pushLogHook (logHook (nstdout, stderr)) (hsc_logger env),
+             hsc_logger = pushLogHook (logHook (nstdout, nstderr)) (hsc_logger env),
              hsc_dflags = dflags
            }
       )
       action
-  hClose nstdout
+  -- hClose nstdout
   -- hClose nstderr
 
-  bs <- Data.Knob.getContents knob_out
-  bs2 <- Data.Knob.getContents knob_err
-  pure (bs <> "\n" <> bs2)
+  bs_out <- Data.Knob.getContents knob_out
+  bs_err <- Data.Knob.getContents knob_err
+  pure (bs_out, bs_err)
 
 loopShot :: Handle -> MVar Handle -> Int -> Ghc ()
 loopShot hin chanOut wid = do
@@ -163,7 +161,7 @@ loopShot hin chanOut wid = do
     setEnvForJob env
     --
     let mainAction = withTempLogger session wid jobid (compileMain args)
-    bs <-
+    (bs_out, bs_err) <-
       Ex.catch
         mainAction
         -- AD HOC: do it once again.
@@ -175,16 +173,15 @@ loopShot hin chanOut wid = do
                   Ex.catch
                     (threadDelay 3_000_000 >> mainAction)
                     -- Show exception
-                    ( \(e :: Ex.SomeException) -> do
-                        hPutStrLn stderr (show e)
-                        pure ""
+                    ( \(e :: Ex.SomeException) ->
+                        pure ("", B.pack (show e))
                     )
               )
         )
     --
     -- TODO: will have more useful info
     let result = "DUMMY RESULT"
-    sendResultToServer chanOut jobid result bs
+    sendResultToServer chanOut jobid result (bs_out, bs_err)
     -- AD HOC TREATMENT: Somehow, show-iface-abi-hash and dep-json need a full re-initialization.
     when (isShowIfaceAbiHash || isDepJson) $
       reflectGhc (GHC.initGhcMonad Nothing) session
