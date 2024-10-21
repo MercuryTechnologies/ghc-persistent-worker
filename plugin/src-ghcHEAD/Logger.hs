@@ -33,8 +33,8 @@ import System.IO (Handle)
 --
 -- override defaultLogAction. Redirect stdout/stderr to accumulated bytestring
 --
-logHook :: MVar (Map ThreadId (Handle, Handle)) -> LogAction -> LogAction
-logHook logVar _ logflags msg_class srcSpan msg
+logHook :: (Handle, Handle) -> LogAction -> LogAction
+logHook (nstdout, nstderr) _ logflags msg_class srcSpan msg
   | log_dopt Opt_D_dump_json logflags = jsonLogAction' logflags msg_class srcSpan msg
   | otherwise = case msg_class of
       MCOutput                     -> printOut msg
@@ -45,15 +45,9 @@ logHook logVar _ logflags msg_class srcSpan msg
       MCDiagnostic SevIgnore _ _   -> pure () -- suppress the message
       MCDiagnostic _sev _rea _code -> printDiagnostics
   where
-    checkOutLogVar action = do
-      tid <- myThreadId
-      modifyMVar_ logVar $ \logMap ->
-        case M.lookup tid logMap of
-          Nothing -> pure logMap
-          Just (nstdout, nstderr) -> action (nstdout, nstderr) >> pure logMap
-    printOut msg = checkOutLogVar (\(nstdout, _) -> defaultLogActionHPrintDoc  logflags False nstdout msg) 
-    printErrs msg = checkOutLogVar (\(_, nstderr) -> defaultLogActionHPrintDoc  logflags False nstderr msg)
-    putStrSDoc msg = checkOutLogVar (\(nstdout, _) -> defaultLogActionHPutStrDoc logflags False nstdout msg)
+    printOut = defaultLogActionHPrintDoc  logflags False nstdout
+    printErrs = defaultLogActionHPrintDoc  logflags False nstderr
+    putStrSDoc = defaultLogActionHPutStrDoc logflags False nstdout
     -- Pretty print the warning flag, if any (#10752)
     message = mkLocMessageWarningGroups (log_show_warn_groups logflags) msg_class srcSpan msg
 
@@ -73,7 +67,9 @@ logHook logVar _ logflags msg_class srcSpan msg
     jsonLogAction' :: LogAction
     jsonLogAction' _ (MCDiagnostic SevIgnore _ _) _ _ = return () -- suppress the message
     jsonLogAction' logflags msg_class srcSpan msg
-      = checkOutLogVar (\(nstdout, _) -> defaultLogActionHPutStrDoc logflags True nstdout (withPprStyle PprCode (doc $$ text "")))
+      =
+        defaultLogActionHPutStrDoc logflags True nstdout
+          (withPprStyle PprCode (doc $$ text ""))
         where
           str = renderWithContext (log_default_user_context logflags) msg
           doc = renderJSON $
