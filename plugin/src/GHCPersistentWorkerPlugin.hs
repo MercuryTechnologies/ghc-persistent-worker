@@ -122,8 +122,8 @@ bannerJobEnd wid = do
   hPutStrLn stderr (show time)
   replicateM_ 5 (hPutStrLn stderr "|||||||||||||||||||||||||||||||||")
 
-withTempLogger :: Session -> MVar (Map ThreadId (Handle, Handle)) -> Int -> Int -> (Ghc a) -> IO B.ByteString
-withTempLogger session logVar wid jobid action = do
+withTempLogger :: Session -> Int -> Int -> (Ghc a) -> IO B.ByteString
+withTempLogger session wid jobid action = do
   tid <- myThreadId
   let file_stdout = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stdout.log"
       file_stderr = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stderr.log"
@@ -132,20 +132,24 @@ withTempLogger session logVar wid jobid action = do
   knob_err <- Data.Knob.newKnob B.empty
   nstdout <- Data.Knob.newFileHandle knob_out file_stdout WriteMode
   nstderr <- Data.Knob.newFileHandle knob_err file_stderr WriteMode
-  modifyMVar_ logVar $ \m ->
-    pure $ M.insert tid (nstdout, nstderr) m
 
   -- reinit dynFlags
   top_dir <- findTopDir Nothing
   mySettings <- initSysTools top_dir
   dflags <- initDynFlags (defaultDynFlags mySettings)
 
-  reflectGhc (withTempSession (\env -> env {hsc_dflags = dflags}) action) session
+  flip reflectGhc session $
+    withTempSession
+      ( \env ->
+           env {
+             hsc_logger = pushLogHook (logHook (nstdout, nstderr)) (hsc_logger env),
+             hsc_dflags = dflags
+           }
+      )
+      action
   hClose nstdout
   hClose nstderr
-  modifyMVar_ logVar $ \m ->
-    pure $ M.delete tid m
-  -- hFlush nstderr
+
   bs <- Data.Knob.getContents knob_out
   bs2 <- Data.Knob.getContents knob_err
   pure (bs <> "\n" <> bs2)
@@ -156,12 +160,10 @@ loopShot interp nc hin chanOut wid = do
   -- liftIO $ hPutStrLn stderr ("In loopShot: " ++ show (jobid, args))
   let isShowIfaceAbiHash = any (== "--show-iface-abi-hash") args
       isDepJson = any (== "-dep-json") args
-  logVar <- liftIO $ newMVar M.empty
 
   modifySession $ \env ->
     env
       { hsc_interp = Just interp,
-        hsc_logger = pushLogHook (logHook logVar) (hsc_logger env),
         hsc_NC = nc
       }
 
@@ -169,7 +171,7 @@ loopShot interp nc hin chanOut wid = do
   reifyGhc $ \session -> void $ forkOS $ do
     setEnvForJob env
     --
-    let mainAction = withTempLogger session logVar wid jobid (compileMain args)
+    let mainAction = withTempLogger session wid jobid (compileMain args)
     bs <-
       Ex.catch
         mainAction
