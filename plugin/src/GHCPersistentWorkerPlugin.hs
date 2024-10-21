@@ -4,6 +4,7 @@ module GHCPersistentWorkerPlugin (frontendPlugin) where
 
 import Control.Concurrent (ThreadId, forkOS, myThreadId)
 import Control.Concurrent.MVar (MVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, takeMVar, tryTakeMVar)
+import qualified Control.Exception as Ex
 import Control.Monad (forever, replicateM_, void, when)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as B
@@ -168,11 +169,12 @@ loopShot interp nc hin chanOut wid = do
   reifyGhc $ \session -> void $ forkOS $ do
     setEnvForJob env
     --
-    -- bannerJobStart wid
+    let mainAction = withTempLogger session logVar wid jobid (compileMain args)
     bs <-
-      withTempLogger session logVar wid jobid $ do
-        compileMain args
-    -- bannerJobEnd wid
+      Ex.catch
+        mainAction
+        -- AD HOC: do it once again.
+        (\(e :: Ex.SomeException) -> mainAction)
     --
     -- TODO: will have more useful info
     let result = "DUMMY RESULT"

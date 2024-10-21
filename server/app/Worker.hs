@@ -131,5 +131,5 @@ work req = do
   sendRequest req
   res <- waitResponse chan
 
-  -- liftIO $ putStrLn $ "worker " ++ show wid ++ " returns: " ++ show res
+  -- liftIO $ putStrLn $ "worker " ++ show (wid, jid) ++ " returns: " ++ show (responseResult res)
   pure res
