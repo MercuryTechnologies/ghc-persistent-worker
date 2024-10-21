@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module GHCPersistentWorkerPlugin (frontendPlugin) where
 
-import Control.Concurrent (ThreadId, forkOS, myThreadId)
+import Control.Concurrent (ThreadId, forkOS, threadDelay)
 import Control.Concurrent.MVar (MVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, takeMVar, tryTakeMVar)
 import qualified Control.Exception as Ex
 import Control.Monad (forever, replicateM_, void, when)
@@ -10,7 +10,6 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as B
 import Data.Foldable (for_)
 import qualified Data.Knob
-import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Time.Clock (getCurrentTime)
@@ -78,12 +77,12 @@ recvRequestFromServer hin wid = do
   let jobid_str : args = args0
       jobid :: Int
       jobid = read jobid_str
-  -- logMessage (prompt wid ++ " job id = " ++ show jobid)
-  -- logMessage (prompt wid ++ " Got args: " ++ intercalate " " args)
   pure (jobid, env, args)
 
 setEnvForJob :: [(String, String)] -> IO ()
-setEnvForJob env = do
+setEnvForJob env0 = do
+  -- NOTE: Temporary directory should not be provided by client side.
+  let env = filter (\(k,_) -> k /= "TMPDIR") env0
   for_ (lookup "PWD" env) setCurrentDirectory
   for_ env $ \(var, val) -> setEnv var val
 
@@ -124,7 +123,6 @@ bannerJobEnd wid = do
 
 withTempLogger :: Session -> Int -> Int -> (Ghc a) -> IO B.ByteString
 withTempLogger session wid jobid action = do
-  tid <- myThreadId
   let file_stdout = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stdout.log"
       file_stderr = "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stderr.log"
 
@@ -169,7 +167,20 @@ loopShot hin chanOut wid = do
       Ex.catch
         mainAction
         -- AD HOC: do it once again.
-        (\(e :: Ex.SomeException) -> mainAction)
+        ( \(e :: Ex.SomeException) ->
+            Ex.catch
+              (threadDelay 1_000_000 >> mainAction)
+              -- AD HOC: do it another once again.
+              ( \(e :: Ex.SomeException) ->
+                  Ex.catch
+                    (threadDelay 3_000_000 >> mainAction)
+                    -- Show exception
+                    ( \(e :: Ex.SomeException) -> do
+                        hPutStrLn stderr (show e)
+                        pure ""
+                    )
+              )
+        )
     --
     -- TODO: will have more useful info
     let result = "DUMMY RESULT"
