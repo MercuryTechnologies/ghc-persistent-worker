@@ -1,5 +1,3 @@
-{-# language BlockArguments, DerivingStrategies #-}
-
 module AbiHash where
 
 import Control.Monad.IO.Class (MonadIO (liftIO))

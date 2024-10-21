@@ -2,19 +2,19 @@
 
 module Error where
 
+import Control.Concurrent.MVar (MVar)
 import Control.Exception (AsyncException (..), Exception (..), IOException, throwIO)
 import qualified Control.Monad.Catch as MC
 import Control.Monad.IO.Class (liftIO)
 import GHC (Ghc, GhcException (..), printException)
-import GHC.Driver.Session (FlushOut (..), defaultFatalMessager, defaultFlushOut)
 import GHC.Types.SourceError (SourceError)
+import Log (Log, logOther)
 import System.Environment (getProgName)
 import System.Exit (ExitCode)
 
-handleExceptions :: a -> Ghc a -> Ghc a
-handleExceptions errResult =
+handleExceptions :: MVar Log -> a -> Ghc a -> Ghc a
+handleExceptions logVar errResult =
   MC.handle \ e -> do
-    liftIO flushOut
     handler e
     pure errResult
   where
@@ -46,5 +46,4 @@ handleExceptions errResult =
       | otherwise
       = fm (show (Panic (show exception)))
 
-    fm = liftIO . defaultFatalMessager
-    FlushOut flushOut = defaultFlushOut
+    fm = logOther logVar

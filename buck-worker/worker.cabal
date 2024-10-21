@@ -15,3 +15,11 @@ executable worker-demo
     , unix
     , grpc-haskell
   default-language: GHC2021
+  default-extensions:
+    BlockArguments,
+    DerivingStrategies,
+    RecordWildCards,
+    DuplicateRecordFields,
+    OverloadedRecordDot,
+    StrictData,
+    NoFieldSelectors
