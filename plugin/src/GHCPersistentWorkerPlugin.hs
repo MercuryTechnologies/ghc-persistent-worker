@@ -20,7 +20,8 @@ import GHC.Driver.Monad (Ghc, Session, withSession, withTempSession, modifySessi
 import GHC.Driver.Plugins (FrontendPlugin (..), defaultFrontendPlugin)
 import qualified GHC.Linker.Loader as Loader
 import GHC.Main
-  ( PreStartupMode (..),
+  ( PostLoadMode (..),
+    PreStartupMode (..),
     main',
     parseModeFlags,
     showSupportedExtensions,
@@ -36,7 +37,7 @@ import GHC.Types.Unique.FM (emptyUFM)
 import GHC.Unit.Module.Env (plusModuleEnv)
 import GHC.Utils.Logger (makeThreadSafe, pushLogHook)
 import Logger (logHook)
-import System.Directory (getTemporaryDirectory, removeFile, setCurrentDirectory)
+import System.Directory (doesFileExist, getTemporaryDirectory, removeFile, setCurrentDirectory)
 import System.Environment (setEnv)
 import System.FilePath ((</>))
 import System.IO
@@ -208,7 +209,6 @@ workerMain flags = do
 
   -- exclusive message channel
   chanOut <- liftIO $ newMVar hout
-
   thread_safe_logger <- liftIO $ makeThreadSafe logger
   modifySession $ \env ->
     env
@@ -216,8 +216,6 @@ workerMain flags = do
         hsc_logger = thread_safe_logger,
         hsc_NC = nc
       }
-
-
   forever $ loopShot hin chanOut wid
 
 compileMain :: [String] -> Ghc ()
@@ -235,6 +233,15 @@ compileMain args = do
       liftIO $ putStrLn cProjectVersion
     Left (ShowOptions isInteractive) ->
       liftIO $ showOptions isInteractive
+    -- AD HOC Special treatment
+    Right (Right postLoadMode@(ShowInterfaceAbiHash fp)) -> do
+      let waitHiFile = do
+            b <- liftIO $ doesFileExist fp
+            when (not b) $ do
+              liftIO $ threadDelay 1_000_000
+              waitHiFile
+      waitHiFile
+      main' postLoadMode units dflags0 argv3 flagWarnings
     Right (Right postLoadMode) ->
       main' postLoadMode units dflags0 argv3 flagWarnings
     _ -> pure ()
