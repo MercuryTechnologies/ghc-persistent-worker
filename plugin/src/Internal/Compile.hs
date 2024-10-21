@@ -1,9 +1,9 @@
 {-# language OverloadedRecordDot #-}
 
-module Compile where
+module Internal.Compile where
 
-import AbiHash (readAbiHash)
-import Args (Args (..), CompileResult (..))
+import Internal.AbiHash (readAbiHash)
+import Internal.Args (Args (..), CompileResult (..))
 import Control.Monad.IO.Class (liftIO)
 import GHC (Ghc, Phase, getSession)
 import GHC.Driver.Phases (StopPhase (NoStop))

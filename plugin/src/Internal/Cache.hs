@@ -1,4 +1,4 @@
-module Cache where
+module Internal.Cache where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
 import Control.Monad (unless)
@@ -26,7 +26,7 @@ import GHC.Types.Unique.Supply (initUniqSupply)
 import GHC.Unit.Module.Env (emptyModuleEnv, moduleEnvKeys, plusModuleEnv)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (comma, fsep, hang, punctuate, text, ($$), (<+>))
-import Log (Log, logOther, logd)
+import Internal.Log (Log, logOther, logd)
 import System.Environment (lookupEnv)
 
 type SymbolMap = UniqFM FastString (Ptr ())

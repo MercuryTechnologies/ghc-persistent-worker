@@ -1,4 +1,4 @@
-module Log where
+module Internal.Log where
 
 import Control.Concurrent.MVar (MVar, modifyMVar_)
 import Control.Monad (when)
