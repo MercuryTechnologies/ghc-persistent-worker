@@ -39,7 +39,7 @@ toChunks !bytes !bs0 = go id bs0 []
   where
     go !acc !bs =
       let (!chunk, !bs') = C.splitAt bytes bs
-       in if C.length bs' < bytes
+       in if C.length bs' <= bytes
           then if C.null bs'
                then acc . (chunk:)
                else (acc . (chunk:) . (bs':))
