@@ -2,9 +2,6 @@
 
 module Main where
 
-import Args (parseBuckArgs, writeResult)
-import Cache (Cache (..), emptyCache)
-import Compile (compile)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar)
 import Control.Exception (SomeException (SomeException), throwIO, try)
 import Data.Map (Map)
@@ -14,7 +11,11 @@ import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
 import qualified Data.Text.Lazy as LazyText
 import qualified Data.Vector as Vector
-import Log (Log (..))
+import Internal.Args (parseBuckArgs, writeResult)
+import Internal.Cache (Cache (..), emptyCache)
+import Internal.Compile (compile)
+import Internal.Log (Log (..))
+import Internal.Session (Env (..), withGhc)
 import Network.GRPC.HighLevel.Generated (
   GRPCMethodType (..),
   ServerRequest (..),
@@ -24,7 +25,6 @@ import Network.GRPC.HighLevel.Generated (
   defaultServiceOptions,
   )
 import Prelude hiding (log)
-import Session (Env (..), withGhc)
 import System.Environment (lookupEnv)
 import System.IO (BufferMode (LineBuffering), hPutStrLn, hSetBuffering, stderr, stdout)
 import Worker (
