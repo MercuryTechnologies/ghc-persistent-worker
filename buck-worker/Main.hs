@@ -2,9 +2,7 @@
 
 module Main where
 
-import Args (parseBuckArgs, writeResult)
-import Cache (Cache (..), emptyCache)
-import Compile (compile)
+import Args (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar)
 import Control.Exception (SomeException (SomeException), throwIO, try)
 import Data.Map (Map)
@@ -14,7 +12,12 @@ import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
 import qualified Data.Text.Lazy as LazyText
 import qualified Data.Vector as Vector
-import Log (Log (..))
+import GHC (Ghc, Phase, getSession)
+import Internal.AbiHash (readAbiHash)
+import Internal.Cache (Cache (..), emptyCache)
+import Internal.Compile (compile)
+import Internal.Log (Log (..))
+import Internal.Session (Env (..), withGhc)
 import Network.GRPC.HighLevel.Generated (
   GRPCMethodType (..),
   ServerRequest (..),
@@ -24,7 +27,6 @@ import Network.GRPC.HighLevel.Generated (
   defaultServiceOptions,
   )
 import Prelude hiding (log)
-import Session (Env (..), withGhc)
 import System.Environment (lookupEnv)
 import System.IO (BufferMode (LineBuffering), hPutStrLn, hSetBuffering, stderr, stdout)
 import Worker (
@@ -44,6 +46,13 @@ commandEnv =
   where
     fromBs = Text.unpack . decodeUtf8Lenient
 
+compileAndReadAbiHash :: BuckArgs -> [(String, Maybe Phase)] -> Ghc (Maybe CompileResult)
+compileAndReadAbiHash args srcs = do
+  compile srcs
+  hsc_env <- getSession
+  abiHash <- readAbiHash hsc_env args.abiOut
+  pure (Just CompileResult {abiHash})
+
 executeHandler ::
   MVar Cache ->
   ServerRequest 'Normal ExecuteCommand ExecuteResponse ->
@@ -54,14 +63,15 @@ executeHandler cache (ServerNormalRequest _ ExecuteCommand {executeCommandArgv, 
   pure (ServerNormalResponse response [] StatusOk "")
   where
     run = do
-      args <- either (throwIO . userError) pure (parseBuckArgs (commandEnv executeCommandEnv) argv)
+      buckArgs <- either (throwIO . userError) pure (parseBuckArgs (commandEnv executeCommandEnv) argv)
+      args <- toGhcArgs buckArgs
       log <- newMVar Log {diagnostics = [], other = [], debug = False}
       let env = Env {log, cache, args}
-      result <- withGhc env (compile args)
-      pure (env, result)
+      result <- withGhc env (compileAndReadAbiHash buckArgs)
+      pure (env, buckArgs, result)
 
-    successResponse (env, result) = do
-      executeResponseExitCode <- writeResult env.args result
+    successResponse (env, buckArgs, result) = do
+      executeResponseExitCode <- writeResult buckArgs result
       Log {diagnostics, other} <- readMVar env.log
       pure ExecuteResponse {
         executeResponseExitCode,
