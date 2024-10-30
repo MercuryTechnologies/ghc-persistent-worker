@@ -1,3 +1,5 @@
+{-# language OverloadedLists #-}
+
 module Args where
 
 import Control.Applicative ((<|>))
@@ -6,6 +8,7 @@ import Data.Int (Int32)
 import Data.List (dropWhileEnd)
 import Data.Map (Map)
 import Data.Map.Strict ((!?))
+import Data.Maybe (fromMaybe)
 import Internal.AbiHash (AbiHash (..))
 import qualified Internal.Args
 import Internal.Args (Args (Args))
@@ -46,27 +49,40 @@ emptyBuckArgs env =
     ghcOptions = []
   }
 
+options :: Map String ([String] -> BuckArgs -> Either String ([String], BuckArgs))
+options =
+  [
+    withArg "--abi-out" \ z a -> z {abiOut = Just a},
+    withArg "--buck2-dep" \ z a -> z {buck2Dep = Just a},
+    withArg "--buck2-package-db" \ z a -> z {buck2PackageDb = a : z.buck2PackageDb},
+    withArg "--buck2-packagedb-dep" \ z a -> z {buck2PackageDbDep = Just a},
+    withArg "--ghc" \ z _ -> z {ghcOptions = []},
+    withArg "--ghc-dir" \ z a -> z {ghcDirFile = Just a},
+    withArg "--extra-pkg-db" \ z a -> z {ghcDbFile = Just a},
+    withArg "--bin-path" \ z a -> z {binPath = a : z.binPath},
+    skip "-c"
+  ]
+  where
+    skip name = (name, \ rest z -> Right (rest, z))
+
+    withArg name f = (name, \ argv z -> takeArg name argv (f z))
+
+    takeArg name argv store = case argv of
+      [] -> Left (name ++ " needs an argument")
+      arg : rest -> Right (rest, store arg)
+
 parseBuckArgs :: Map String String -> [String] -> Either String BuckArgs
 parseBuckArgs env =
   spin (emptyBuckArgs env)
   where
     spin z = \case
-      "--abi-out" : rest -> takeArg "--abi-out" rest \ v -> z {abiOut = Just v}
-      "--buck2-dep" : rest -> takeArg "--buck2-dep" rest \ v -> z {buck2Dep = Just v}
-      "--buck2-package-db" : rest -> takeArg "--buck2-package-db" rest \ v -> z {buck2PackageDb = v : z.buck2PackageDb}
-      "--buck2-packagedb-dep" : rest -> takeArg "--buck2-packagedb-dep" rest \ v -> z {buck2PackageDbDep = Just v}
-      "--ghc" : rest -> takeArg "--ghc" rest \ _ -> z {ghcOptions = []}
-      "--ghc-dir" : rest -> takeArg "--ghc-dir" rest \ f -> z {ghcOptions = [], ghcDirFile = Just f}
-      "--extra-pkg-db" : rest -> takeArg "--extra-pkg-db" rest \ f -> z {ghcOptions = [], ghcDbFile = Just f}
-      "--bin-path" : rest -> takeArg "--bin-path" rest \ v -> z {binPath = v : z.binPath}
-      "-c" : rest -> spin z rest
       ('-' : 'B' : path) : rest -> spin z {topdir = Just path} rest
-      arg : rest -> spin z {ghcOptions = arg : z.ghcOptions} rest
+      arg : args -> do
+        (rest, new) <- fromMaybe (ghcOption arg) (options !? arg) args z
+        spin new rest
       [] -> Right z {ghcOptions = reverse z.ghcOptions}
 
-    takeArg name argv store = case argv of
-      [] -> Left (name ++ " needs an argument")
-      arg : rest -> spin (store arg) rest
+    ghcOption arg rest z = Right (rest, z {ghcOptions = arg : z.ghcOptions})
 
 toGhcArgs :: BuckArgs -> IO Args
 toGhcArgs args = do
