@@ -1,6 +1,9 @@
 module Internal.Log where
 
-import Control.Concurrent.MVar (MVar, modifyMVar_)
+import Data.ByteString (ByteString)
+import Data.Text (pack)
+import Data.Text.Encoding (encodeUtf8)
+import Control.Concurrent.MVar (MVar, modifyMVar_, modifyMVar, newMVar)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHC (Severity (SevIgnore))
@@ -29,6 +32,10 @@ data Log =
   }
   deriving stock (Eq, Show)
 
+newLog :: MonadIO m => Bool -> m (MVar Log)
+newLog debug =
+  liftIO $ newMVar Log {diagnostics = [], other = [], debug}
+
 logDiagnostics ::
   MonadIO m =>
   MVar Log ->
@@ -48,6 +55,15 @@ logOther logVar msg =
   liftIO $ modifyMVar_ logVar \ Log {other, ..} -> do
     when debug (dbg msg)
     pure Log {other = msg : other, ..}
+
+logFlush :: MVar Log -> IO [String]
+logFlush var =
+  modifyMVar var \ Log {..} -> pure (Log {diagnostics = [], other = [], debug}, reverse (other ++ diagnostics))
+
+logFlushBytes :: MVar Log -> IO ByteString
+logFlushBytes var = do
+  lns <- logFlush var
+  pure (encodeUtf8 (pack (unlines lns)))
 
 logToState :: MVar Log -> LogAction
 logToState logVar logflags msg_class srcSpan msg = case msg_class of
