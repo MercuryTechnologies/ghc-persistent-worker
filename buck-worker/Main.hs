@@ -3,6 +3,14 @@
 module Main where
 
 import Args (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
+import BuckWorker (
+  ExecuteCommand (..),
+  ExecuteCommand_EnvironmentEntry (..),
+  ExecuteEvent (..),
+  ExecuteResponse (..),
+  Worker (..),
+  workerServer,
+  )
 import Control.Concurrent.MVar (MVar, newMVar, readMVar)
 import Control.Exception (SomeException (SomeException), throwIO, try)
 import Data.Map (Map)
@@ -29,14 +37,6 @@ import Network.GRPC.HighLevel.Generated (
 import Prelude hiding (log)
 import System.Environment (lookupEnv)
 import System.IO (BufferMode (LineBuffering), hPutStrLn, hSetBuffering, stderr, stdout)
-import Worker (
-  ExecuteCommand (..),
-  ExecuteCommand_EnvironmentEntry (..),
-  ExecuteEvent (..),
-  ExecuteResponse (..),
-  Worker (..),
-  workerServer,
-  )
 
 commandEnv :: Vector.Vector ExecuteCommand_EnvironmentEntry -> Map String String
 commandEnv =
