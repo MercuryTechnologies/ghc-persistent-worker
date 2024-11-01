@@ -24,7 +24,7 @@ import GHC (Ghc, Phase, getSession)
 import Internal.AbiHash (readAbiHash)
 import Internal.Cache (Cache (..), emptyCache)
 import Internal.Compile (compile)
-import Internal.Log (Log (..))
+import Internal.Log (Log (..), newLog)
 import Internal.Session (Env (..), withGhc)
 import Network.GRPC.HighLevel.Generated (
   GRPCMethodType (..),
@@ -65,17 +65,17 @@ executeHandler cache (ServerNormalRequest _ ExecuteCommand {executeCommandArgv, 
     run = do
       buckArgs <- either (throwIO . userError) pure (parseBuckArgs (commandEnv executeCommandEnv) argv)
       args <- toGhcArgs buckArgs
-      log <- newMVar Log {diagnostics = [], other = [], debug = False}
+      log <- newLog False
       let env = Env {log, cache, args}
       result <- withGhc env (compileAndReadAbiHash buckArgs)
       pure (env, buckArgs, result)
 
     successResponse (env, buckArgs, result) = do
       executeResponseExitCode <- writeResult buckArgs result
-      Log {diagnostics, other} <- readMVar env.log
+      output <- logFlush env.log
       pure ExecuteResponse {
         executeResponseExitCode,
-        executeResponseStderr = LazyText.unlines (LazyText.pack <$> reverse (other ++ diagnostics))
+        executeResponseStderr = LazyText.unlines (LazyText.pack <$> output)
       }
 
     exceptionResponse (SomeException e) =
