@@ -12,6 +12,7 @@ executable worker-demo
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base ==4.*
+    , extra
     , unix
     , grpc-haskell
   default-language: GHC2021
