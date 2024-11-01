@@ -2,6 +2,7 @@
 
 module Main where
 
+import Internal.Log (dbg)
 import Args (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
 import BuckWorker (
   ExecuteCommand (..),
@@ -12,20 +13,28 @@ import BuckWorker (
   workerServer,
   )
 import Control.Concurrent.MVar (MVar)
+import Control.Concurrent.STM (TVar, newTVarIO)
 import Control.Exception (SomeException (SomeException), throwIO, try)
+import Control.Monad (when)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
+import Control.Monad.Trans.Reader (runReaderT)
+import Data.Foldable (traverse_)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (maybeToList)
 import Data.String (fromString)
 import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
 import qualified Data.Text.Lazy as LazyText
 import qualified Data.Vector as Vector
-import GHC (Ghc, Phase, getSession)
+import GHC (getSession)
 import Internal.AbiHash (readAbiHash)
+import Internal.Args (Args (..))
 import Internal.Cache (Cache (..), emptyCache)
-import Internal.Compile (compile)
-import Internal.Log (logFlush, newLog)
+import Internal.Log (newLog)
 import Internal.Session (Env (..), withGhc)
+import Message
 import Network.GRPC.HighLevel.Generated (
   GRPCMethodType (..),
   ServerRequest (..),
@@ -34,9 +43,12 @@ import Network.GRPC.HighLevel.Generated (
   StatusCode (..),
   defaultServiceOptions,
   )
+import Pool (Pool (..), dumpStatus, removeWorker)
 import Prelude hiding (log)
+import Server (assignLoop)
 import System.Environment (lookupEnv)
 import System.IO (BufferMode (LineBuffering), hPutStrLn, hSetBuffering, stderr, stdout)
+import Worker (work)
 
 commandEnv :: Vector.Vector ExecuteCommand_EnvironmentEntry -> Map String String
 commandEnv =
@@ -46,19 +58,51 @@ commandEnv =
   where
     fromBs = Text.unpack . decodeUtf8Lenient
 
-compileAndReadAbiHash :: BuckArgs -> [(String, Maybe Phase)] -> Ghc (Maybe CompileResult)
-compileAndReadAbiHash args srcs = do
-  compile srcs
-  hsc_env <- getSession
-  abiHash <- readAbiHash hsc_env args.abiOut
-  pure (Just CompileResult {abiHash})
+abiHashIfSuccess :: Env -> BuckArgs -> Int -> IO (Maybe CompileResult)
+abiHashIfSuccess env args code
+  | 0 == code
+  = withGhc env \ _ -> do
+    hsc_env <- getSession
+    abiHash <- readAbiHash hsc_env args.abiOut
+    pure (Just CompileResult {abiHash})
+  | otherwise
+  = pure Nothing
+
+note :: String -> Maybe a -> ExceptT String IO a
+note msg = \case
+  Just a -> pure a
+  Nothing -> throwE msg
+
+processRequest :: TVar Pool -> BuckArgs -> Env -> IO (Maybe CompileResult, String)
+processRequest pool buckArgs env@Env {args} = do
+  either (Nothing,) id <$> runExceptT do
+    ghcPath <- note "no --ghc-path given" args.ghcPath
+    requestWorkerTargetId <- Just . TargetId <$> note "no --worker-target-id given" args.workerTargetId
+    liftIO do
+      (j, i, hset) <- assignLoop ghcPath (maybeToList buckArgs.pluginDb) pool requestWorkerTargetId
+      let
+        req = Request {
+          requestWorkerTargetId,
+          requestWorkerClose = False,
+          requestEnv = Map.toList args.env,
+          requestArgs = "-c" : args.ghcOptions
+          }
+      Response {responseResult = code, ..} <- runReaderT (work req) (j, i, hset, pool)
+      result <- abiHashIfSuccess env buckArgs code
+      dbg ("Code: " ++ show code)
+      dbg ("Result: " ++ show result)
+      when (requestWorkerClose req) do
+        traverse_ (removeWorker pool) requestWorkerTargetId
+      dumpStatus pool
+      pure (result, unlines (responseConsoleStdOut ++ responseConsoleStdErr))
 
 executeHandler ::
   MVar Cache ->
+  TVar Pool ->
   ServerRequest 'Normal ExecuteCommand ExecuteResponse ->
   IO (ServerResponse 'Normal ExecuteResponse)
-executeHandler cache (ServerNormalRequest _ ExecuteCommand {executeCommandArgv, executeCommandEnv}) = do
-  -- hPutStrLn stderr (unlines argv)
+executeHandler cache pool (ServerNormalRequest _ ExecuteCommand {executeCommandArgv, executeCommandEnv}) = do
+  hPutStrLn stderr (unlines argv)
   response <- either exceptionResponse successResponse =<< try run
   pure (ServerNormalResponse response [] StatusOk "")
   where
@@ -66,16 +110,14 @@ executeHandler cache (ServerNormalRequest _ ExecuteCommand {executeCommandArgv, 
       buckArgs <- either (throwIO . userError) pure (parseBuckArgs (commandEnv executeCommandEnv) argv)
       args <- toGhcArgs buckArgs
       log <- newLog False
-      let env = Env {log, cache, args}
-      result <- withGhc env (compileAndReadAbiHash buckArgs)
-      pure (env, buckArgs, result)
+      result <- processRequest pool buckArgs Env {cache, args, log}
+      pure (buckArgs, result)
 
-    successResponse (env, buckArgs, result) = do
+    successResponse (buckArgs, (result, diagnostics)) = do
       executeResponseExitCode <- writeResult buckArgs result
-      output <- logFlush env.log
       pure ExecuteResponse {
         executeResponseExitCode,
-        executeResponseStderr = LazyText.unlines (LazyText.pack <$> output)
+        executeResponseStderr = LazyText.pack diagnostics
       }
 
     exceptionResponse (SomeException e) =
@@ -93,10 +135,10 @@ execHandler (ServerReaderRequest _metadata _recv) = do
   hPutStrLn stderr "Received Exec"
   error "not implemented"
 
-handlers :: MVar Cache -> Worker ServerRequest ServerResponse
-handlers cache =
+handlers :: MVar Cache -> TVar Pool -> Worker ServerRequest ServerResponse
+handlers cache srv =
   Worker
-    { workerExecute = executeHandler cache,
+    { workerExecute = executeHandler cache srv,
       workerExec = execHandler
     }
 
@@ -106,7 +148,18 @@ main = do
   hSetBuffering stderr LineBuffering
   socket <- lookupEnv "WORKER_SOCKET"
   hPutStrLn stderr $ "using worker socket: " <> show socket
-  cache <- emptyCache True
-  workerServer (handlers cache) (maybe id setSocket socket defaultServiceOptions)
+  let
+    n = 1
+    thePool = Pool
+        { poolLimit = n,
+          poolNewWorkerId = 1,
+          poolNewJobId = 1,
+          poolStatus = mempty,
+          poolHandles = []
+        }
+
+  poolRef <- newTVarIO thePool
+  cache <- emptyCache False
+  workerServer (handlers cache poolRef) (maybe id setSocket socket defaultServiceOptions)
   where
     setSocket s options = options {serverHost = fromString ("unix://" <> s <> "\x00"), serverPort = 0}

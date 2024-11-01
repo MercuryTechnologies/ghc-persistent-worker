@@ -1,8 +1,11 @@
-{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE NumericUnderscores, CPP #-}
 module GHCPersistentWorkerPlugin (frontendPlugin) where
 
+import Internal.Log (logToState, logFlushBytes)
+import Internal.Error (handleExceptions)
+import Internal.Log (newLog)
 import Control.Concurrent (forkOS)
-import Control.Concurrent.MVar (newEmptyMVar, newMVar, putMVar, takeMVar)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Monad (forever, replicateM_)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as B
@@ -24,7 +27,6 @@ import GHC.Main
   )
 import GHC.Runtime.Interpreter.Types (Interp (..), InterpInstance (..))
 import GHC.Settings.Config (cProjectVersion)
-import GHC.Types.Unique.FM (emptyUFM)
 import GHC.Utils.Logger (pushLogHook)
 import Logger (logHook)
 import System.Directory (getTemporaryDirectory, removeFile, setCurrentDirectory)
@@ -43,8 +45,10 @@ import System.IO
     stdout,
     withFile,
   )
-import Util (openFileAfterCheck, openPipeRead, openPipeWrite)
 
+#if __GLASGOW_HASKELL__ >= 911
+import Control.Concurrent.MVar (newMVar)
+#endif
 
 frontendPlugin :: FrontendPlugin
 frontendPlugin = defaultFrontendPlugin
@@ -107,38 +111,6 @@ bannerJobEnd wid = do
   hPutStrLn stderr (show time)
   replicateM_ 5 (hPutStrLn stderr "|||||||||||||||||||||||||||||||||")
 
-withTempLogger :: Session -> Int -> Int -> (Ghc a) -> IO (B.ByteString, a)
-withTempLogger session wid jobid action = do
-  tmpdir <- getTemporaryDirectory
-  let file_stdout = tmpdir </> "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stdout.log"
-      file_stderr = tmpdir </> "ghc-worker-tmp-logger-" ++ show wid ++ "-" ++ show jobid ++ "-stderr.log"
-  r <-
-    withFile file_stdout WriteMode $ \nstdout ->
-      withFile file_stderr WriteMode $ \nstderr -> do
-        r <-
-          flip reflectGhc session $
-            withTempSession
-              (\env ->
-                 env {
-                   hsc_logger = pushLogHook (logHook (nstdout, nstderr)) (hsc_logger env)
-                 }
-              )
-              action
-        hFlush nstdout
-        hFlush nstderr
-        pure r
-  bs <-
-    withFile file_stdout ReadMode $ \nstdout -> do
-      -- TODO: stderr as well
-      bs <- B.hGetContents nstdout
-      replicateM_ 5 (hPutStrLn stderr "****************")
-      B.hPut stderr bs
-      replicateM_ 5 (hPutStrLn stderr "****************")
-      pure bs
-  removeFile file_stdout
-  removeFile file_stderr
-  pure (bs, r)
-
 workerMain :: [String] -> Ghc ()
 workerMain flags = do
   liftIO $ do
@@ -150,28 +122,34 @@ workerMain flags = do
   liftIO $ logMessage (prompt wid ++ " Started")
   GHC.initGhcMonad Nothing
   -- explicitly initialize loader.
-  lookup_cache <- liftIO $ newMVar emptyUFM
   loader <- liftIO Loader.uninitializedLoader
+#if __GLASGOW_HASKELL__ >= 911
+  lookup_cache <- liftIO $ newMVar emptyUFM
   let interp = Interp InternalInterp loader lookup_cache
+#else
+  let interp = Interp InternalInterp loader
+#endif
   modifySession $ \env -> env {hsc_interp = Just interp}
   forever $ do
     lock <- liftIO newEmptyMVar
-    reifyGhc $ \session -> forkOS $ do
+    _ <- reifyGhc $ \session -> forkOS $ do
       (jobid, env, args) <- recvRequestFromServer hin wid
       setEnvForJob env
       sendJobIdToServer hout jobid
+      logVar <- newLog False
       --
       bannerJobStart wid
-      (bs, _) <- withTempLogger session wid jobid (compileMain args)
+      result :: Int <- flip reflectGhc session $ do
+        GHC.pushLogHookM (const (logToState logVar))
+        handleExceptions logVar 1 (0 <$ compileMain args)
       bannerJobEnd wid
       --
-      -- TODO: will have more useful info
-      let result = "DUMMY RESULT"
-      sendResultToServer hout result bs
+      output <- logFlushBytes logVar
+      sendResultToServer hout (show result) output
       putMVar lock ()
       --
     () <- liftIO $ takeMVar lock
-    (minterp, unit_env, nc) <-
+    (minterp, _unit_env, nc) <-
       withSession $ \env ->
         pure $ (hsc_interp env, hsc_unit_env env, hsc_NC env)
     GHC.initGhcMonad Nothing
