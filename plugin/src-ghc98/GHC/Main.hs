@@ -260,10 +260,7 @@ main' postLoadMode units dflags0 args flagWarnings = do
   let diag_opts = initDiagOpts dflags4
   let flagWarnings' = GhcDriverMessage <$> mconcat [warnsToMessages diag_opts flagWarnings, dynamicFlagWarnings]
 
-  handleSourceError (\e -> do
-       GHC.printException e
-       liftIO $ exitWith (ExitFailure 1)) $ do
-         liftIO $ printOrThrowDiagnostics logger4 (initPrintConfig dflags4) diag_opts flagWarnings'
+  liftIO $ printOrThrowDiagnostics logger4 (initPrintConfig dflags4) diag_opts flagWarnings'
 
   liftIO $ showBanner postLoadMode dflags4
 
@@ -296,29 +293,26 @@ main' postLoadMode units dflags0 args flagWarnings = do
   liftIO $ checkOptions postLoadMode dflags6 srcs objs units
 
   ---------------- Do the business -----------
-  handleSourceError (\e -> do
-       GHC.printException e
-       liftIO $ exitWith (ExitFailure 1)) $ do
-    case postLoadMode of
-       ShowInterface f        -> liftIO $ showIface logger
-                                                    (hsc_dflags hsc_env)
-                                                    (hsc_units  hsc_env)
-                                                    (hsc_NC     hsc_env)
-                                                    f
-       ShowInterfaceAbiHash f -> liftIO $ showIfaceAbiHash logger
-                                                           (hsc_dflags hsc_env)
-                                                           (hsc_NC     hsc_env)
-                                                           f
-       DoMake                 -> doMake units srcs
-       DoMkDependHS           -> doMkDependHS (map fst srcs)
-       StopBefore p           -> liftIO (oneShot hsc_env p srcs)
-       DoInteractive          -> ghciUI units srcs Nothing
-       DoEval exprs           -> ghciUI units srcs $ Just $ reverse exprs
-       DoRun                  -> doRun units srcs args
-       DoAbiHash              -> abiHash (map fst srcs)
-       ShowPackages           -> liftIO $ showUnits hsc_env
-       DoFrontend f           -> doFrontend f srcs
-       DoBackpack             -> doBackpack (map fst srcs)
+  case postLoadMode of
+      ShowInterface f        -> liftIO $ showIface logger
+                                                  (hsc_dflags hsc_env)
+                                                  (hsc_units  hsc_env)
+                                                  (hsc_NC     hsc_env)
+                                                  f
+      -- ShowInterfaceAbiHash f -> liftIO $ showIfaceAbiHash logger
+      --                                                     (hsc_dflags hsc_env)
+      --                                                     (hsc_NC     hsc_env)
+      --                                                     f
+      DoMake                 -> doMake units srcs
+      DoMkDependHS           -> doMkDependHS (map fst srcs)
+      StopBefore p           -> liftIO (oneShot hsc_env p srcs)
+      DoInteractive          -> ghciUI units srcs Nothing
+      DoEval exprs           -> ghciUI units srcs $ Just $ reverse exprs
+      DoRun                  -> doRun units srcs args
+      DoAbiHash              -> abiHash (map fst srcs)
+      ShowPackages           -> liftIO $ showUnits hsc_env
+      DoFrontend f           -> doFrontend f srcs
+      DoBackpack             -> doBackpack (map fst srcs)
 
   liftIO $ dumpFinalStats logger
 

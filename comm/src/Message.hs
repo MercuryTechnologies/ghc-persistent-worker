@@ -91,7 +91,7 @@ data Request = Request
 instance Binary Request
 
 data Response = Response
-  { responseResult :: [String],
+  { responseResult :: Int,
     responseConsoleStdOut :: [String],
     responseConsoleStdErr :: [String]
   }

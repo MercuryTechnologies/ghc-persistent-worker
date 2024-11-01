@@ -13,6 +13,8 @@ import Internal.AbiHash (AbiHash (..))
 import qualified Internal.Args
 import Internal.Args (Args (Args))
 
+-- | Right now the 'Maybe' just corresponds to the presence of the CLI argument @--abi-out@ – errors occuring while
+-- reading the iface are thrown.
 data CompileResult =
   CompileResult {
     abiHash :: Maybe AbiHash
@@ -27,8 +29,11 @@ data BuckArgs =
     buck2PackageDb :: [String],
     buck2PackageDbDep :: Maybe String,
     workerTargetId :: Maybe String,
+    pluginDb :: Maybe String,
+    env :: Map String String,
     binPath :: [String],
     tempDir :: Maybe String,
+    ghcPath :: Maybe String,
     ghcDirFile :: Maybe String,
     ghcDbFile :: Maybe String,
     ghcOptions :: [String]
@@ -44,8 +49,11 @@ emptyBuckArgs env =
     buck2PackageDb = [],
     buck2PackageDbDep = Nothing,
     workerTargetId = Nothing,
+    pluginDb = Nothing,
+    env,
     binPath = [],
     tempDir = env !? "TMPDIR",
+    ghcPath = Nothing,
     ghcDirFile = Nothing,
     ghcDbFile = Nothing,
     ghcOptions = []
@@ -61,7 +69,8 @@ options =
     withArg "--worker-target-id" \ z a -> z {workerTargetId = Just a},
     withArg "--worker-socket" const,
     skip "--worker-close",
-    withArg "--ghc" \ z _ -> z {ghcOptions = []},
+    withArg "--plugin-db" \ z a -> z {pluginDb = Just a},
+    withArg "--ghc" \ z a -> z {ghcOptions = [], ghcPath = Just a},
     withArg "--ghc-dir" \ z a -> z {ghcDirFile = Just a},
     withArg "--extra-pkg-db" \ z a -> z {ghcDbFile = Just a},
     withArg "--bin-path" \ z a -> z {binPath = a : z.binPath},
@@ -95,8 +104,11 @@ toGhcArgs args = do
   packageDb <- readPath args.ghcDbFile
   pure Args {
     topdir,
+    workerTargetId = args.workerTargetId,
+    env = args.env,
     binPath = args.binPath,
     tempDir = args.tempDir,
+    ghcPath = args.ghcPath,
     ghcOptions = args.ghcOptions ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb
   }
   where
