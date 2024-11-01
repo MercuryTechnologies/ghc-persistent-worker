@@ -27,6 +27,7 @@ import qualified Data.List as L
 import Pool (HandleSet (..), JobId (..), Mailbox (..), Pool (..), WorkerId, finishJob)
 import Message (Request (..), Response (..))
 import System.IO (Handle, hFlush, hGetLine, hPutStrLn)
+import Text.Read (readMaybe)
 
 type JobM = ReaderT (JobId, WorkerId, HandleSet, TVar Pool) IO
 
@@ -40,6 +41,14 @@ fetchUntil delim h = do
       if s == delim
         then pure acc
         else go (acc . (s:))
+
+decodeResult :: [String] -> (Int, [String])
+decodeResult res
+  | [ln] <- res
+  , Just code <- readMaybe ln
+  = (code, [])
+  | otherwise
+  = (1, "" : "Invalid worker result, should be a single line containing an exit code:" : map ("  " ++) res)
 
 mailboxForWorker :: TVar Pool -> WorkerId -> Handle -> IO ()
 mailboxForWorker poolRef wid hout = void (forkIO $ forever go)
@@ -68,7 +77,9 @@ mailboxForWorker poolRef wid hout = void (forkIO $ forever go)
       results <- fetchUntil "*R*E*S*U*L*T*" hout
       -- get stderr until delimiter
       console_stderr <- fetchUntil "*D*E*L*I*M*I*T*E*D*" hout
-      let res = Response results console_stdout console_stderr
+      let
+        (code, decodeError) = decodeResult results
+        res = Response code console_stdout (console_stderr ++ decodeError)
       atomically $ sendResult jobid res
 
 addJobChan :: TVar Pool -> WorkerId -> JobId -> STM (TChan Response, HandleSet)
