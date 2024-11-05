@@ -3,6 +3,7 @@
 module Server where
 
 import Control.Concurrent (forkFinally)
+import Control.Concurrent.MVar (newMVar)
 import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (forever, void, when)
@@ -51,9 +52,11 @@ runServer socketFile server = do
 
 initWorker :: FilePath -> [FilePath] -> WorkerId -> IO HandleSet
 initWorker ghcPath dbPaths i = do
-  putStrLn $ "worker " ++ show i ++ " is initialized"
-  let db_options = concatMap (\db -> ["-package-db", db]) dbPaths
+  -- putStrLn $ "worker " ++ show i ++ " is initialized"
+  let rts_options = ["+RTS", "-N", "-RTS"]
+      db_options = concatMap (\db -> ["-package-db", db]) dbPaths
       ghc_options =
+        rts_options ++
         db_options ++
           [ "-plugin-package",
             "ghc-persistent-worker-plugin",
@@ -68,9 +71,11 @@ initWorker ghcPath dbPaths i = do
             std_out = CreatePipe
           }
   (Just hstdin, Just hstdout, _, ph) <- createProcess proc_setup
+  -- exclusive channel.
+  chanArgIn <- newMVar hstdin
   let hset = HandleSet
         { handleProcess = ph,
-          handleArgIn = hstdin,
+          handleArgIn = chanArgIn,
           handleMsgOut = hstdout,
           handleMailbox = Mailbox []
         }
@@ -90,16 +95,21 @@ spawnWorker ghcPath dbPaths poolRef = do
   mailboxForWorker poolRef wid (handleMsgOut hset)
   pure (wid, hset)
 
+-- | Assign a worker corresponding to the target ID of a new job.
+--   If such a worker does not exist, spawn a new worker process.
+--   Then, a new Job Id is issued and the communication channel
+--   (HandleSet) between the orchestrator and the worker process is
+--   established.
 assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe TargetId -> IO (JobId, WorkerId, HandleSet)
 assignLoop ghcPath dbPaths poolRef mid = untilJustM $ do
   eassigned <- atomically $ assignJob poolRef mid
   case eassigned of
-    Left n -> do
-      putStrLn $ "currently " ++ show n ++ " jobs are running. I am spawning a worker."
+    Left _n -> do
+      -- putStrLn $ "currently " ++ show n ++ " jobs are running. I am spawning a worker."
       _ <- spawnWorker ghcPath dbPaths poolRef
       pure Nothing
     Right (j, i, hset) -> do
-      putStrLn $ "Job assigned with ID: " ++ show j
+      -- putStrLn $ "Job assigned with ID: " ++ show j
       pure (Just (j, i, hset))
 
 serve :: FilePath -> [FilePath] -> TVar Pool -> Socket -> IO ()
@@ -108,12 +118,11 @@ serve ghcPath dbPaths poolRef s = do
   let req :: Request = unwrapMsg msg
       mid = requestWorkerTargetId req
   (j, i, hset) <- assignLoop ghcPath dbPaths poolRef mid
-  
+  dumpStatus poolRef
   res <- runReaderT (work req) (j, i, hset, poolRef)
   sendMsg s (wrapMsg res)
   when (requestWorkerClose req) $
     case mid of
       Nothing -> pure ()
       Just id' -> removeWorker poolRef id'
-  dumpStatus poolRef
   serve ghcPath dbPaths poolRef s

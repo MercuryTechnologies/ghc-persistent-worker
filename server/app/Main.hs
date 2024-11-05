@@ -7,6 +7,7 @@ import Options.Applicative (Parser, (<**>))
 import qualified Options.Applicative as OA
 import Pool (Pool (..))
 import Server (runServer, serve, spawnWorker)
+import System.IO (BufferMode (..), hSetBuffering, stderr, stdout)
 
 -- cli args
 data Option = Option
@@ -36,6 +37,9 @@ p_option =
 
 main :: IO ()
 main = do
+  hSetBuffering stdout LineBuffering
+  hSetBuffering stderr LineBuffering
+
   opts <- OA.execParser (OA.info (p_option <**> OA.helper) OA.fullDesc)
   let n = optionNumWorkers opts
       ghcPath = optionGHC opts

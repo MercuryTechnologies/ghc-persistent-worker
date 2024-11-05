@@ -1,5 +1,9 @@
 module Logger (logHook) where
 
+import Control.Concurrent (ThreadId, myThreadId)
+import Control.Concurrent.MVar (MVar, modifyMVar_)
+import Data.Map (Map)
+import qualified Data.Map as M
 import GHC.Data.FastString (unpackFS)
 import GHC.Driver.Flags (DumpFlag (Opt_D_dump_json))
 import GHC.Types.Error (MessageClass (..), Severity (..), getCaretDiagnostic, mkLocMessageWarningGroups)
@@ -41,8 +45,8 @@ logHook (nstdout, nstderr) _ logflags msg_class srcSpan msg
       MCDiagnostic SevIgnore _ _   -> pure () -- suppress the message
       MCDiagnostic _sev _rea _code -> printDiagnostics
   where
-    printOut   = defaultLogActionHPrintDoc  logflags False nstdout
-    printErrs  = defaultLogActionHPrintDoc  logflags False nstderr
+    printOut = defaultLogActionHPrintDoc  logflags False nstdout
+    printErrs = defaultLogActionHPrintDoc  logflags False nstderr
     putStrSDoc = defaultLogActionHPutStrDoc logflags False nstdout
     -- Pretty print the warning flag, if any (#10752)
     message = mkLocMessageWarningGroups (log_show_warn_groups logflags) msg_class srcSpan msg
