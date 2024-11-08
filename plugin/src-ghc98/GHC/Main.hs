@@ -68,7 +68,6 @@ import GHC.Unit.Types  ( IsBootInterface(..) )
 import GHC.Types.Basic     ( failed )
 import GHC.Types.SrcLoc
 import GHC.Types.SourceError
-import GHC.Types.Unique.Supply
 import GHC.Types.PkgQual
 
 import GHC.Utils.Error
