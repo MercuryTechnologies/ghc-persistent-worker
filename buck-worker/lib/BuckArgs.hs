@@ -1,5 +1,3 @@
-{-# language OverloadedLists #-}
-
 module BuckArgs where
 
 import Control.Applicative ((<|>))
@@ -12,15 +10,17 @@ import Data.Maybe (fromMaybe)
 import Internal.AbiHash (AbiHash (..))
 import qualified Internal.Args
 import Internal.Args (Args (Args))
+import Internal.Cache (ModuleArtifacts)
 import System.FilePath (takeDirectory)
 
 -- | Right now the 'Maybe' just corresponds to the presence of the CLI argument @--abi-out@ – errors occuring while
 -- reading the iface are thrown.
 data CompileResult =
   CompileResult {
+    artifacts :: ModuleArtifacts,
     abiHash :: Maybe AbiHash
   }
-  deriving stock (Eq, Show)
+  deriving stock (Show)
 
 data BuckArgs =
   BuckArgs {

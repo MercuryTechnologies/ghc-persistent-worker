@@ -13,6 +13,7 @@ import BuckWorker (
   )
 import Control.Concurrent.MVar (MVar)
 import Control.Exception (SomeException (SomeException), throwIO, try)
+import Control.Monad (when)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.String (fromString)
@@ -20,9 +21,9 @@ import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
 import qualified Data.Text.Lazy as LazyText
 import qualified Data.Vector as Vector
-import GHC (Ghc, Phase, getSession)
-import Internal.AbiHash (readAbiHash)
-import Internal.Cache (Cache (..), emptyCache)
+import GHC (Ghc, getSession)
+import Internal.AbiHash (AbiHash (..), showAbiHash)
+import Internal.Cache (Cache (..), ModuleArtifacts (..), Target, emptyCache)
 import Internal.Compile (compile)
 import Internal.Log (logFlush, newLog)
 import Internal.Session (Env (..), withGhc)
@@ -46,19 +47,24 @@ commandEnv =
   where
     fromBs = Text.unpack . decodeUtf8Lenient
 
-compileAndReadAbiHash :: BuckArgs -> [(String, Maybe Phase)] -> Ghc (Maybe CompileResult)
-compileAndReadAbiHash args srcs = do
-  compile srcs
-  hsc_env <- getSession
-  abiHash <- readAbiHash hsc_env args.abiOut
-  pure (Just CompileResult {abiHash})
+compileAndReadAbiHash :: BuckArgs -> Target -> Ghc (Maybe CompileResult)
+compileAndReadAbiHash args target = do
+  compile target >>= traverse \ artifacts -> do
+    hsc_env <- getSession
+    let
+      abiHash :: Maybe AbiHash
+      abiHash = do
+        path <- args.abiOut
+        Just AbiHash {path, hash = showAbiHash hsc_env artifacts.iface}
+    pure CompileResult {artifacts, abiHash}
 
 executeHandler ::
   MVar Cache ->
   ServerRequest 'Normal ExecuteCommand ExecuteResponse ->
   IO (ServerResponse 'Normal ExecuteResponse)
 executeHandler cache (ServerNormalRequest _ ExecuteCommand {executeCommandArgv, executeCommandEnv}) = do
-  -- hPutStrLn stderr (unlines argv)
+  when False do
+    hPutStrLn stderr (unlines argv)
   response <- either exceptionResponse successResponse =<< try run
   pure (ServerNormalResponse response [] StatusOk "")
   where
