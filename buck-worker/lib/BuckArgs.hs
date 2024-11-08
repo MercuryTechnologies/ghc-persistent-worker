@@ -1,6 +1,6 @@
 {-# language OverloadedLists #-}
 
-module Args where
+module BuckArgs where
 
 import Control.Applicative ((<|>))
 import Data.Foldable (for_)
