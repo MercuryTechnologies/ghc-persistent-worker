@@ -2,3 +2,37 @@ packages: ./plugin
           ./comm
           ./server
           ./client
+          ./buck-worker
+          ./buck-worker-2
+
+package proto3-suite
+  flags: -large-records -swagger
+
+allow-newer:
+  grpc-haskell:bytestring,
+  grpc-haskell-core:bytestring,
+  grpc-haskell-core:template-haskell,
+
+package proto3-suite
+  flags: -large-records -swagger
+
+-- package *
+--   ghc-options: -j
+
+package grpc-haskell-core
+  ghc-options: -Wwarn
+
+constraints:
+  insert-ordered-containers <0.2.6
+
+source-repository-package
+  type: git
+  location: https://github.com/awakesecurity/grpc-haskell
+  tag: 4b3b04d0ac9d1db53033fb4f0b6864f25b6e945d
+  subdir: .
+  subdir: core
+
+source-repository-package
+  type: git
+  location: https://github.com/tek/proto3-suite
+  tag: 630e141045050cc88051057aa00006fb874ffe70

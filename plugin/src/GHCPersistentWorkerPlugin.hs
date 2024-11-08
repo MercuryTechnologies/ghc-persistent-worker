@@ -1,4 +1,5 @@
 {-# LANGUAGE NumericUnderscores, CPP #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 module GHCPersistentWorkerPlugin (frontendPlugin) where
 
 import Internal.Log (logToState, logFlushBytes)
@@ -13,8 +14,8 @@ import Data.Foldable (for_)
 import Data.List (intercalate)
 import Data.Time.Clock (getCurrentTime)
 import qualified GHC
-import GHC.Driver.Env (HscEnv (hsc_NC, hsc_interp, hsc_logger, hsc_unit_env))
-import GHC.Driver.Monad (Ghc, Session, withSession, withTempSession, modifySession, reflectGhc, reifyGhc)
+import GHC.Driver.Env (HscEnv (hsc_NC, hsc_interp, hsc_unit_env))
+import GHC.Driver.Monad (Ghc, withSession, modifySession, reflectGhc, reifyGhc)
 import GHC.Driver.Plugins (FrontendPlugin (..), defaultFrontendPlugin)
 import qualified GHC.Linker.Loader as Loader
 import GHC.Main
@@ -27,15 +28,11 @@ import GHC.Main
   )
 import GHC.Runtime.Interpreter.Types (Interp (..), InterpInstance (..))
 import GHC.Settings.Config (cProjectVersion)
-import GHC.Utils.Logger (pushLogHook)
-import Logger (logHook)
-import System.Directory (getTemporaryDirectory, removeFile, setCurrentDirectory)
+import System.Directory (setCurrentDirectory)
 import System.Environment (setEnv)
-import System.FilePath ((</>))
 import System.IO
   ( BufferMode (..),
     Handle,
-    IOMode (..),
     hFlush,
     hGetLine,
     hPutStrLn,
@@ -43,7 +40,6 @@ import System.IO
     stdin,
     stderr,
     stdout,
-    withFile,
   )
 
 
