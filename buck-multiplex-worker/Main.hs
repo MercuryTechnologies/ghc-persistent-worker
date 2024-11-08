@@ -2,7 +2,6 @@
 
 module Main where
 
-import Internal.Log (dbg)
 import BuckArgs (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
 import BuckWorker (
   ExecuteCommand (..),
@@ -20,6 +19,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
 import Control.Monad.Trans.Reader (runReaderT)
 import Data.Foldable (traverse_)
+import Data.Functor ((<&>))
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (maybeToList)
@@ -31,7 +31,7 @@ import qualified Data.Vector as Vector
 import GHC (getSession)
 import Internal.AbiHash (readAbiHash)
 import Internal.Args (Args (..))
-import Internal.Cache (Cache (..), emptyCache)
+import Internal.Cache (Cache (..), ModuleArtifacts (..), emptyCache)
 import Internal.Log (newLog)
 import Internal.Session (Env (..), withGhc)
 import Message
@@ -63,8 +63,8 @@ abiHashIfSuccess env args code
   | 0 == code
   = withGhc env \ _ -> do
     hsc_env <- getSession
-    abiHash <- readAbiHash hsc_env args.abiOut
-    pure (Just CompileResult {abiHash})
+    readAbiHash hsc_env args.abiOut <&> fmap \ (iface, abiHash) ->
+      CompileResult {artifacts = ModuleArtifacts {iface, bytecode = Nothing}, abiHash = Just abiHash}
   | otherwise
   = pure Nothing
 
@@ -89,8 +89,6 @@ processRequest pool buckArgs env@Env {args} = do
           }
       Response {responseResult = code, ..} <- runReaderT (work req) (j, i, hset, pool)
       result <- abiHashIfSuccess env buckArgs code
-      dbg ("Code: " ++ show code)
-      dbg ("Result: " ++ show result)
       when (requestWorkerClose req) do
         traverse_ (removeWorker pool) requestWorkerTargetId
       dumpStatus pool
