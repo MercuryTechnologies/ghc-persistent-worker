@@ -12,12 +12,31 @@ category:           Development
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 
+library
+    ghc-options:      -Wall -Werror
+    hs-source-dirs:   lib
+    exposed-modules:  Pool
+                      Server
+                      Worker
+    build-depends:    base >=4.19,
+                      binary,
+                      bytestring,
+                      containers,
+                      directory,
+                      extra,
+                      filepath,
+                      ghc-persistent-worker-comm,
+                      network,
+                      optparse-applicative,
+                      process,
+                      stm,
+                      transformers,
+                      unix
+    default-language: GHC2021
+
 executable Server
     main-is:          Main.hs
     ghc-options:      -Wall -Werror
-    other-modules:    Pool
-                      Server
-                      Worker
     hs-source-dirs:   app
     build-depends:    base >=4.19,
                       binary,
@@ -27,6 +46,7 @@ executable Server
                       extra,
                       filepath,
                       ghc-persistent-worker-comm,
+                      ghc-persistent-worker-server,
                       network,
                       optparse-applicative,
                       process,

@@ -1,1 +1,1 @@
-[export_file(f, visibility = ["PUBLIC"]) for f in ["Args.hs", "Main.hs", "BuckWorker.hs"]]
+[export_file(f, visibility = ["PUBLIC"]) for f in ["Main.hs"]]
