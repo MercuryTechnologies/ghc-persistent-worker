@@ -1,8 +1,8 @@
-{-# language DataKinds, OverloadedLists, OverloadedStrings, GADTs #-}
+{-# language DataKinds, GADTs #-}
 
 module Main where
 
-import Args (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
+import BuckArgs (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
 import BuckWorker (
   ExecuteCommand (..),
   ExecuteCommand_EnvironmentEntry (..),
