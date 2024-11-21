@@ -21,7 +21,7 @@ library
     hs-source-dirs:   src
     exposed-modules:  GHCPersistentWorkerPlugin
                       Util
-    if (impl(ghc > 9.11))
+    if (impl(ghc >= 9.10))
         hs-source-dirs: src-ghcHEAD
         other-modules:  GHC.Main
         build-depends: base ^>=4.20,
