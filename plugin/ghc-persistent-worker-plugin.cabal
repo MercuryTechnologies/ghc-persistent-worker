@@ -28,7 +28,7 @@ library
                       Internal.Log
                       Internal.Session
                       Util
-    if (impl(ghc > 9.11))
+    if (impl(ghc >= 9.10))
         hs-source-dirs: src-ghcHEAD
         other-modules:  GHC.Main
                         Logger
