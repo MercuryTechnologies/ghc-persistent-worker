@@ -95,10 +95,19 @@ parseBuckArgs env =
       ('-' : 'B' : path) : rest -> spin z {topdir = Just path} rest
       arg : rest | Just exe <- stripPrefix "--bin-exe=" arg -> spin z {binPath = takeDirectory exe : z.binPath} rest
       arg : args -> do
-        (rest, new) <- fromMaybe (ghcOption arg) (options !? arg) args z
+        (rest, new) <- fromMaybe (equalsArg arg) (options !? arg) args z
         spin new rest
       [] -> Right z {ghcOptions = reverse z.ghcOptions}
 
+    -- For @--worker-target-id=worker1@ style args
+    equalsArg arg rest z
+      | (name, '=' : value) <- break ('=' ==) arg
+      , Just handler <- options !? name
+      = handler (value : rest) z
+      | otherwise
+      = ghcOption arg rest z
+
+    -- Let GHC handle the arg
     ghcOption arg rest z = Right (rest, z {ghcOptions = arg : z.ghcOptions})
 
 toGhcArgs :: BuckArgs -> IO Args
