@@ -12,6 +12,7 @@ import Data.Maybe (fromMaybe)
 import Internal.AbiHash (AbiHash (..))
 import qualified Internal.Args
 import Internal.Args (Args (Args))
+import System.FilePath (takeDirectory)
 
 -- | Right now the 'Maybe' just corresponds to the presence of the CLI argument @--abi-out@ – errors occuring while
 -- reading the iface are thrown.
@@ -74,6 +75,7 @@ options =
     withArg "--ghc-dir" \ z a -> z {ghcDirFile = Just a},
     withArg "--extra-pkg-db" \ z a -> z {ghcDbFile = Just a},
     withArg "--bin-path" \ z a -> z {binPath = a : z.binPath},
+    withArg "--bin-exe" \ z a -> z {binPath = takeDirectory a : z.binPath},
     skip "-c"
   ]
   where
