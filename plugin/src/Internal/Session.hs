@@ -1,9 +1,9 @@
 module Internal.Session where
 
-import Control.Concurrent.MVar (MVar, modifyMVar_)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
-import Data.Foldable (toList)
+import Data.Foldable (toList, traverse_)
 import Data.IORef (newIORef)
 import Data.List (intercalate)
 import Data.List.NonEmpty (nonEmpty)
@@ -20,24 +20,23 @@ import GHC (
   parseTargetFiles,
   prettyPrintGhcErrors,
   pushLogHookM,
-  setSession,
   setSessionDynFlags,
   withSignalHandlers,
   )
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
-import GHC.Driver.Env (hscUpdateFlags)
+import GHC.Driver.Env (HscEnv (..), hscUpdateFlags)
 import GHC.Driver.Errors (printOrThrowDiagnostics)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
 import GHC.Driver.Main (initHscEnv)
-import GHC.Driver.Monad (Session (Session), unGhc)
+import GHC.Driver.Monad (Session (Session), modifySession, unGhc)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
 import GHC.Utils.TmpFs (TempDir (..))
 import Internal.Args (Args (..))
-import Internal.Cache (BinPath (..), Cache (..), withCache)
+import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Target (..), withCache)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log (..), logToState)
 import Prelude hiding (log)
@@ -63,17 +62,11 @@ setupPath args old = do
       | otherwise
       = old.path.extra
 
-runSession :: Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
-runSession Env {log, args, cache} prog = do
-  modifyMVar_ cache (setupPath args)
-  ref <- newIORef (panic "empty session")
-  let session = Session ref
-  flip unGhc session $ withSignalHandlers do
-    setSession . maybe id setTempDir args.tempDir =<< liftIO (initHscEnv args.topdir)
-    handleExceptions log Nothing (prog (map loc args.ghcOptions))
-  where
-    loc = mkGeneralLocated "by Buck2"
-    setTempDir dir = hscUpdateFlags \ dflags -> dflags {tmpDir = TempDir dir}
+setTempDir :: String -> HscEnv -> HscEnv
+setTempDir dir = hscUpdateFlags \ dflags -> dflags {tmpDir = TempDir dir}
+
+dummyLocation :: a -> Located a
+dummyLocation = mkGeneralLocated "by Buck2"
 
 parseFlags :: [Located String] -> Ghc (DynFlags, Logger, [Located String], DriverMessages)
 parseFlags argv = do
@@ -99,13 +92,57 @@ initGhc dflags0 logger fileish_args dynamicFlagWarnings = do
   where
     flagWarnings' = GhcDriverMessage <$> dynamicFlagWarnings
 
-withGhc :: Env -> ([(String, Maybe Phase)] -> Ghc (Maybe a)) -> IO (Maybe a)
-withGhc env prog =
-  runSession env \ argv -> do
-    pushLogHookM (const (logToState env.log))
-    (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags argv
-    prettyPrintGhcErrors logger do
-      srcs <- initGhc dflags0 logger fileish_args dynamicFlagWarnings
-      withCache env.log env.cache (fst <$> srcs) do
-        initializeSessionPlugins
-        prog srcs
+withGhcInSession :: Env -> ([(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
+withGhcInSession env prog argv = do
+  pushLogHookM (const (logToState env.log))
+  (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags argv
+  prettyPrintGhcErrors logger do
+    srcs <- initGhc dflags0 logger fileish_args dynamicFlagWarnings
+    prog srcs
+
+ensureSession :: MVar Cache -> Args -> IO HscEnv
+ensureSession cacheVar args =
+  modifyMVar cacheVar \ cache -> do
+    newEnv <- maybe (initHscEnv args.topdir) pure cache.baseSession
+    if cache.features.enable
+    then pure (cache {baseSession = Just newEnv}, newEnv)
+    else pure (cache, newEnv)
+
+runSession :: Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
+runSession Env {log, args, cache} prog = do
+  modifyMVar_ cache (setupPath args)
+  hsc_env <- ensureSession cache args
+  session <- Session <$> newIORef hsc_env
+  flip unGhc session $ withSignalHandlers do
+    traverse_ (modifySession . setTempDir) args.tempDir
+    handleExceptions log Nothing (prog (map dummyLocation args.ghcOptions))
+
+ensureSingleTarget :: [(String, Maybe Phase)] -> Ghc Target
+ensureSingleTarget = \case
+  [(src, Nothing)] -> pure (Target src)
+  [(_, phase)] -> panic ("Called worker with unexpected start phase: " ++ show phase)
+  args -> panic ("Called worker with multiple targets: " ++ show args)
+
+withGhcUsingCache :: (Target -> Ghc a -> Ghc (Maybe b)) -> Env -> (Target -> Ghc a) -> IO (Maybe b)
+withGhcUsingCache cacheHandler env prog =
+  runSession env $ withGhcInSession env \ srcs -> do
+    target <- ensureSingleTarget srcs
+    cacheHandler target do
+      initializeSessionPlugins
+      prog target
+
+withGhc :: Env -> (Target -> Ghc (Maybe a)) -> IO (Maybe a)
+withGhc env =
+  withGhcUsingCache cacheHandler env
+  where
+    cacheHandler target prog = do
+      result <- withCache env.log env.cache target do
+        res <- prog
+        pure do
+          a <- res
+          pure (Nothing, a)
+      pure (snd <$> result)
+
+withGhcDefault :: Env -> (Target -> Ghc (Maybe (Maybe ModuleArtifacts, a))) -> IO (Maybe (Maybe ModuleArtifacts, a))
+withGhcDefault env =
+  withGhcUsingCache (withCache env.log env.cache) env

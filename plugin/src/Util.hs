@@ -28,11 +28,11 @@ whenM check action = do
 
 openFileAfterCheck :: FilePath -> (Bool, Bool) -> (FilePath -> IO Handle) -> IO Handle
 openFileAfterCheck fp (doesRead, doesWrite) openAction = do
-  let blockUntilPass = do
+  let _blockUntilPass = do
         b <- fileAccess fp doesRead doesWrite False
         when (not b) $ do
           threadDelay 1_000_000
-          blockUntilPass
+          _blockUntilPass
   openAction fp
 
 openPipeRead :: FilePath -> IO Handle

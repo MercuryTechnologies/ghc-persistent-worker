@@ -28,23 +28,20 @@ library
                       Internal.Log
                       Internal.Session
                       Util
-    if (impl(ghc >= 9.10))
-        hs-source-dirs: src-ghcHEAD
-        other-modules:  GHC.Main
-                        Logger
-        build-depends: base ^>=4.21,
+    other-modules:  GHC.Main
+                    Logger
 
-    if (impl(ghc >= 9.9) && impl(ghc < 9.11))
+    if (impl(ghc >= 9.11))
+        hs-source-dirs: src-ghcHEAD
+
+    if (impl(ghc < 9.11))
         hs-source-dirs: src-ghc98
-        other-modules:  GHC.Main
-                        Logger
-        build-depends: base ^>=4.20,
+
+    if (impl(ghc >= 9.9))
+        build-depends: base ^>=4.20
 
     if (impl(ghc >= 9.8) && impl(ghc < 9.9))
-        hs-source-dirs: src-ghc98
-        other-modules:  GHC.Main
-                        Logger
-        build-depends: base ^>=4.19,
+        build-depends: base ^>=4.19
 
     build-depends:    binary,
                       bytestring,

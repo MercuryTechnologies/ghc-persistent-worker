@@ -3,33 +3,64 @@
 module Internal.Cache where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
-import Control.Monad (unless)
-import Control.Monad.Catch (finally)
+import Control.Monad (join, unless, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
-import Data.Foldable (for_, traverse_)
+import Data.Foldable (for_)
+import Data.List (sortBy)
 import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
+import Data.Map.Strict (Map, (!?))
 import Data.Maybe (fromMaybe)
+import Data.Ord (comparing)
 import qualified Data.Set as Set
 import Data.Set (Set, (\\))
-import GHC (Ghc, moduleName, moduleNameString)
+import Data.Traversable (for)
+import GHC (Ghc, ModIface, ModuleName, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Data.FastString (FastString)
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Monad (withSession)
-import GHC.Linker.Types (LinkerEnv (..), Loader (..), LoaderState (..))
+import GHC.Linker.Types (Linkable, LinkerEnv (..), Loader (..), LoaderState (..))
 import GHC.Ptr (Ptr)
 import GHC.Runtime.Interpreter (Interp (..))
 import GHC.Types.Name.Cache (NameCache (..), OrigNameCache)
 import GHC.Types.Unique.DFM (plusUDFM)
 import GHC.Types.Unique.FM (UniqFM, minusUFM, nonDetEltsUFM, sizeUFM)
 import GHC.Types.Unique.Supply (initUniqSupply)
+import GHC.Unit.Env (UnitEnv (..))
+import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
 import GHC.Unit.Module.Env (emptyModuleEnv, moduleEnvKeys, plusModuleEnv)
 import qualified GHC.Utils.Outputable as Outputable
-import GHC.Utils.Outputable (comma, fsep, hang, punctuate, text, ($$), (<+>))
-import Internal.Log (Log, logOther, logd)
+import GHC.Utils.Outputable (SDoc, comma, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
+import Internal.Log (Log, logd)
 import System.Environment (lookupEnv)
+
+#if __GLASGOW_HASKELL__ >= 911
+
+import Data.IORef (IORef, newIORef, readIORef)
+import qualified Data.Map.Lazy as LazyMap
+import GHC.Fingerprint (Fingerprint, getFileHash)
+import GHC.IORef (atomicModifyIORef')
+import GHC.Unit (InstalledModule, extendInstalledModuleEnv, lookupInstalledModuleEnv)
+import GHC.Unit.Finder (FinderCache (..), InstalledFindResult (..))
+import GHC.Unit.Module.Env (InstalledModuleEnv, emptyInstalledModuleEnv)
+import GHC.Utils.Panic (panic)
+
+#else
+
+import GHC.Unit.Finder (FinderCache, initFinderCache)
+
+#endif
+
+data ModuleArtifacts =
+  ModuleArtifacts {
+    iface :: ModIface,
+    bytecode :: Maybe Linkable
+  }
+
+instance Show ModuleArtifacts where
+  show ModuleArtifacts {iface} =
+    "ModuleArtifacts { iface = " ++ moduleNameString (moduleName (mi_module iface)) ++ " }"
 
 type SymbolMap = UniqFM FastString (Ptr ())
 
@@ -95,10 +126,25 @@ emptyStatsUpdate =
     names = NamesStats {new = 0}
   }
 
+data FinderStats =
+  FinderStats {
+    hits :: Map ModuleName Int,
+    misses :: Map ModuleName Int
+  }
+  deriving stock (Eq, Show)
+
+emptyFinderStats :: FinderStats
+emptyFinderStats =
+  FinderStats {
+    hits = mempty,
+    misses = mempty
+  }
+
 data CacheStats =
   CacheStats {
     restore :: StatsUpdate,
-    update :: StatsUpdate
+    update :: StatsUpdate,
+    finder :: FinderStats
   }
   deriving stock (Eq, Show)
 
@@ -106,7 +152,8 @@ emptyStats :: CacheStats
 emptyStats =
   CacheStats {
     restore = emptyStatsUpdate,
-    update = emptyStatsUpdate
+    update = emptyStatsUpdate,
+    finder = emptyFinderStats
   }
 
 data InterpCache =
@@ -127,22 +174,69 @@ data BinPath =
   }
   deriving stock (Eq, Show)
 
+#if __GLASGOW_HASKELL__ >= 911
+
+data FinderState =
+  FinderState {
+     modules :: IORef (InstalledModuleEnv InstalledFindResult),
+     files :: IORef (Map String Fingerprint)
+  }
+
+emptyFinderState :: MonadIO m => m FinderState
+emptyFinderState =
+  liftIO do
+    modules <- newIORef emptyInstalledModuleEnv
+    files <- newIORef LazyMap.empty
+    pure FinderState {modules, files}
+
+#else
+
+data FinderState =
+  FinderState {
+    cache :: FinderCache
+  }
+
+emptyFinderState :: MonadIO m => m FinderState
+emptyFinderState =
+  liftIO do
+    cache <- initFinderCache
+    pure FinderState {cache}
+
+#endif
+
+data CacheFeatures =
+  CacheFeatures {
+    enable :: Bool,
+    loader :: Bool,
+    names :: Bool,
+    finder :: Bool
+  }
+  deriving stock (Eq, Show)
+
+newCacheFeatures :: CacheFeatures
+newCacheFeatures = CacheFeatures {enable = True, loader = True, names = True, finder = True}
+
 -- TODO the name cache could in principle be shared directly – try it out
 data Cache =
   Cache {
-    enable :: Bool,
+    features :: CacheFeatures,
     initialized :: Bool,
     interp :: Maybe InterpCache,
     names :: OrigNameCache,
     stats :: Map Target CacheStats,
-    path :: BinPath
+    path :: BinPath,
+    finder :: FinderState,
+    eps :: ExternalUnitCache,
+    baseSession :: Maybe HscEnv
   }
 
 emptyCache :: Bool -> IO (MVar Cache)
 emptyCache enable = do
   initialPath <- lookupEnv "PATH"
+  finder <- emptyFinderState
+  eps <- initExternalUnitCache
   newMVar Cache {
-    enable,
+    features = newCacheFeatures {enable},
     initialized = False,
     interp = Nothing,
     names = emptyModuleEnv,
@@ -150,17 +244,17 @@ emptyCache enable = do
     path = BinPath {
       initial = initialPath,
       extra = mempty
-    }
+    },
+    finder,
+    eps,
+    baseSession = Nothing
   }
 
-initialize ::
-  MVar Cache ->
-  IO ()
-initialize cache =
-  modifyMVar_ cache \ c -> do
-    unless c.initialized do
-      initUniqSupply 0 1
-    pure c {initialized = True}
+initialize :: Cache -> IO Cache
+initialize cache = do
+  unless cache.initialized do
+    initUniqSupply 0 1
+  pure cache {initialized = True}
 
 basicLinkerStats :: LinkerEnv -> LinkerEnv -> LinkerStats
 basicLinkerStats base update =
@@ -245,15 +339,18 @@ restoreLoaderState cached session =
 
     (linker_env, linkerStats) = restoreLinkerEnv cached.linker_env session.linker_env
 
+modifyStats :: Target -> (CacheStats -> CacheStats) -> Cache -> Cache
+modifyStats target f cache =
+  cache {stats = Map.alter (Just . f . fromMaybe emptyStats) target cache.stats}
+
 pushStats :: Bool -> Target -> Maybe LoaderStats -> SymbolsStats -> NamesStats -> Cache -> Cache
-pushStats restoring target (Just new) symbols names cache =
-  cache {stats = Map.alter f target cache.stats}
+pushStats restoring target (Just new) symbols names =
+  modifyStats target add
   where
-    f old = Just (add (fromMaybe emptyStats old))
     add old | restoring = old {restore = old.restore {loader = new, symbols, names}}
             | otherwise = old {update = old.update {loader = new, symbols, names}}
-pushStats _ _ _ _ _ cache =
-  cache
+pushStats _ _ _ _ _ =
+  id
 
 restoreCache ::
   Target ->
@@ -261,7 +358,7 @@ restoreCache ::
   SymbolCache ->
   OrigNameCache ->
   Cache ->
-  IO (Cache, (OrigNameCache, (SymbolCache, Maybe LoaderState)))
+  IO (OrigNameCache, (SymbolCache, (Maybe LoaderState, Cache)))
 restoreCache target initialLoaderState initialSymbolCache initialNames cache
   | Just InterpCache {..} <- cache.interp
   = do
@@ -278,10 +375,10 @@ restoreCache target initialLoaderState initialSymbolCache initialNames cache
       -- this overwrites entire modules, since OrigNameCache is a three-level map.
       -- eventually we'll want to merge properly.
       names = plusModuleEnv initialNames cache.names
-    pure (newCache, (names, (newSymbols, Just restoredLs)))
+    pure (names, (newSymbols, (Just restoredLs, newCache)))
 
   | otherwise
-  = pure (cache, (initialNames, (initialSymbolCache, initialLoaderState)))
+  = pure (initialNames, (initialSymbolCache, (initialLoaderState, cache)))
 
 -- TODO filter all cached items to include only external Names if possible
 initCache ::
@@ -357,74 +454,166 @@ updateCache target InterpCache {..} newLoaderState newSymbols newNames cache = d
     symbolsStats = basicSymbolsStats symbols newSymbols
     namesStats = basicNamesStats cache.names newNames
 
+moduleColumns :: Show a => Map ModuleName a -> SDoc
+moduleColumns m =
+  vcat [text n Outputable.<> text ":" $$ nest offset (text (show h)) | (n, h) <- kvs]
+  where
+    offset = length (fst (last kvs)) + 2
+    kvs = sortBy (comparing (length . fst)) (first moduleNameString <$> Map.toList m)
+
 report ::
   MonadIO m =>
   MVar Log ->
-  MVar Cache ->
+  HscEnv ->
   Target ->
+  Cache ->
   m ()
-report logVar cacheVar target =
-  liftIO (readMVar cacheVar) >>= \ Cache {stats} ->
-    for_ (Map.lookup target stats) \ CacheStats {restore, update} -> do
-      let
-        restoreStats =
-          text (show (length restore.loader.newBcos)) <+> text "BCOs" $$
-          text (show restore.loader.linker.newClosures) <+> text "closures" $$
-          text (show restore.symbols.new) <+> text "symbols" $$
-          text (show restore.loader.sameBcos) <+> text "BCOs already in cache"
+report logVar _ target Cache {stats} =
+  for_ (stats !? target) \ CacheStats {restore, update, finder} -> do
+    let
+      restoreStats =
+        text (show (length restore.loader.newBcos)) <+> text "BCOs" $$
+        text (show restore.loader.linker.newClosures) <+> text "closures" $$
+        text (show restore.symbols.new) <+> text "symbols" $$
+        text (show restore.loader.sameBcos) <+> text "BCOs already in cache"
 
-        newBcos = text <$> update.loader.newBcos
+      newBcos = text <$> update.loader.newBcos
 
-        updateStats =
-          (if null newBcos then text "No new BCOs" else text "New BCOs:" <+> fsep (punctuate comma newBcos)) $$
-          text (show update.loader.linker.newClosures) <+> text "new closures" $$
-          text (show update.symbols.new) <+> text "new symbols" $$
-          text (show update.loader.sameBcos) <+> text "BCOs already in cache"
+      updateStats =
+        (if null newBcos then text "No new BCOs" else text "New BCOs:" <+> fsep (punctuate comma newBcos)) $$
+        text (show update.loader.linker.newClosures) <+> text "new closures" $$
+        text (show update.symbols.new) <+> text "new symbols" $$
+        text (show update.loader.sameBcos) <+> text "BCOs already in cache"
 
-      logd logVar $ hang (text target.get Outputable.<> text ":") 2 $
-        hang (text "Restore:") 2 restoreStats $$
-        hang (text "Update:") 2 updateStats
+      finderStats =
+        hang (text "Hits:") 2 (moduleColumns finder.hits) $$
+        hang (text "Misses:") 2 (moduleColumns finder.misses)
 
-withHscState :: (MVar OrigNameCache -> MVar (Maybe LoaderState) -> MVar SymbolMap -> IO ()) -> Ghc ()
-withHscState use =
-  withSession \ HscEnv {hsc_interp, hsc_NC = NameCache {nsNames}} ->
-#if __GLASGOW_HASKELL__ >= 910
-    for_ hsc_interp \ Interp {interpLoader = Loader {loader_state}, interpLookupSymbolCache} ->
-      liftIO $ use nsNames loader_state interpLookupSymbolCache
+    logd logVar $ hang (text target.get Outputable.<> text ":") 2 $
+      hang (text "Restore:") 2 restoreStats $$
+      hang (text "Update:") 2 updateStats $$
+      hang (text "Finder:") 2 finderStats
+
+#if __GLASGOW_HASKELL__ >= 911
+
+newFinderCache :: MVar Cache -> Cache -> Target -> IO FinderCache
+newFinderCache cacheVar Cache {finder = FinderState {modules, files}} target = do
+  let flushFinderCaches :: UnitEnv -> IO ()
+      flushFinderCaches _ = panic "GHC attempted to flush finder caches, which shouldn't happen in worker mode"
+
+      addToFinderCache :: InstalledModule -> InstalledFindResult -> IO ()
+      addToFinderCache key val =
+        atomicModifyIORef' modules $ \c ->
+          case (lookupInstalledModuleEnv c key, val) of
+            (Just InstalledFound{}, InstalledNotFound{}) -> (c, ())
+            _ -> (extendInstalledModuleEnv c key val, ())
+
+      lookupFinderCache :: InstalledModule -> IO (Maybe InstalledFindResult)
+      lookupFinderCache key = do
+        c <- readIORef modules
+        let result = lookupInstalledModuleEnv c key
+        case result of
+          Just _ -> cacheHit key
+          Nothing -> cacheMiss key
+        pure $! result
+
+      lookupFileCache :: FilePath -> IO Fingerprint
+      lookupFileCache key = do
+         fc <- readIORef files
+         case LazyMap.lookup key fc of
+           Nothing -> do
+             hash <- getFileHash key
+             atomicModifyIORef' files $ \c -> (LazyMap.insert key hash c, ())
+             return hash
+           Just fp -> return fp
+  return FinderCache {..}
+  where
+    cacheHit m =
+      updateStats \ FinderStats {hits, ..} -> FinderStats {hits = incStat m hits, ..}
+
+    cacheMiss m =
+      updateStats \ FinderStats {misses, ..} -> FinderStats {misses = incStat m misses, ..}
+
+    incStat m = Map.alter (Just . succ . fromMaybe 0) (moduleName m)
+
+    updateStats f =
+      modifyMVar_ cacheVar $ pure . modifyStats target \ CacheStats {..} -> CacheStats {finder = f finder, ..}
+
 #else
-    for_ hsc_interp \ Interp {interpLoader = Loader {loader_state}} ->
-      liftIO do
-      symbolCacheVar <- newMVar mempty
-      use nsNames loader_state symbolCacheVar
+
+newFinderCache :: MVar Cache -> Cache -> Target -> IO FinderCache
+newFinderCache _ Cache {finder = FinderState {cache}} _ = pure cache
+
 #endif
 
-withCache :: MVar Log -> MVar Cache -> [String] -> Ghc a -> Ghc a
-withCache logVar cacheVar [src] prog = do
-  liftIO (initialize cacheVar)
-  liftIO (readMVar cacheVar) >>= \case
-    Cache {enable = True} -> do
-      prepare
-      finally (prog <* finalize) (report logVar cacheVar target)
-    _ -> prog
-  where
-    prepare =
-      withHscState \ nsNames loaderStateVar symbolCacheVar ->
-        modifyMVar_ loaderStateVar \ initialLoaderState ->
+withHscState :: HscEnv -> (MVar OrigNameCache -> MVar (Maybe LoaderState) -> MVar SymbolMap -> IO a) -> IO (Maybe a)
+withHscState HscEnv {hsc_interp, hsc_NC = NameCache {nsNames}} use =
+#if __GLASGOW_HASKELL__ >= 911
+  for hsc_interp \ Interp {interpLoader = Loader {loader_state}, interpLookupSymbolCache} ->
+    liftIO $ use nsNames loader_state interpLookupSymbolCache
+#else
+  for hsc_interp \ Interp {interpLoader = Loader {loader_state}} ->
+    liftIO do
+    symbolCacheVar <- newMVar mempty
+    use nsNames loader_state symbolCacheVar
+#endif
+
+setTarget :: MVar Cache -> Cache -> HscEnv -> Target -> IO HscEnv
+setTarget cacheVar cache hsc_env target = do
+  hsc_FC <- newFinderCache cacheVar cache target
+  pure hsc_env {hsc_FC, hsc_unit_env = hsc_env.hsc_unit_env {ue_eps = cache.eps}}
+
+prepareCache :: MVar Cache -> Target -> HscEnv -> Cache -> IO (Cache, (HscEnv, Bool))
+prepareCache cacheVar target hsc_env0 cache0 = do
+  cache1 <- initialize cache0
+  result <-
+    if cache1.features.enable
+    then do
+      hsc_env1 <- setTarget cacheVar cache0 hsc_env0 target
+      withHscState hsc_env1 \ nsNames loaderStateVar symbolCacheVar -> do
+        cache2 <- modifyMVar loaderStateVar \ initialLoaderState ->
           modifyMVar symbolCacheVar \ initialSymbolCache ->
             (first coerce) <$>
             modifyMVar nsNames \ names ->
-              modifyMVar cacheVar (restoreCache target initialLoaderState (SymbolCache initialSymbolCache) names)
+              restoreCache target initialLoaderState (SymbolCache initialSymbolCache) names cache1
+        pure (hsc_env1, cache2)
+    else pure Nothing
+  let (hsc_env1, cache2) = fromMaybe (hsc_env0, cache1 {features = cache1.features {enable = False}}) result
+  pure (cache2, (hsc_env1, cache2.features.enable))
 
-    finalize =
-      withHscState \ nsNames loaderStateVar symbolCacheVar ->
-        readMVar loaderStateVar >>= traverse_ \ newLoaderState -> do
-          newSymbols <- readMVar symbolCacheVar
-          newNames <- readMVar nsNames
-          modifyMVar_ cacheVar \ c ->
-            maybe initCache (updateCache target) c.interp newLoaderState (SymbolCache newSymbols) newNames c
+storeIface :: HscEnv -> ModIface -> IO ()
+storeIface _ _ =
+  pure ()
 
-    target = Target src
+finalizeCache :: MVar Log -> HscEnv -> Target -> Maybe ModuleArtifacts -> Cache -> IO Cache
+finalizeCache logVar hsc_env target artifacts cache0 = do
+  cache1 <- fromMaybe cache0 . join <$> withHscState hsc_env \ nsNames loaderStateVar symbolCacheVar ->
+    readMVar loaderStateVar >>= traverse \ newLoaderState -> do
+      newSymbols <- readMVar symbolCacheVar
+      newNames <- readMVar nsNames
+      maybe initCache (updateCache target) cache0.interp newLoaderState (SymbolCache newSymbols) newNames cache0
+  for_ artifacts \ ModuleArtifacts {iface} ->
+    storeIface hsc_env iface
+  report logVar hsc_env target cache1
+  pure cache1
 
-withCache logVar _ _ prog = do
-  liftIO $ logOther logVar "withCache called with target count /= 1"
-  prog
+withSessionM :: (HscEnv -> IO (HscEnv, a)) -> Ghc a
+withSessionM use =
+  withSession \ hsc_env -> do
+    (new_env, a) <- liftIO $ use hsc_env
+    setSession new_env
+    pure a
+
+withCache ::
+  MVar Log ->
+  MVar Cache ->
+  Target ->
+  Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
+  Ghc (Maybe (Maybe ModuleArtifacts, a))
+withCache logVar cacheVar target prog = do
+  enable <- withSessionM \ hsc_env -> modifyMVar cacheVar (prepareCache cacheVar target hsc_env)
+  result <- prog
+  when enable (finalize (fst =<< result))
+  pure result
+  where
+    finalize art = withSession \ hsc_env -> liftIO (modifyMVar_ cacheVar (finalizeCache logVar hsc_env target art))
