@@ -1,51 +1,40 @@
-{-# language DataKinds, GADTs #-}
+{-# language DataKinds, GADTs, TypeFamilies #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Main where
 
 import BuckArgs (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
-import BuckWorker (
-  ExecuteCommand (..),
-  ExecuteCommand_EnvironmentEntry (..),
-  ExecuteEvent (..),
-  ExecuteResponse (..),
-  Worker (..),
-  workerServer,
-  )
 import Control.Concurrent.MVar (MVar)
 import Control.Exception (SomeException (SomeException), throwIO, try)
 import Control.Monad (when)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
-import Data.String (fromString)
 import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
-import qualified Data.Text.Lazy as LazyText
-import qualified Data.Vector as Vector
 import GHC (Ghc, getSession)
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Cache (Cache (..), ModuleArtifacts (..), Target, emptyCache)
 import Internal.Compile (compile)
 import Internal.Log (logFlush, newLog)
 import Internal.Session (Env (..), withGhc)
-import Network.GRPC.HighLevel.Generated (
-  GRPCMethodType (..),
-  ServerRequest (..),
-  ServerResponse (..),
-  ServiceOptions (..),
-  StatusCode (..),
-  defaultServiceOptions,
+import Network.GRPC.Common (
+  def,
+  NextElem,
+  NoMetadata,
+  RequestMetadata,
+  ResponseInitialMetadata,
+  ResponseTrailingMetadata,
+  defaultInsecurePort,
   )
+import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (&), (.~))
+import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
+import Network.GRPC.Server.Run (InsecureConfig (InsecureConfig), ServerConfig (..), runServerWithHandlers)
+import Network.GRPC.Server.StreamType (Methods (Method, NoMoreMethods), fromMethods, mkClientStreaming, mkNonStreaming)
 import Prelude hiding (log)
+import Proto.Worker (ExecuteCommand, ExecuteCommand'EnvironmentEntry, ExecuteEvent, ExecuteResponse, Worker (..))
+import qualified Proto.Worker_Fields as Fields
 import System.Environment (lookupEnv)
 import System.IO (BufferMode (LineBuffering), hPutStrLn, hSetBuffering, stderr, stdout)
-
-commandEnv :: Vector.Vector ExecuteCommand_EnvironmentEntry -> Map String String
-commandEnv =
-  Map.fromList .
-  fmap (\ (ExecuteCommand_EnvironmentEntry key value) -> (fromBs key, fromBs value)) .
-  Vector.toList
-  where
-    fromBs = Text.unpack . decodeUtf8Lenient
 
 compileAndReadAbiHash :: BuckArgs -> Target -> Ghc (Maybe CompileResult)
 compileAndReadAbiHash args target = do
@@ -58,18 +47,32 @@ compileAndReadAbiHash args target = do
         Just AbiHash {path, hash = showAbiHash hsc_env artifacts.iface}
     pure CompileResult {artifacts, abiHash}
 
-executeHandler ::
+type instance RequestMetadata (Protobuf Worker "exec") = NoMetadata
+type instance ResponseInitialMetadata (Protobuf Worker "exec") = NoMetadata
+type instance ResponseTrailingMetadata (Protobuf Worker "exec") = NoMetadata
+
+type instance RequestMetadata (Protobuf Worker "execute") = NoMetadata
+type instance ResponseInitialMetadata (Protobuf Worker "execute") = NoMetadata
+type instance ResponseTrailingMetadata (Protobuf Worker "execute") = NoMetadata
+
+commandEnv :: [Proto ExecuteCommand'EnvironmentEntry] -> Map String String
+commandEnv =
+  Map.fromList .
+  fmap \ kv -> (fromBs kv.key, fromBs kv.value)
+  where
+    fromBs = Text.unpack . decodeUtf8Lenient
+
+execute ::
   MVar Cache ->
-  ServerRequest 'Normal ExecuteCommand ExecuteResponse ->
-  IO (ServerResponse 'Normal ExecuteResponse)
-executeHandler cache (ServerNormalRequest _ ExecuteCommand {executeCommandArgv, executeCommandEnv}) = do
+  Proto ExecuteCommand ->
+  IO (Proto ExecuteResponse)
+execute cache req = do
   when False do
     hPutStrLn stderr (unlines argv)
-  response <- either exceptionResponse successResponse =<< try run
-  pure (ServerNormalResponse response [] StatusOk "")
+  either exceptionResponse successResponse =<< try run
   where
     run = do
-      buckArgs <- either (throwIO . userError) pure (parseBuckArgs (commandEnv executeCommandEnv) argv)
+      buckArgs <- either (throwIO . userError) pure (parseBuckArgs (commandEnv req.env) argv)
       args <- toGhcArgs buckArgs
       log <- newLog False
       let env = Env {log, cache, args}
@@ -77,34 +80,29 @@ executeHandler cache (ServerNormalRequest _ ExecuteCommand {executeCommandArgv, 
       pure (env, buckArgs, result)
 
     successResponse (env, buckArgs, result) = do
-      executeResponseExitCode <- writeResult buckArgs result
+      exitCode <- writeResult buckArgs result
       output <- logFlush env.log
-      pure ExecuteResponse {
-        executeResponseExitCode,
-        executeResponseStderr = LazyText.unlines (LazyText.pack <$> output)
-      }
+      pure $ defMessage
+        & Fields.exitCode .~ exitCode
+        & Fields.stderr .~ Text.unlines (Text.pack <$> output)
 
     exceptionResponse (SomeException e) =
-      pure ExecuteResponse {
-        executeResponseExitCode = 1,
-        executeResponseStderr = "Uncaught exception: " <> LazyText.pack (show e)
-      }
+      pure $ defMessage
+        & Fields.exitCode .~ 1
+        & Fields.stderr .~ "Uncaught exception: " <> Text.pack (show e)
 
-    argv = Text.unpack . decodeUtf8Lenient <$> Vector.toList executeCommandArgv
+    argv = Text.unpack . decodeUtf8Lenient <$> req.argv
 
-execHandler ::
-  ServerRequest 'ClientStreaming ExecuteEvent ExecuteResponse ->
-  IO (ServerResponse 'ClientStreaming ExecuteResponse)
-execHandler (ServerReaderRequest _metadata _recv) = do
-  hPutStrLn stderr "Received Exec"
-  error "not implemented"
+exec :: IO (NextElem (Proto ExecuteEvent)) -> IO (Proto ExecuteResponse)
+exec _ =
+  pure $ defMessage
+    & Fields.exitCode .~ 1
+    & Fields.stderr .~ "Streaming not implemented"
 
-handlers :: MVar Cache -> Worker ServerRequest ServerResponse
-handlers cache =
-  Worker
-    { workerExecute = executeHandler cache,
-      workerExec = execHandler
-    }
+methods ::
+  MVar Cache ->
+  Methods IO (ProtobufMethodsOf Worker)
+methods cache = Method (mkClientStreaming exec) (Method (mkNonStreaming (execute cache)) NoMoreMethods)
 
 main :: IO ()
 main = do
@@ -113,6 +111,15 @@ main = do
   socket <- lookupEnv "WORKER_SOCKET"
   hPutStrLn stderr $ "using worker socket: " <> show socket
   cache <- emptyCache True
-  workerServer (handlers cache) (maybe id setSocket socket defaultServiceOptions)
+  runServerWithHandlers def config $ fromMethods (methods cache)
   where
-    setSocket s options = options {serverHost = fromString ("unix://" <> s <> "\x00"), serverPort = 0}
+    config :: ServerConfig
+    config =
+      ServerConfig {
+        serverInsecure = Just (InsecureConfig Nothing defaultInsecurePort),
+        serverSecure = Nothing
+      }
+
+  -- workerServer (handlers cache) (maybe id setSocket socket defaultServiceOptions)
+  -- where
+  --   setSocket s options = options {serverHost = fromString ("unix://" <> s <> "\x00"), serverPort = 0}

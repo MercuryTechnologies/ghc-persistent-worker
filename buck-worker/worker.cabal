@@ -21,21 +21,17 @@ common all
     StrictData
   build-depends:
     base ==4.*,
-    containers,
-    text,
-    vector
+    containers
 
 library
   import: all
   hs-source-dirs: lib
-  exposed-modules: BuckArgs, BuckWorker
+  exposed-modules: BuckArgs, Proto.Worker, Proto.Worker_Fields
   build-depends:
-    bytestring,
-    deepseq,
+    containers,
+    filepath,
     ghc-persistent-worker-plugin,
-    grpc-haskell,
-    proto3-suite,
-    proto3-wire
+    proto-lens-runtime
 
 executable worker
   import: all
@@ -43,7 +39,8 @@ executable worker
   hs-source-dirs: .
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-    grpc-haskell,
+    grapesy,
     ghc,
     ghc-persistent-worker-plugin,
-    worker
+    worker,
+    text
