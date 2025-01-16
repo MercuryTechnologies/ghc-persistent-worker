@@ -33,6 +33,9 @@ import System.Directory (doesFileExist)
 
 type P m = TPipelineClass TPhase m
 
+-- | This is inlined mostly verbatim (from @pipelineStart@) to allow us to return the iface from 'fullPipeline'.
+-- While we'll eventually want to make this possible upstream, a proper solution will most likely involve much more
+-- substantial refactoring.
 pipelineOneshot :: P m => PipeEnv -> HscEnv -> FilePath -> m (Maybe ModuleArtifacts)
 pipelineOneshot pipe_env hsc_env input_fn =
   fromPhase (startPhase $ src_suffix pipe_env)

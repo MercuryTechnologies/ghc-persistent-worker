@@ -496,6 +496,11 @@ report logVar _ target Cache {stats} =
 
 #if __GLASGOW_HASKELL__ >= 911
 
+-- | This replacement of the Finder implementation has the sole purpose of recording some cache stats, for now.
+-- While its mutable state is allocated separately and shared across sessions, this doesn't really make a difference at
+-- the moment since we're also initializing each compilation session with a shared @HscEnv@.
+-- Ultimately this might be used to exert some more control over what modules GHC is allowed to access by using Buck's
+-- deps, or some additional optimization.
 newFinderCache :: MVar Cache -> Cache -> Target -> IO FinderCache
 newFinderCache cacheVar Cache {finder = FinderState {modules, files}} target = do
   let flushFinderCaches :: UnitEnv -> IO ()
