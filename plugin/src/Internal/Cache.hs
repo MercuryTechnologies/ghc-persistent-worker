@@ -464,11 +464,12 @@ moduleColumns m =
 report ::
   MonadIO m =>
   MVar Log ->
-  HscEnv ->
+  -- | A description of the current worker process.
+  Maybe String ->
   Target ->
   Cache ->
   m ()
-report logVar _ target Cache {stats} =
+report logVar workerId target Cache {stats} =
   for_ (stats !? target) \ CacheStats {restore, update, finder} -> do
     let
       restoreStats =
@@ -489,10 +490,12 @@ report logVar _ target Cache {stats} =
         hang (text "Hits:") 2 (moduleColumns finder.hits) $$
         hang (text "Misses:") 2 (moduleColumns finder.misses)
 
-    logd logVar $ hang (text target.get Outputable.<> text ":") 2 $
+    logd logVar $ hang (text target.get Outputable.<> maybe (text "") workerDesc workerId Outputable.<> text ":") 2 $
       hang (text "Restore:") 2 restoreStats $$
       hang (text "Update:") 2 updateStats $$
       hang (text "Finder:") 2 finderStats
+  where
+    workerDesc wid = text (" (" ++ wid ++ ")")
 
 #if __GLASGOW_HASKELL__ >= 911
 
@@ -590,8 +593,16 @@ storeIface :: HscEnv -> ModIface -> IO ()
 storeIface _ _ =
   pure ()
 
-finalizeCache :: MVar Log -> HscEnv -> Target -> Maybe ModuleArtifacts -> Cache -> IO Cache
-finalizeCache logVar hsc_env target artifacts cache0 = do
+finalizeCache ::
+  MVar Log ->
+  -- | A description of the current worker process.
+  Maybe String ->
+  HscEnv ->
+  Target ->
+  Maybe ModuleArtifacts ->
+  Cache ->
+  IO Cache
+finalizeCache logVar workerId hsc_env target artifacts cache0 = do
   cache1 <- fromMaybe cache0 . join <$> withHscState hsc_env \ nsNames loaderStateVar symbolCacheVar ->
     readMVar loaderStateVar >>= traverse \ newLoaderState -> do
       newSymbols <- readMVar symbolCacheVar
@@ -599,7 +610,7 @@ finalizeCache logVar hsc_env target artifacts cache0 = do
       maybe initCache (updateCache target) cache0.interp newLoaderState (SymbolCache newSymbols) newNames cache0
   for_ artifacts \ ModuleArtifacts {iface} ->
     storeIface hsc_env iface
-  report logVar hsc_env target cache1
+  report logVar workerId target cache1
   pure cache1
 
 withSessionM :: (HscEnv -> IO (HscEnv, a)) -> Ghc a
@@ -611,14 +622,16 @@ withSessionM use =
 
 withCache ::
   MVar Log ->
+  -- | A description of the current worker process.
+  Maybe String ->
   MVar Cache ->
   Target ->
   Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
   Ghc (Maybe (Maybe ModuleArtifacts, a))
-withCache logVar cacheVar target prog = do
+withCache logVar workerId cacheVar target prog = do
   enable <- withSessionM \ hsc_env -> modifyMVar cacheVar (prepareCache cacheVar target hsc_env)
   result <- prog
   when enable (finalize (fst =<< result))
   pure result
   where
-    finalize art = withSession \ hsc_env -> liftIO (modifyMVar_ cacheVar (finalizeCache logVar hsc_env target art))
+    finalize art = withSession \ hsc_env -> liftIO (modifyMVar_ cacheVar (finalizeCache logVar workerId hsc_env target art))

@@ -79,7 +79,7 @@ processRequest pool buckArgs env@Env {args} = do
     ghcPath <- note "no --ghc-path given" args.ghcPath
     requestWorkerTargetId <- Just . TargetId <$> note "no --worker-target-id given" args.workerTargetId
     liftIO do
-      (j, i, hset) <- assignLoop ghcPath (maybeToList buckArgs.pluginDb) pool requestWorkerTargetId
+      (j, i, hset) <- assignLoop buckArgs.multiplexerCustom ghcPath (maybeToList buckArgs.pluginDb) pool requestWorkerTargetId
       let
         req = Request {
           requestWorkerTargetId,
