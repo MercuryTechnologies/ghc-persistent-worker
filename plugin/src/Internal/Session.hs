@@ -136,7 +136,7 @@ withGhc env =
   withGhcUsingCache cacheHandler env
   where
     cacheHandler target prog = do
-      result <- withCache env.log env.cache target do
+      result <- withCache env.log env.args.workerTargetId env.cache target do
         res <- prog
         pure do
           a <- res
@@ -145,4 +145,4 @@ withGhc env =
 
 withGhcDefault :: Env -> (Target -> Ghc (Maybe (Maybe ModuleArtifacts, a))) -> IO (Maybe (Maybe ModuleArtifacts, a))
 withGhcDefault env =
-  withGhcUsingCache (withCache env.log env.cache) env
+  withGhcUsingCache (withCache env.log env.args.workerTargetId env.cache) env

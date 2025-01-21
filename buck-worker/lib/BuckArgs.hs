@@ -3,7 +3,7 @@ module BuckArgs where
 import Control.Applicative ((<|>))
 import Data.Foldable (for_)
 import Data.Int (Int32)
-import Data.List (dropWhileEnd, stripPrefix)
+import Data.List (dropWhileEnd)
 import Data.Map (Map)
 import Data.Map.Strict ((!?))
 import Data.Maybe (fromMaybe)
@@ -22,6 +22,23 @@ data CompileResult =
   }
   deriving stock (Show)
 
+data Mode =
+  ModeCompile
+  |
+  ModeLink
+  |
+  ModeMetadata
+  |
+  ModeUnknown String
+  deriving stock (Eq, Show)
+
+parseMode :: String -> Mode
+parseMode = \case
+  "compile" -> ModeCompile
+  "link" -> ModeLink
+  "metadata" -> ModeMetadata
+  mode -> ModeUnknown mode
+
 data BuckArgs =
   BuckArgs {
     topdir :: Maybe String,
@@ -37,7 +54,9 @@ data BuckArgs =
     ghcPath :: Maybe String,
     ghcDirFile :: Maybe String,
     ghcDbFile :: Maybe String,
-    ghcOptions :: [String]
+    ghcOptions :: [String],
+    multiplexerCustom :: Bool,
+    mode :: Maybe Mode
   }
   deriving stock (Eq, Show)
 
@@ -57,7 +76,9 @@ emptyBuckArgs env =
     ghcPath = Nothing,
     ghcDirFile = Nothing,
     ghcDbFile = Nothing,
-    ghcOptions = []
+    ghcOptions = [],
+    multiplexerCustom = False,
+    mode = Nothing
   }
 
 options :: Map String ([String] -> BuckArgs -> Either String ([String], BuckArgs))
@@ -76,10 +97,15 @@ options =
     withArg "--extra-pkg-db" \ z a -> z {ghcDbFile = Just a},
     withArg "--bin-path" \ z a -> z {binPath = a : z.binPath},
     withArg "--bin-exe" \ z a -> z {binPath = takeDirectory a : z.binPath},
-    skip "-c"
+    withArg "--worker-mode" \ z a -> z {mode = Just (parseMode a)},
+    flag "--worker-multiplexer-custom" \ z -> z {multiplexerCustom = True},
+    ("-c", \ rest z -> Right (rest, z {mode = Just ModeCompile}))
+    -- skip "-c"
   ]
   where
     skip name = (name, \ rest z -> Right (rest, z))
+
+    flag name f = (name, \ rest z -> Right (rest, f z))
 
     withArg name f = (name, \ argv z -> takeArg name argv (f z))
 
@@ -93,7 +119,6 @@ parseBuckArgs env =
   where
     spin z = \case
       ('-' : 'B' : path) : rest -> spin z {topdir = Just path} rest
-      arg : rest | Just exe <- stripPrefix "--bin-exe=" arg -> spin z {binPath = takeDirectory exe : z.binPath} rest
       arg : args -> do
         (rest, new) <- fromMaybe (equalsArg arg) (options !? arg) args z
         spin new rest

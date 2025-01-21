@@ -49,8 +49,15 @@ runServer socketFile server = do
       $ \(conn, _peer) -> void $
         forkFinally (server conn) (const $ gracefulClose conn 5000)
 
-initWorker :: FilePath -> [FilePath] -> WorkerId -> IO HandleSet
-initWorker ghcPath dbPaths i = do
+initWorker ::
+  -- | If @True@, use the custom implementation of the session management/compilation pipeline.
+  -- Otherwise, call @GHCPersistentWorkerPlugin.compileMain@ when dispatching a job.
+  Bool ->
+  FilePath ->
+  [FilePath] ->
+  WorkerId ->
+  IO HandleSet
+initWorker implCustom ghcPath dbPaths i = do
   putStrLn $ "worker " ++ show i ++ " is initialized"
   let db_options = concatMap (\db -> ["-package-db", db]) dbPaths
       ghc_options =
@@ -60,7 +67,9 @@ initWorker ghcPath dbPaths i = do
             "--frontend",
             "GHCPersistentWorkerPlugin",
             "-ffrontend-opt",
-            show i
+            show i,
+            "-ffrontend-opt",
+            if implCustom then "custom" else "default"
           ]
       proc_setup =
         (proc ghcPath ghc_options)
@@ -76,10 +85,17 @@ initWorker ghcPath dbPaths i = do
         }
   pure hset
 
-spawnWorker :: FilePath -> [FilePath] -> TVar Pool -> IO (WorkerId, HandleSet)
-spawnWorker ghcPath dbPaths poolRef = do
+spawnWorker ::
+  -- | If @True@, use the custom implementation of the session management/compilation pipeline.
+  -- Otherwise, call @GHCPersistentWorkerPlugin.compileMain@ when dispatching a job.
+  Bool ->
+  FilePath ->
+  [FilePath] ->
+  TVar Pool ->
+  IO (WorkerId, HandleSet)
+spawnWorker implCustom ghcPath dbPaths poolRef = do
   wid <- atomically $ newWorkerId poolRef
-  hset <- initWorker ghcPath dbPaths wid
+  hset <- initWorker implCustom ghcPath dbPaths wid
   atomically $ do
     pool <- readTVar poolRef
     let s = poolStatus pool
@@ -90,13 +106,15 @@ spawnWorker ghcPath dbPaths poolRef = do
   mailboxForWorker poolRef wid (handleMsgOut hset)
   pure (wid, hset)
 
-assignLoop :: FilePath -> [FilePath] -> TVar Pool -> Maybe TargetId -> IO (JobId, WorkerId, HandleSet)
-assignLoop ghcPath dbPaths poolRef mid = untilJustM $ do
+-- | The parameter @implCustom@ determines whether to use the custom session/pipeline implementation.
+-- In 'serve', it's hardcoded to @False@ to keep the usual behavior.
+assignLoop :: Bool -> FilePath -> [FilePath] -> TVar Pool -> Maybe TargetId -> IO (JobId, WorkerId, HandleSet)
+assignLoop implCustom ghcPath dbPaths poolRef mid = untilJustM $ do
   eassigned <- atomically $ assignJob poolRef mid
   case eassigned of
     Left n -> do
       putStrLn $ "currently " ++ show n ++ " jobs are running. I am spawning a worker."
-      _ <- spawnWorker ghcPath dbPaths poolRef
+      _ <- spawnWorker implCustom ghcPath dbPaths poolRef
       pure Nothing
     Right (j, i, hset) -> do
       putStrLn $ "Job assigned with ID: " ++ show j
@@ -107,8 +125,7 @@ serve ghcPath dbPaths poolRef s = do
   !msg <- recvMsg s
   let req :: Request = unwrapMsg msg
       mid = requestWorkerTargetId req
-  (j, i, hset) <- assignLoop ghcPath dbPaths poolRef mid
-  
+  (j, i, hset) <- assignLoop False ghcPath dbPaths poolRef mid
   res <- runReaderT (work req) (j, i, hset, poolRef)
   sendMsg s (wrapMsg res)
   when (requestWorkerClose req) $
