@@ -12,6 +12,7 @@ import qualified Internal.Args
 import Internal.Args (Args (Args))
 import Internal.Cache (ModuleArtifacts)
 import System.FilePath (takeDirectory)
+import qualified Data.Map.Strict as Map
 
 -- | Right now the 'Maybe' just corresponds to the presence of the CLI argument @--abi-out@ – errors occuring while
 -- reading the iface are thrown.
@@ -56,7 +57,8 @@ data BuckArgs =
     ghcDbFile :: Maybe String,
     ghcOptions :: [String],
     multiplexerCustom :: Bool,
-    mode :: Maybe Mode
+    mode :: Maybe Mode,
+    envKey :: Maybe String
   }
   deriving stock (Eq, Show)
 
@@ -78,7 +80,8 @@ emptyBuckArgs env =
     ghcDbFile = Nothing,
     ghcOptions = [],
     multiplexerCustom = False,
-    mode = Nothing
+    mode = Nothing,
+    envKey = Nothing
   }
 
 options :: Map String ([String] -> BuckArgs -> Either String ([String], BuckArgs))
@@ -88,6 +91,8 @@ options =
     withArg "--buck2-dep" \ z a -> z {buck2Dep = Just a},
     withArg "--buck2-package-db" \ z a -> z {buck2PackageDb = a : z.buck2PackageDb},
     withArg "--buck2-packagedb-dep" \ z a -> z {buck2PackageDbDep = Just a},
+    withArg "--extra-env-key" \ z a -> z {envKey = Just a},
+    withArgErr "--extra-env-value" \ z a -> addEnv z a,
     withArg "--worker-target-id" \ z a -> z {workerTargetId = Just a},
     withArg "--worker-socket" const,
     skip "--worker-close",
@@ -103,15 +108,23 @@ options =
     -- skip "-c"
   ]
   where
+    addEnv z a = case z.envKey of
+      Just key -> Right z {env = Map.insert key a z.env, envKey = Nothing}
+      Nothing -> Left ("--extra-env-value used without preceding --extra-env-key (arg: " ++ a ++ ")")
+
     skip name = (name, \ rest z -> Right (rest, z))
 
     flag name f = (name, \ rest z -> Right (rest, f z))
 
-    withArg name f = (name, \ argv z -> takeArg name argv (f z))
+    withArg name f = (name, \ argv z -> takeArg name argv (Right . f z))
+
+    withArgErr name f = (name, \ argv z -> takeArg name argv (f z))
 
     takeArg name argv store = case argv of
       [] -> Left (name ++ " needs an argument")
-      arg : rest -> Right (rest, store arg)
+      arg : rest -> do
+        new <- store arg
+        Right (rest, new)
 
 parseBuckArgs :: Map String String -> [String] -> Either String BuckArgs
 parseBuckArgs env =
