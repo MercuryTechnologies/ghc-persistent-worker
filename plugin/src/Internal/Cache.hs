@@ -3,7 +3,7 @@
 module Internal.Cache where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
-import Control.Monad (join, unless, when)
+import Control.Monad (join, unless)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
@@ -23,6 +23,7 @@ import GHC.Driver.Monad (withSession)
 import GHC.Linker.Types (Linkable, LinkerEnv (..), Loader (..), LoaderState (..))
 import GHC.Ptr (Ptr)
 import GHC.Runtime.Interpreter (Interp (..))
+import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import GHC.Types.Name.Cache (NameCache (..), OrigNameCache)
 import GHC.Types.Unique.DFM (plusUDFM)
 import GHC.Types.Unique.FM (UniqFM, minusUFM, nonDetEltsUFM, sizeUFM)
@@ -31,7 +32,7 @@ import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
 import GHC.Unit.Module.Env (emptyModuleEnv, moduleEnvKeys, plusModuleEnv)
 import qualified GHC.Utils.Outputable as Outputable
-import GHC.Utils.Outputable (SDoc, comma, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
+import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
 import Internal.Log (Log, logd)
 import System.Environment (lookupEnv)
 
@@ -461,17 +462,13 @@ moduleColumns m =
     offset = length (fst (last kvs)) + 2
     kvs = sortBy (comparing (length . fst)) (first moduleNameString <$> Map.toList m)
 
-report ::
-  MonadIO m =>
-  MVar Log ->
-  -- | A description of the current worker process.
-  Maybe String ->
-  Target ->
-  Cache ->
-  m ()
-report logVar workerId target Cache {stats} =
-  for_ (stats !? target) \ CacheStats {restore, update, finder} -> do
-    let
+-- | Assemble log messages about cache statistics.
+statsMessages :: CacheStats -> SDoc
+statsMessages CacheStats {restore, update, finder} =
+  hang (text "Restore:") 2 restoreStats $$
+  hang (text "Update:") 2 updateStats $$
+  hang (text "Finder:") 2 finderStats
+  where
       restoreStats =
         text (show (length restore.loader.newBcos)) <+> text "BCOs" $$
         text (show restore.loader.linker.newClosures) <+> text "closures" $$
@@ -490,11 +487,38 @@ report logVar workerId target Cache {stats} =
         hang (text "Hits:") 2 (moduleColumns finder.hits) $$
         hang (text "Misses:") 2 (moduleColumns finder.misses)
 
-    logd logVar $ hang (text target.get Outputable.<> maybe (text "") workerDesc workerId Outputable.<> text ":") 2 $
-      hang (text "Restore:") 2 restoreStats $$
-      hang (text "Update:") 2 updateStats $$
-      hang (text "Finder:") 2 finderStats
+-- | Assemble report messages, consisting of:
+--
+-- - Cache statistics, if the feature is enabled
+-- - Current RTS memory usage
+reportMessages :: Target -> Cache -> Double -> SDoc
+reportMessages target Cache {stats, features} memory =
+  statsPart $$
+  memoryPart
   where
+    statsPart =
+      if features.enable
+      then maybe (text "Cache unused for this module.") statsMessages (stats !? target)
+      else text "Cache disabled."
+
+    memoryPart = text "Memory:" <+> doublePrec 2 memory <+> text "MB"
+
+-- | Log a report for a completed compilation, using 'reportMessages' to assemble the content.
+report ::
+  MonadIO m =>
+  MVar Log ->
+  -- | A description of the current worker process.
+  Maybe String ->
+  Target ->
+  Cache ->
+  m ()
+report logVar workerId target cache = do
+  s <- liftIO getRTSStats
+  let memory = fromIntegral (s.gc.gcdetails_mem_in_use_bytes) / 1000000
+  logd logVar (hang header 2 (reportMessages target cache memory))
+  where
+    header = text target.get Outputable.<> maybe (text "") workerDesc workerId Outputable.<> text ":"
+
     workerDesc wid = text (" (" ++ wid ++ ")")
 
 #if __GLASGOW_HASKELL__ >= 911
@@ -603,13 +627,18 @@ finalizeCache ::
   Cache ->
   IO Cache
 finalizeCache logVar workerId hsc_env target artifacts cache0 = do
-  cache1 <- fromMaybe cache0 . join <$> withHscState hsc_env \ nsNames loaderStateVar symbolCacheVar ->
-    readMVar loaderStateVar >>= traverse \ newLoaderState -> do
-      newSymbols <- readMVar symbolCacheVar
-      newNames <- readMVar nsNames
-      maybe initCache (updateCache target) cache0.interp newLoaderState (SymbolCache newSymbols) newNames cache0
-  for_ artifacts \ ModuleArtifacts {iface} ->
-    storeIface hsc_env iface
+  cache1 <-
+    if cache0.features.enable
+    then do
+      cache1 <- fromMaybe cache0 . join <$> withHscState hsc_env \ nsNames loaderStateVar symbolCacheVar ->
+        readMVar loaderStateVar >>= traverse \ newLoaderState -> do
+          newSymbols <- readMVar symbolCacheVar
+          newNames <- readMVar nsNames
+          maybe initCache (updateCache target) cache0.interp newLoaderState (SymbolCache newSymbols) newNames cache0
+      for_ artifacts \ ModuleArtifacts {iface} ->
+        storeIface hsc_env iface
+      pure cache1
+    else pure cache0
   report logVar workerId target cache1
   pure cache1
 
@@ -629,9 +658,11 @@ withCache ::
   Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
   Ghc (Maybe (Maybe ModuleArtifacts, a))
 withCache logVar workerId cacheVar target prog = do
-  enable <- withSessionM \ hsc_env -> modifyMVar cacheVar (prepareCache cacheVar target hsc_env)
+  _ <- withSessionM \ hsc_env -> modifyMVar cacheVar (prepareCache cacheVar target hsc_env)
   result <- prog
-  when enable (finalize (fst =<< result))
+  finalize (fst =<< result)
   pure result
   where
-    finalize art = withSession \ hsc_env -> liftIO (modifyMVar_ cacheVar (finalizeCache logVar workerId hsc_env target art))
+    finalize art =
+      withSession \ hsc_env ->
+        liftIO (modifyMVar_ cacheVar (finalizeCache logVar workerId hsc_env target art))
