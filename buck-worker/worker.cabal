@@ -44,7 +44,11 @@ executable worker
   hs-source-dirs: .
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
+    async,
+    directory,
+    filepath,
     grpc-haskell,
     ghc,
     ghc-persistent-worker-plugin,
-    worker
+    worker,
+    unix
