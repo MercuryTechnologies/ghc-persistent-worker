@@ -12,8 +12,8 @@ import BuckWorker (
   workerClient,
   workerServer,
   )
-import Control.Concurrent (MVar, modifyMVar_, newMVar)
-import Control.Concurrent.Async (async, cancel, wait)
+import Control.Concurrent (MVar, modifyMVar_, newEmptyMVar, newMVar, takeMVar, tryPutMVar)
+import Control.Concurrent.Async (async, cancel, wait, waitCatch)
 import Control.Exception (
   Exception (displayException),
   SomeException (SomeException),
@@ -24,7 +24,9 @@ import Control.Exception (
   try,
   )
 import Control.Monad (foldM, void, when)
+import Data.Foldable (for_)
 import Data.Functor ((<&>))
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List (dropWhileEnd)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
@@ -59,6 +61,7 @@ import System.Environment (getArgs, getEnv)
 import System.Exit (exitFailure)
 import System.FilePath (takeDirectory, (</>))
 import System.IO (BufferMode (LineBuffering), IOMode (..), hGetLine, hPutStr, hPutStrLn, hSetBuffering, stderr, stdout)
+import System.Posix (Handler (CatchInfo), SignalInfo (..), installHandler, keyboardSignal, softwareTermination)
 
 data WorkerStatus =
   WorkerStatus {
@@ -316,6 +319,27 @@ runWorker socket CliOptions {single} =
   then runOrProxyCentralGhc socket
   else runLocalGhc socket
 
+data SignalState =
+  SignalState {
+    oldIntHandler :: Handler,
+    oldTermHandler :: Handler,
+    terminate :: IO ()
+  }
+
+signalHandler :: IORef (Maybe SignalState) -> Handler
+signalHandler stateRef =
+  CatchInfo \ info -> do
+    dbg ("Caught signal " ++ show info.siginfoSignal)
+    readIORef stateRef >>= \case
+      Nothing -> dbg "No signal state in the ref"
+      Just SignalState {..} -> do
+        terminate
+        let oldHandler = if | info.siginfoSignal == keyboardSignal -> Just oldIntHandler
+                            | info.siginfoSignal == softwareTermination -> Just oldTermHandler
+                            | otherwise -> Nothing
+        for_ oldHandler \ handler ->
+          installHandler info.siginfoSignal handler Nothing
+
 main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
@@ -323,8 +347,21 @@ main = do
   options <- parseOptions =<< getArgs
   socket <- envServerSocket
   hPutStrLn stderr $ "using worker socket: " <> show socket
-  try (runWorker socket options) >>= \case
-    Right () ->
-      dbg "Worker terminated without cancellation."
-    Left (err :: SomeException) -> do
-      dbg ("Worker terminated with exception: " ++ displayException err)
+  stateRef <- newIORef Nothing
+  gate <- newEmptyMVar
+  let terminate = void $ tryPutMVar gate ()
+  oldIntHandler <- installHandler keyboardSignal (signalHandler stateRef) Nothing
+  oldTermHandler <- installHandler softwareTermination (signalHandler stateRef) Nothing
+  serverThread <- async do
+    try (runWorker socket options) >>= \case
+      Right () ->
+        dbg "Worker terminated without cancellation."
+      Left (err :: SomeException) -> do
+        dbg ("Worker terminated with exception: " ++ displayException err)
+    terminate
+  writeIORef stateRef (Just SignalState {..})
+  takeMVar gate
+  cancel serverThread
+  waitCatch serverThread >>= \case
+    Right () -> pure ()
+    Left err -> dbg ("Exception when waiting for cancelled server thread: " ++ displayException err)
