@@ -150,10 +150,10 @@ parseBuckArgs env =
 
 toGhcArgs :: BuckArgs -> IO Args
 toGhcArgs args = do
-  topdir <- readPath args.ghcDirFile <|> pure args.topdir
+  topdirFromFile <- readPath args.ghcDirFile
   packageDb <- readPath args.ghcDbFile
   pure Args {
-    topdir,
+    topdir = topdirFromFile <|> args.topdir,
     workerTargetId = args.workerTargetId,
     env = args.env,
     binPath = args.binPath,

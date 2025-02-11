@@ -17,11 +17,11 @@ package worker;
 
 message ExecuteCommand {
   message EnvironmentEntry {
-    bytes key = 1;
-    bytes value = 2;
+    string key = 1;
+    string value = 2;
   }
 
-  repeated bytes argv = 1;
+  repeated string argv = 1;
   repeated EnvironmentEntry env = 2;
 }
 
