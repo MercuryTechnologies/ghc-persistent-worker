@@ -42,7 +42,7 @@ executable worker
   import: all
   main-is: Main.hs
   hs-source-dirs: .
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-K512M -H -I5 -T -N"
   build-depends:
     async,
     directory,
@@ -50,5 +50,4 @@ executable worker
     grpc-haskell,
     ghc,
     ghc-persistent-worker-plugin,
-    worker,
-    unix
+    worker
