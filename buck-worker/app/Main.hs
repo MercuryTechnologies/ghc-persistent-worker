@@ -37,7 +37,7 @@ import GHC (Ghc, getSession)
 import GHC.IO.Handle.FD (withFileBlocking)
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Cache (Cache (..), ModuleArtifacts (..), Target, emptyCache)
-import Internal.Compile (compile)
+import Internal.CompileHpt (compileHpt)
 import Internal.Log (dbg, logFlush, newLog)
 import Internal.Session (Env (..), withGhc)
 import Network.GRPC.HighLevel.Generated (
@@ -76,7 +76,7 @@ commandEnv =
 
 compileAndReadAbiHash :: BuckArgs -> Target -> Ghc (Maybe CompileResult)
 compileAndReadAbiHash args target = do
-  compile target >>= traverse \ artifacts -> do
+  compileHpt target >>= traverse \ artifacts -> do
     hsc_env <- getSession
     let
       abiHash :: Maybe AbiHash
@@ -105,7 +105,7 @@ finishJob var _ = do
     pure WorkerStatus {active = new}
 
 debugRequestArgs :: Bool
-debugRequestArgs = False
+debugRequestArgs = True
 
 executeHandler ::
   MVar WorkerStatus ->
