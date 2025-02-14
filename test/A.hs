@@ -1,5 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 module A where
 
-test1 :: IO ()
-test1 = pure ()
-
+test x = [| print $x |]
