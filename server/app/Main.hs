@@ -50,5 +50,5 @@ main = do
         }
 
   poolRef <- newTVarIO thePool
-  replicateM_ n $ spawnWorker ghcPath dbPaths poolRef
+  replicateM_ n $ spawnWorker False ghcPath dbPaths poolRef
   runServer socketPath (serve ghcPath dbPaths poolRef)
