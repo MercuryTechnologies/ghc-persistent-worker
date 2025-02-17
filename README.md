@@ -30,3 +30,20 @@ $ cabal run ghc-persistent-worker-server -- --ghc ~/repo/srcc/ghcHEAD/_build/sta
 $ GHC_PERSISTENT_WORKER_SOCKET=/tmp/ghc_server.ipc cabal run ghc-persistent-worker-client -- test/A.hs
 ```
 (optionally, one can set `--package-db (pkg_db_path)`. One can have multiple `--package-db`.)
+
+Nix
+===
+
+You can start a `ghcid` session to iterate on the Buck worker:
+
+```shell
+nix run .#ghcid -- --ghcid-options=--poll -p buck-worker
+```
+
+(The `--poll` is because of a [bug in GHC 9.10](https://github.com/kolmodin/hinotify/issues/38))
+
+An HLS with the project's custom dependencies is also provided by the flake:
+
+```shell
+nix run .#hls
+```

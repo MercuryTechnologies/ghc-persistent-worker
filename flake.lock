@@ -1,0 +1,98 @@
+{
+  "nodes": {
+    "grpc-haskell": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1717607257,
+        "narHash": "sha256-Dj5ooNBfbstwXeP/CSP4+7jlixBaQK++R5Zaxrrl0R4=",
+        "owner": "awakesecurity",
+        "repo": "grpc-haskell",
+        "rev": "4b3b04d0ac9d1db53033fb4f0b6864f25b6e945d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "awakesecurity",
+        "repo": "grpc-haskell",
+        "rev": "4b3b04d0ac9d1db53033fb4f0b6864f25b6e945d",
+        "type": "github"
+      }
+    },
+    "hix": {
+      "inputs": {
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1739823572,
+        "narHash": "sha256-4K1/JS2fxPCv85i5KHeaN262jmjVwIWTjBXZt4yD40Q=",
+        "ref": "refs/heads/main",
+        "rev": "dcb3c7d2be3a2a789ee9b1f3ce63491e98ea087b",
+        "revCount": 885,
+        "type": "git",
+        "url": "https://git.tryp.io/tek/hix"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://git.tryp.io/tek/hix"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1739138025,
+        "narHash": "sha256-M4ilIfGxzbBZuURokv24aqJTbdjPA9K+DtKUzrJaES4=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "b2243f41e860ac85c0b446eadc6930359b294e79",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_old": {
+      "locked": {
+        "lastModified": 1720535198,
+        "narHash": "sha256-zwVvxrdIzralnSbcpghA92tWu2DV2lwv89xZc8MTrbg=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "205fd4226592cc83fd4c0885a3e4c9c400efabb5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-23.11",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "proto3-suite": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1732026734,
+        "narHash": "sha256-J5ozXGC15sukyyucRXuLttFe7RReaQv3gqc/yo2HHV8=",
+        "owner": "tek",
+        "repo": "proto3-suite",
+        "rev": "337b03ea7c1b75da577251a06f07d4ad19fdc4ac",
+        "type": "github"
+      },
+      "original": {
+        "owner": "tek",
+        "repo": "proto3-suite",
+        "rev": "337b03ea7c1b75da577251a06f07d4ad19fdc4ac",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "grpc-haskell": "grpc-haskell",
+        "hix": "hix",
+        "nixpkgs_old": "nixpkgs_old",
+        "proto3-suite": "proto3-suite"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

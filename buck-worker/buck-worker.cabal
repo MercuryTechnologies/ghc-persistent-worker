@@ -51,3 +51,12 @@ executable worker
     ghc,
     ghc-persistent-worker-plugin,
     worker
+
+test-suite worker-test
+  import: all
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+    worker
