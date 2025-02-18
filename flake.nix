@@ -40,7 +40,10 @@
       grpc-haskell = force (source.root grpc-haskell);
     };
 
-    envs.dev.buildInputs = [pkgs_old.grpc];
+    envs.dev = {config, ...}: {
+      buildInputs = [pkgs_old.grpc];
+      env.ghc_dir = "${config.ghcWithPackages}";
+    };
 
     internal.hixCli.dev = true;
 
@@ -153,16 +156,19 @@
         library = {
           enable = true;
           dependencies = [
-            "containers"
-            "text"
-            "vector"
             "bytestring"
+            "containers"
             "deepseq"
+            "directory"
+            "extra"
             "filepath"
             "ghc-persistent-worker-plugin"
             "grpc-haskell"
             "proto3-suite"
             "proto3-wire"
+            "temporary"
+            "text"
+            "vector"
           ];
           default-extensions = ["OverloadedLists"];
         };
