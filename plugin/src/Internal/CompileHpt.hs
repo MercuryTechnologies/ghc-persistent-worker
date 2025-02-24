@@ -1,8 +1,8 @@
-{-# language ViewPatterns, CPP #-}
+{-# language ViewPatterns, CPP, OverloadedStrings #-}
 
 module Internal.CompileHpt where
 
-import GHC (DynFlags (..), Ghc, GhcMonad (..), HscEnv, ModLocation (..), ModSummary (..))
+import GHC (DynFlags (..), Ghc, GhcMonad (..), ModLocation (..), ModSummary (..))
 import GHC.Driver.Env (HscEnv (..), hscUpdateHUG)
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
