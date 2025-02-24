@@ -5,18 +5,23 @@ import Data.Char (toUpper)
 import Data.Foldable (for_, traverse_)
 import Data.List (intercalate)
 import Data.List.Extra (replace)
+import GHC.Unit (stringToUnitId)
 import Internal.Args (Args (..))
 import Internal.Cache (Cache, CacheFeatures (..), emptyCacheWith)
 import Internal.CompileHpt (compileHpt)
-import Internal.CompileMake (step1)
+import Internal.CompileMake (step1, step2)
 import Internal.Debug (showEnv)
 import Internal.Log (dbg, dbgs, newLog)
-import Internal.Session (Env (Env, args, cache, log), runSession, withGhc, withGhcInSession)
+import Internal.Session (Env (..), runSession, withGhc, withGhcInSession)
 import Prelude hiding (log)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (getEnv)
-import System.FilePath (dropExtension, takeFileName, (</>))
+import System.FilePath (dropExtension, takeDirectory, takeFileName, (</>))
 import System.IO.Temp (withSystemTempDirectory)
+import GHC.Driver.Monad (modifySession)
+import GHC (DynFlags (..), GhcMode (..))
+import GHC.Driver.Env (hscUpdateFlags)
+import Data.List.NonEmpty (NonEmpty)
 
 data Conf =
   Conf {
@@ -29,6 +34,7 @@ data UnitMod =
   UnitMod {
     src :: FilePath,
     unit :: String,
+    deps :: [String],
     content :: String
   }
   deriving stock (Eq, Show)
@@ -37,14 +43,14 @@ sanitize :: FilePath -> [String] -> String
 sanitize tmp =
   replace tmp "$tmp"  . unwords
 
-one :: Conf -> UnitMod -> IO ()
-one Conf {..} UnitMod {unit, src} = do
+one :: NonEmpty (String, String, [String]) -> Conf -> UnitMod -> IO ()
+one units Conf {..} UnitMod {unit, src, deps = _} = do
   dbg "---------------------------------"
   log <- newLog True
   let env = Env {log, cache, args}
   -- dbg (sanitize tmp fileOptions)
   result <- withGhc env \ target -> do
-    result <- compileHpt target
+    result <- compileHpt tmp units target
     showEnv cache tmp
     pure result
   dbgs result
@@ -70,18 +76,19 @@ one Conf {..} UnitMod {unit, src} = do
 
     modName = dropExtension (takeFileName src)
 
-unitMod :: Conf -> String -> Char -> String -> UnitMod
-unitMod conf modName unitTag content =
+unitMod :: Conf -> [String] -> String -> String -> String -> UnitMod
+unitMod conf deps modName unit content =
   UnitMod {
-    src = conf.tmp </> "src" </> modName ++ ".hs",
-    unit = "unit-" ++ [unitTag],
+    src = conf.tmp </> "src" </> unit </> modName ++ ".hs",
+    unit,
     ..
   }
 
-modType1 :: Conf -> Char -> Int -> [String] -> UnitMod
-modType1 conf unitTag n deps =
-  unitMod conf modName unitTag content
+modType1 :: Conf -> [String] -> Char -> Int -> [String] -> UnitMod
+modType1 conf pdeps unitTag n deps =
+  unitMod conf pdeps modName unit content
   where
+    unit = "unit-" ++ [unitTag]
     content =
       unlines $
         ("module " ++ modName ++ " where") :
@@ -105,7 +112,7 @@ mainContent deps =
     ["import " ++ toUpper c : show i | (c, i) <- deps] ++
     [
       "main :: IO ()",
-      "main = putStrLn (" ++ intercalate " + " [c : show i | (c, i) <- deps] ++ ")"
+      "main = print (" ++ intercalate " + " ("0" : [c : show i | (c, i) <- deps]) ++ ")"
     ]
 
 baseArgs :: FilePath -> FilePath -> Args
@@ -118,13 +125,15 @@ baseArgs ghc_dir tmp =
     tempDir = Just (tmp </> "tmp"),
     ghcPath = Nothing,
     ghcOptions = (artifactDir =<< ["o", "hie", "dump", "stub"]) ++ [
-      "-i" ++ (tmp </> "out"),
+      -- "-i" ++ (tmp </> "out"),
       "-dynamic",
+      "-shared",
       "-fPIC",
       "-osuf",
       "dyn_o",
       "-hisuf",
       "dyn_hi"
+      -- , "-v"
       -- , "-ddump-if-trace"
     ]
   }
@@ -136,16 +145,18 @@ targets1 conf =
   [
     m1 'b' 1 [],
     m1 'b' 2 [],
-    m1 'a' 1 [],
+    m1d ["unit-b"] 'a' 1 ["B1"],
     m1 'b' 3 [],
-    -- m1 'a' 2 ["A1", "B2", "B3"],
-    unitMod conf "Main.hs" 'a' (mainContent [
-      -- ('a', 2),
-      ('b', 3)
+    m1d ["unit-b"] 'a' 2 ["A1", "B2", "B3"],
+    unitMod conf ["unit-a", "unit-b"] "Main" "main" (mainContent [
+      ('a', 2),
+      ('b', 1)
     ])
   ]
   where
-    m1 = modType1 conf
+    m1 = modType1 conf []
+
+    m1d = modType1 conf
 
 withProject ::
   (Conf -> [UnitMod] -> IO ()) ->
@@ -166,25 +177,41 @@ withProject use =
     let conf = Conf {tmp, cache, args0 = baseArgs ghc_dir tmp}
     -- dbg (sanitize tmp conf.args0.ghcOptions)
     let targets = targets1 conf
-    for_ targets \ UnitMod {src, content} -> writeFile src content
+    for_ targets \ UnitMod {src, content} -> do
+      createDirectoryIfMissing False (takeDirectory src)
+      writeFile src content
     use conf targets
 
-test1 :: IO ()
-test1 =
-  withProject (traverse_ . one)
+testWorker :: IO ()
+testWorker =
+  withProject \ conf mods -> do
+    let
+      units = [
+        ("unit-b", conf.tmp </> "src/unit-b", []),
+        ("unit-a", conf.tmp </> "src/unit-a", ["unit-b"]),
+        ("main", conf.tmp </> "src/main", ["unit-b", "unit-a"])
+        ]
+    traverse_ (one units conf) mods
 
-test2 :: IO ()
-test2 =
-  withProject \ Conf {..} _ -> do
+testMake :: IO ()
+testMake =
+  withProject \ Conf {..} targets -> do
     log <- newLog True
     let env = Env {log, cache, args = args0}
         unitArgs =
           [
-            ["-i" ++ (tmp </> "src"), "-this-unit-id", "a"],
-            ["-i" ++ (tmp </> "src"), "-this-unit-id", "b"]
+            ["-i", "-i" ++ (tmp </> "src/unit-b"), "-this-unit-id", "unit-b"],
+            ["-i", "-i" ++ (tmp </> "src/unit-a"), "-this-unit-id", "unit-a", "-package-id", "unit-b"],
+            ["-i", "-i" ++ (tmp </> "src/main"), "-this-unit-id", "main", "-package-id", "unit-a", "-package-id", "unit-b"]
           ]
     _ <- runSession env $ withGhcInSession env \ _ -> do
+      modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
       step1 unitArgs
+      showEnv cache tmp
+      step2 [(src, stringToUnitId unit) | UnitMod {src, unit} <- targets]
       showEnv cache tmp
       pure (Just ())
     pure ()
+
+test1 :: IO ()
+test1 = testWorker

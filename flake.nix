@@ -40,9 +40,14 @@
       grpc-haskell = force (source.root grpc-haskell);
     };
 
-    envs.dev = {config, ...}: {
+    envs.dev = {config, ...}: let
+      env = { ghc_dir = "${config.ghcWithPackages}"; };
+    in {
+      inherit env;
       buildInputs = [pkgs_old.grpc];
-      env.ghc_dir = "${config.ghcWithPackages}";
+      overrides = {overrideAttrs, ...}: {
+        buck-worker = overrideAttrs env;
+      };
     };
 
     internal.hixCli.dev = true;
@@ -162,6 +167,7 @@
             "directory"
             "extra"
             "filepath"
+            "ghc"
             "ghc-persistent-worker-plugin"
             "grpc-haskell"
             "proto3-suite"

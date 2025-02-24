@@ -35,6 +35,7 @@ library
     directory,
     extra,
     filepath,
+    ghc,
     ghc-persistent-worker-plugin,
     grpc-haskell,
     proto3-suite,

@@ -31,7 +31,7 @@ entries = vcat . fmap entry
 
 showModGraph :: ModuleGraph -> SDoc
 showModGraph g =
-  vcat [ppr from <+> text "->" <+> hcat (ppr <$> toList to) | (from, to) <- Map.toList (mgTransDeps g)]
+  vcat [ppr from <+> text "->" <+> (ppr (toList to)) | (from, to) <- Map.toList (mgTransDeps g)]
 
 showFinderCache :: MVar Cache -> FilePath -> IO SDoc
 showFinderCache var tmp = do
@@ -58,7 +58,7 @@ showEps EPS {..} = do
 showUnitState :: UnitState -> SDoc
 showUnitState UnitState {..} =
   entries [
-    ("preloadClosure", ppr preloadClosure)
+    ("homeUnitDepends", ppr homeUnitDepends)
   ]
 
 showHomeUnitDflags :: DynFlags -> SDoc
