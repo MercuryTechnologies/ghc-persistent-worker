@@ -2,17 +2,7 @@
 
 module Main where
 
-import BuckArgs (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
-import BuckWorker (
-  ExecuteCommand (..),
-  ExecuteCommand_EnvironmentEntry (..),
-  ExecuteEvent (..),
-  ExecuteResponse (..),
-  Worker (..),
-  workerClient,
-  workerServer,
-  )
-import Control.Concurrent (MVar, modifyMVar_, newMVar)
+import Control.Concurrent (MVar, modifyMVar_, newMVar, forkIO)
 import Control.Concurrent.Async (async, cancel, wait)
 import Control.Exception (
   Exception (displayException),
@@ -24,15 +14,11 @@ import Control.Exception (
   try,
   )
 import Control.Monad (foldM, void, when)
-import Data.Functor ((<&>))
 import Data.List (dropWhileEnd)
 import Data.Map (Map)
-import qualified Data.Map.Strict as Map
-import Data.String (fromString)
-import qualified Data.Text as Text
+import Data.Map.Strict qualified as Map
+import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
-import qualified Data.Text.Lazy as LazyText
-import qualified Data.Vector as Vector
 import GHC (Ghc, getSession)
 import GHC.IO.Handle.FD (withFileBlocking)
 import Internal.AbiHash (AbiHash (..), showAbiHash)
@@ -40,25 +26,26 @@ import Internal.Cache (Cache (..), ModuleArtifacts (..), Target, emptyCache)
 import Internal.Compile (compile)
 import Internal.Log (dbg, logFlush, newLog)
 import Internal.Session (Env (..), withGhc)
-import Network.GRPC.HighLevel.Generated (
-  ClientConfig (..),
-  ClientError,
-  ClientRequest (ClientNormalRequest),
-  ClientResult (..),
-  GRPCMethodType (..),
-  ServerRequest (..),
-  ServerResponse (..),
-  ServiceOptions (..),
-  StatusCode (..),
-  defaultServiceOptions,
-  withGRPCClient,
-  )
+import Network.GRPC.Client (Address (Address), Connection, Server (ServerInsecure), recvNextOutput, sendFinalInput, withConnection, withRPC)
+import Network.GRPC.Common (NextElem, Proxy (..), def)
+import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&), (.~))
+import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
+import Network.GRPC.Server.Run (InsecureConfig (InsecureConfig), ServerConfig (..), forkServer, waitServer, getServerPort)
+import Network.GRPC.Server.StreamType (Methods (Method, NoMoreMethods), fromMethods, mkClientStreaming, mkNonStreaming)
+import Network.HTTP2.TLS.Server (PortNumber)
+import Network.Socket (AddrInfo (..), Family (AF_UNIX), SocketType (Stream), SockAddr (..), defaultProtocol, socket, connect, listen, getAddrInfo, defaultHints, openSocket, bind)
+import Network.Socket.ByteString (sendAll, recv)
 import Prelude hiding (log)
 import System.Directory (createDirectory, removeFile)
 import System.Environment (getArgs, getEnv)
 import System.Exit (exitFailure)
 import System.FilePath (takeDirectory, (</>))
-import System.IO (BufferMode (LineBuffering), IOMode (..), hGetLine, hPutStr, hPutStrLn, hSetBuffering, stderr, stdout)
+import System.IO (BufferMode (LineBuffering), IOMode (..), hGetLine, hPutStrLn, hSetBuffering, stderr, stdout, hPrint, hClose)
+
+import BuckArgs (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
+import BuckWorker (ExecuteCommand, ExecuteCommand'EnvironmentEntry, ExecuteEvent, ExecuteResponse, Worker (..))
+import Proto.Worker_Fields qualified as Fields
+import Network.GRPC.Server (mkGrpcServer)
 
 data WorkerStatus =
   WorkerStatus {
@@ -66,11 +53,10 @@ data WorkerStatus =
   }
   deriving stock (Eq, Show)
 
-commandEnv :: Vector.Vector ExecuteCommand_EnvironmentEntry -> Map String String
+commandEnv :: [Proto ExecuteCommand'EnvironmentEntry] -> Map String String
 commandEnv =
   Map.fromList .
-  fmap (\ (ExecuteCommand_EnvironmentEntry key value) -> (fromBs key, fromBs value)) .
-  Vector.toList
+  fmap (\kv -> (fromBs kv.key, fromBs kv.value))
   where
     fromBs = Text.unpack . decodeUtf8Lenient
 
@@ -107,61 +93,70 @@ finishJob var _ = do
 debugRequestArgs :: Bool
 debugRequestArgs = False
 
-executeHandler ::
+execute ::
   MVar WorkerStatus ->
   MVar Cache ->
-  ServerRequest 'Normal ExecuteCommand ExecuteResponse ->
-  IO (ServerResponse 'Normal ExecuteResponse)
-executeHandler status cache (ServerNormalRequest _ ExecuteCommand {executeCommandArgv, executeCommandEnv}) = do
+  Proto ExecuteCommand ->
+  IO (Proto ExecuteResponse)
+execute status cache req = do
   when debugRequestArgs do
     hPutStrLn stderr (unlines argv)
-  response <- either exceptionResponse successResponse =<< try run
-  pure (ServerNormalResponse response [] StatusOk "")
+  either exceptionResponse successResponse =<< try run
   where
     run = do
-      buckArgs <- either (throwIO . userError) pure (parseBuckArgs (commandEnv executeCommandEnv) argv)
+      buckArgs <- either (throwIO . userError) pure (parseBuckArgs (commandEnv req.env) argv)
       args <- toGhcArgs buckArgs
-      bracket (startJob status) (finishJob status) \ _ -> do
-        log <- newLog True
-        let env = Env {log, cache, args}
+      bracket (startJob status) (finishJob status) \_ -> do
+        log <- newLog False
+        let env = Env{log, cache, args}
         result <- withGhc env (compileAndReadAbiHash buckArgs)
         pure (env, buckArgs, result)
 
     successResponse (env, buckArgs, result) = do
-      executeResponseExitCode <- writeResult buckArgs result
+      exitCode <- writeResult buckArgs result
       output <- logFlush env.log
-      pure ExecuteResponse {
-        executeResponseExitCode,
-        executeResponseStderr = LazyText.unlines (LazyText.pack <$> output)
-      }
+      pure $
+        defMessage
+          & Fields.exitCode
+          .~ exitCode
+          & Fields.stderr
+          .~ Text.unlines (Text.pack <$> output)
 
     exceptionResponse (SomeException e) =
-      pure ExecuteResponse {
-        executeResponseExitCode = 1,
-        executeResponseStderr = "Uncaught exception: " <> LazyText.pack (show e)
-      }
+      pure $
+        defMessage
+          & Fields.exitCode
+          .~ 1
+          & Fields.stderr
+          .~ "Uncaught exception: "
+          <> Text.pack (show e)
 
-    argv = Text.unpack . decodeUtf8Lenient <$> Vector.toList executeCommandArgv
+    argv = Text.unpack . decodeUtf8Lenient <$> req.argv
 
-execHandler ::
-  ServerRequest 'ClientStreaming ExecuteEvent ExecuteResponse ->
-  IO (ServerResponse 'ClientStreaming ExecuteResponse)
-execHandler (ServerReaderRequest _metadata _recv) = do
-  hPutStrLn stderr "Received Exec"
-  error "not implemented"
+exec :: IO (NextElem (Proto ExecuteEvent)) -> IO (Proto ExecuteResponse)
+exec _ =
+  pure $
+    defMessage
+      & Fields.exitCode
+      .~ 1
+      & Fields.stderr
+      .~ "Streaming not implemented"
 
-ghcServerHandlers ::
+ghcServerMethods ::
   MVar WorkerStatus ->
   MVar Cache ->
-  Worker ServerRequest ServerResponse
-ghcServerHandlers status cache =
-  Worker {
-    workerExecute = executeHandler status cache,
-    workerExec = execHandler
-  }
+  Methods IO (ProtobufMethodsOf Worker)
+ghcServerMethods status cache =
+  Method (mkClientStreaming exec) $
+  Method (mkNonStreaming (execute status cache)) $
+  NoMoreMethods
 
-setSocket :: String -> ServiceOptions -> ServiceOptions
-setSocket s options = options {serverHost = fromString ("unix://" <> s <> "\x00"), serverPort = 0}
+grpcServerConfig :: ServerConfig
+grpcServerConfig =
+  ServerConfig
+    { serverInsecure = Just (InsecureConfig Nothing 0)
+    , serverSecure = Nothing
+    }
 
 -- | The file system path of the socket on which the worker running in this process is supposed to listen.
 newtype ServerSocketPath =
@@ -172,8 +167,8 @@ envServerSocket :: IO ServerSocketPath
 envServerSocket = ServerSocketPath <$> getEnv "WORKER_SOCKET"
 
 -- | The file system path of the socket on which the primary worker running the GHC server is listening.
-newtype PrimarySocketPath =
-  PrimarySocketPath { path :: FilePath }
+newtype PrimaryPort =
+  PrimaryPort { nr :: PortNumber }
   deriving stock (Eq, Show)
 
 -- | The file system path in which the primary worker running the GHC server stores its socket path for clients to
@@ -185,77 +180,93 @@ newtype PrimarySocketDiscoveryPath =
 primarySocketDiscoveryIn :: FilePath -> PrimarySocketDiscoveryPath
 primarySocketDiscoveryIn dir = PrimarySocketDiscoveryPath (dir </> "primary")
 
+socketToPort :: ServerSocketPath -> PortNumber -> IO ()
+socketToPort serverSocket port = do
+  server <- socket AF_UNIX Stream defaultProtocol
+  bind server (SockAddrUnix serverSocket.path)
+  listen server 1
+
+  addr:_ <- getAddrInfo (Just defaultHints) (Just "127.0.0.1") (Just $ show port)
+  client <- openSocket addr
+  connect client $ addrAddress addr
+
+  void $ forkIO $ loop client server
+  where
+    loop client server = do
+      bs <- recv client 1024
+      sendAll server bs
+      loop client server
+
+-- | Start a grpc server on a free port and proxy data from the socket to it.
+grpcOnSocket :: ServerSocketPath -> Methods IO (ProtobufMethodsOf Worker) -> (PortNumber -> IO b) -> IO b
+grpcOnSocket serverSocket methods portCallback = do
+  grpcServer <- mkGrpcServer def $ fromMethods methods
+  forkServer def grpcServerConfig grpcServer $ \svr -> do
+    port <- getServerPort svr
+    res <- portCallback port
+    socketToPort serverSocket port
+    waitServer svr
+    pure res
+
 -- | Start a gRPC server that dispatches requests to GHC handlers.
-runLocalGhc :: ServerSocketPath -> IO ()
-runLocalGhc socket = do
-  dbg ("Starting ghc server on " ++ socket.path)
+runLocalGhc :: ServerSocketPath -> (PortNumber -> IO a) -> IO a
+runLocalGhc serverSocket portCallback = do
+  dbg ("Starting ghc server on " ++ serverSocket.path)
   cache <- emptyCache False
-  status <- newMVar WorkerStatus {active = 0}
-  workerServer (ghcServerHandlers status cache) (setSocket socket.path defaultServiceOptions)
+  status <- newMVar WorkerStatus{active = 0}
+  grpcOnSocket serverSocket (ghcServerMethods status cache) portCallback
 
 -- | Start a gRPC server that runs GHC for client proxies, deleting the discovery file on shutdown.
-runCentralGhc :: PrimarySocketDiscoveryPath -> ServerSocketPath -> IO ()
-runCentralGhc discovery socket =
-  finally (runLocalGhc socket) do
-    dbg ("Shutting down ghc server on " ++ socket.path)
+runCentralGhc :: PrimarySocketDiscoveryPath -> ServerSocketPath -> (PortNumber -> IO a) -> IO a
+runCentralGhc discovery serverSocket portCallback =
+  finally (runLocalGhc serverSocket portCallback) do
+    dbg ("Shutting down ghc server on " ++ serverSocket.path)
     removeFile discovery.path
 
 -- | Send a request received from a client to another gRPC server by converting between client and server data types and
 -- calling the provided request callback.
 forwardRequest ::
-  (ClientError -> a) ->
-  (ClientRequest 'Normal c a -> IO (ClientResult 'Normal a)) ->
-  ServerRequest 'Normal c a ->
-  IO (ServerResponse 'Normal a)
-forwardRequest errorResponse send (ServerNormalRequest _ cmd) =
-  send (ClientNormalRequest cmd 3600 []) <&> \case
-    ClientNormalResponse response _ _ status _ ->
-      ServerNormalResponse response [] status ""
-    ClientErrorResponse err ->
-      ServerNormalResponse (errorResponse err) [] StatusOk ""
+  Connection ->
+  Proto ExecuteCommand ->
+  IO (Proto ExecuteResponse)
+forwardRequest connection req = withRPC connection def (Proxy @(Protobuf Worker "execute")) \ call -> do
+  sendFinalInput call req
+  resp <- recvNextOutput call
+  pure $
+    resp
+      & Fields.stderr
+      %~ ("gRPC client error: " <>)
 
 -- | Bracket a computation with a gRPC worker client resource, connecting to the server listening on the provided
 -- socket.
 withProxy ::
-  PrimarySocketPath ->
-  (Worker ServerRequest ServerResponse -> IO a) ->
+  PrimaryPort ->
+  (Methods IO (ProtobufMethodsOf Worker) -> IO a) ->
   IO a
-withProxy socket use = do
-  withGRPCClient cfg \ client -> do
-    Worker {workerExecute = send} <- workerClient client
-    use Worker
-      { workerExecute = forwardRequest errorResponse send,
-        workerExec = execHandler
-      }
+withProxy port use = do
+  withConnection def server $ \ connection -> do
+    use $
+      Method (mkClientStreaming exec) $
+      Method (mkNonStreaming (forwardRequest connection)) $
+      NoMoreMethods
   where
-    cfg = ClientConfig {
-      clientServerEndpoint = fromString ("unix://" <> socket.path <> "\x00"),
-      clientSSLConfig = Nothing,
-      clientAuthority = Nothing,
-      clientArgs = []
-    }
-
-    errorResponse err =
-      ExecuteResponse {
-        executeResponseExitCode = 1,
-        executeResponseStderr = "gRPC client error: " <> LazyText.pack (show err)
-      }
+    server = ServerInsecure (Address "localhost" port.nr Nothing)
 
 -- | Start a worker gRPC server that forwards requests received from a client (here Buck) to another gRPC server (here
 -- our GHC primary).
-proxyServer :: PrimarySocketPath -> ServerSocketPath -> IO ()
-proxyServer primary socket = do
+proxyServer :: PrimaryPort -> ServerSocketPath -> IO ()
+proxyServer primary serverSocket = do
   try launch >>= \case
     Right () ->
-      dbg ("Shutting down proxy on " ++ socket.path ++ " regularly")
+      dbg ("Shutting down proxy on " ++ serverSocket.path ++ " regularly")
     Left (err :: IOError) -> do
-      dbg ("Proxy on " ++ socket.path ++ " crashed: " ++ show err)
+      dbg ("Proxy on " ++ serverSocket.path ++ " crashed: " ++ show err)
       exitFailure
   where
     launch =
-      withProxy primary \ worker -> do
-        dbg ("Starting proxy for " ++ primary.path ++ " on " ++ socket.path)
-        workerServer worker (setSocket socket.path defaultServiceOptions)
+      withProxy primary \ methods -> do
+        dbg ("Starting proxy for " ++ show primary.nr ++ " on " ++ serverSocket.path)
+        grpcOnSocket serverSocket methods (\_ -> pure ())
 
 -- | Start a gRPC server that either runs GHC (primary server) or a proxy that forwards requests to the primary.
 -- Since multiple workers are started in separate processes, we negotiate using file system locks.
@@ -272,25 +283,24 @@ proxyServer primary socket = do
 --   obtain the primary's socket path.
 --   A gRPC server is started that resends all requests to that socket.
 runOrProxyCentralGhc :: ServerSocketPath -> IO ()
-runOrProxyCentralGhc socket = do
+runOrProxyCentralGhc serverSocket = do
   void $ try @IOError (createDirectory dir)
-  result <- withFileBlocking primaryFile.path ReadWriteMode \ handle -> do
+  withFileBlocking primaryFile.path ReadWriteMode \ handle -> do
     try @IOError (hGetLine handle) >>= \case
       -- If the file didn't exist, `hGetLine` will still return the empty string.
       -- File IO is buffered/lazy, so we have to force the pattern to avoid read after close (though this is already
       -- achieved by calling `null`).
       Right !primary | not (null primary) -> do
-        pure (Left (PrimarySocketPath primary))
+        proxyServer (PrimaryPort (read primary)) serverSocket
       _ -> do
-        thread <- async (runCentralGhc primaryFile socket)
-        hPutStr handle socket.path
-        pure (Right thread)
-  case result of
-    Right thread -> onException (wait thread) (cancel thread)
-    Left primary -> proxyServer primary socket
+        thread <- async $ runCentralGhc primaryFile serverSocket \port -> do
+          hPutStrLn stderr $ "Using port " ++ show port
+          hPrint handle port
+          hClose handle
+        onException (wait thread) (cancel thread)
   where
     primaryFile = primarySocketDiscoveryIn dir
-    dir = init (dropWhileEnd ('-' /=) (takeDirectory socket.path))
+    dir = init (dropWhileEnd ('-' /=) (takeDirectory serverSocket.path))
 
 -- | Global options for the worker, passed when the process is started, in contrast to request options stored in
 -- 'BuckArgs'.
@@ -311,19 +321,19 @@ parseOptions =
     arg -> throwIO (userError ("Invalid worker CLI arg: " ++ arg))
 
 runWorker :: ServerSocketPath -> CliOptions -> IO ()
-runWorker socket CliOptions {single} =
+runWorker serverSocket CliOptions {single} =
   if single
-  then runOrProxyCentralGhc socket
-  else runLocalGhc socket
+  then runOrProxyCentralGhc serverSocket
+  else runLocalGhc serverSocket (\_ -> pure ())
 
 main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
   options <- parseOptions =<< getArgs
-  socket <- envServerSocket
-  hPutStrLn stderr $ "using worker socket: " <> show socket
-  try (runWorker socket options) >>= \case
+  serverSocket <- envServerSocket
+  hPutStrLn stderr $ "using worker socket: " <> show serverSocket
+  try (runWorker serverSocket options) >>= \case
     Right () ->
       dbg "Worker terminated without cancellation."
     Left (err :: SomeException) -> do
