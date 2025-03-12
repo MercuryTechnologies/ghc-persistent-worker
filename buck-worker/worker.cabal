@@ -10,6 +10,7 @@ common all
   default-language: GHC2021
   default-extensions:
     BlockArguments,
+    DataKinds,
     DerivingStrategies,
     DuplicateRecordFields,
     LambdaCase,
@@ -18,25 +19,25 @@ common all
     OverloadedRecordDot,
     OverloadedStrings,
     RecordWildCards,
-    StrictData
+    StrictData,
+    TypeFamilies
   build-depends:
     base ==4.*,
-    containers,
-    text,
-    vector
+    containers
 
 library
   import: all
   hs-source-dirs: lib
-  exposed-modules: BuckArgs, BuckWorker
+  exposed-modules:
+    BuckArgs,
+    BuckWorker,
+    Proto.Worker,
+    Proto.Worker_Fields
   build-depends:
-    bytestring,
-    deepseq,
     filepath,
     ghc-persistent-worker-plugin,
-    grpc-haskell,
-    proto3-suite,
-    proto3-wire
+    grapesy,
+    proto-lens-runtime
 
 executable worker
   import: all
@@ -47,8 +48,8 @@ executable worker
     async,
     directory,
     filepath,
-    grpc-haskell,
+    grapesy,
     ghc,
     ghc-persistent-worker-plugin,
-    worker,
-    unix
+    text,
+    worker

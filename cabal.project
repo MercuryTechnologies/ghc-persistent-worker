@@ -5,16 +5,8 @@ packages: ./plugin
           ./buck-worker
           ./buck-multiplex-worker
 
-package proto3-suite
-  flags: -large-records -swagger
-
 allow-newer:
-  grpc-haskell:bytestring,
-  grpc-haskell-core:bytestring,
-  grpc-haskell-core:template-haskell,
-  grpc-haskell-core:containers,
-  proto3-suite:ghc,
-  proto3-suite:containers,
+  proto-lens:base,
 
 if (impl(ghc >= 9.11))
   allow-newer:
@@ -22,22 +14,10 @@ if (impl(ghc >= 9.11))
   constraints:
     extra == 1.8
 
-package proto3-suite
-  flags: -large-records -swagger
-
-package grpc-haskell-core
-  ghc-options: -Wwarn
+index-state: 2025-01-29T13:43:26Z
 
 source-repository-package
   type: git
-  location: https://github.com/awakesecurity/grpc-haskell
-  tag: 4b3b04d0ac9d1db53033fb4f0b6864f25b6e945d
-  subdir: .
-  subdir: core
-
-source-repository-package
-  type: git
-  location: https://github.com/tek/proto3-suite
-  tag: 337b03ea7c1b75da577251a06f07d4ad19fdc4ac
-
-index-state: 2024-11-25T13:43:26Z
+  location: https://github.com/sjoerdvisscher/grapesy
+  tag: 47424fe0d3a2ad6b7edaa56f346c6cfcb9468c02
+  subdir: grapesy
