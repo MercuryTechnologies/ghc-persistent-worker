@@ -5,8 +5,13 @@ synopsis: GHC persistent worker instrumentation
 license: MIT
 build-type: Simple
 
-common all
-  ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages
+executable instrument
+  main-is: Main.hs
+  hs-source-dirs: .
+  other-modules: UI
+  ghc-options:
+    -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages
+    -threaded -rtsopts -with-rtsopts=-N
   default-language: GHC2021
   default-extensions:
     BlockArguments,
@@ -23,29 +28,10 @@ common all
     TypeFamilies
   build-depends:
     base ==4.*,
+    brick,
     grapesy,
+    microlens-th,
+    microlens-mtl,
     text,
     worker,
-
--- library
---   import: all
---   hs-source-dirs: lib
---   exposed-modules: BuckArgs, BuckWorker
---   build-depends:
---     bytestring,
---     deepseq,
---     filepath,
---     ghc-persistent-worker-plugin,
---     grpc-haskell,
---     proto3-suite,
---     proto3-wire
-
-executable instrument
-  import: all
-  main-is: Main.hs
-  hs-source-dirs: .
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
-  build-depends:
-    -- grpc-haskell,
-    -- ghc,
-    -- ghc-persistent-worker-plugin,
+    vty
