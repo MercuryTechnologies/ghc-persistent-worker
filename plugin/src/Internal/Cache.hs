@@ -3,7 +3,7 @@
 module Internal.Cache where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
-import Control.Monad (join, unless)
+import Control.Monad (join, unless, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
@@ -29,14 +29,15 @@ import GHC.Types.Name.Cache (NameCache (..), OrigNameCache)
 import GHC.Types.Unique.DFM (plusUDFM)
 import GHC.Types.Unique.FM (UniqFM, minusUFM, nonDetEltsUFM, sizeUFM)
 import GHC.Types.Unique.Supply (initUniqSupply)
-import GHC.Unit.Env (HomeUnitGraph, UnitEnv (..), unitEnv_union)
+import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), unitEnv_union)
 import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
 import GHC.Unit.Finder (InstalledFindResult (..))
 import GHC.Unit.Finder.Types (FinderCache (..))
 import GHC.Unit.Module.Env (InstalledModuleEnv, emptyModuleEnv, moduleEnvKeys, plusModuleEnv)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
-import Internal.Log (Log, logd)
+import Internal.Debug (showHugShort)
+import Internal.Log (Log, dbgp, logd)
 import System.Environment (lookupEnv)
 
 #if __GLASGOW_HASKELL__ >= 911
@@ -115,7 +116,7 @@ data NamesStats =
 
 data StatsUpdate =
   StatsUpdate {
-    loader :: LoaderStats,
+    loaderStats :: LoaderStats,
     symbols :: SymbolsStats,
     names :: NamesStats
   }
@@ -124,7 +125,7 @@ data StatsUpdate =
 emptyStatsUpdate :: StatsUpdate
 emptyStatsUpdate =
   StatsUpdate {
-    loader = emptyLoaderStats,
+    loaderStats = emptyLoaderStats,
     symbols = SymbolsStats {new = 0},
     names = NamesStats {new = 0}
   }
@@ -270,8 +271,9 @@ emptyCache enable = do
 
 initialize :: Cache -> IO Cache
 initialize cache = do
-  unless cache.initialized do
-    initUniqSupply 0 1
+  when False do
+    unless cache.initialized do
+      initUniqSupply 0 1
   pure cache {initialized = True}
 
 basicLinkerStats :: LinkerEnv -> LinkerEnv -> LinkerStats
@@ -365,8 +367,8 @@ pushStats :: Bool -> Target -> Maybe LoaderStats -> SymbolsStats -> NamesStats -
 pushStats restoring target (Just new) symbols names =
   modifyStats target add
   where
-    add old | restoring = old {restore = old.restore {loader = new, symbols, names}}
-            | otherwise = old {update = old.update {loader = new, symbols, names}}
+    add old | restoring = old {restore = old.restore {loaderStats = new, symbols, names}}
+            | otherwise = old {update = old.update {loaderStats = new, symbols, names}}
 pushStats _ _ _ _ _ =
   id
 
@@ -487,18 +489,18 @@ statsMessages CacheStats {restore, update, finder} =
   hang (text "Finder:") 2 finderStats
   where
       restoreStats =
-        text (show (length restore.loader.newBcos)) <+> text "BCOs" $$
-        text (show restore.loader.linker.newClosures) <+> text "closures" $$
+        text (show (length restore.loaderStats.newBcos)) <+> text "BCOs" $$
+        text (show restore.loaderStats.linker.newClosures) <+> text "closures" $$
         text (show restore.symbols.new) <+> text "symbols" $$
-        text (show restore.loader.sameBcos) <+> text "BCOs already in cache"
+        text (show restore.loaderStats.sameBcos) <+> text "BCOs already in cache"
 
-      newBcos = text <$> update.loader.newBcos
+      newBcos = text <$> update.loaderStats.newBcos
 
       updateStats =
         (if null newBcos then text "No new BCOs" else text "New BCOs:" <+> fsep (punctuate comma newBcos)) $$
-        text (show update.loader.linker.newClosures) <+> text "new closures" $$
+        text (show update.loaderStats.linker.newClosures) <+> text "new closures" $$
         text (show update.symbols.new) <+> text "new symbols" $$
-        text (show update.loader.sameBcos) <+> text "BCOs already in cache"
+        text (show update.loaderStats.sameBcos) <+> text "BCOs already in cache"
 
       finderStats =
         hang (text "Hits:") 2 (moduleColumns finder.hits) $$
@@ -607,6 +609,13 @@ withHscState HscEnv {hsc_interp, hsc_NC = NameCache {nsNames}} use =
     use nsNames loader_state symbolCacheVar
 #endif
 
+mergeHugs ::
+  HomeUnitEnv ->
+  HomeUnitEnv ->
+  HomeUnitEnv
+mergeHugs old new =
+  new {homeUnitEnv_hpt = plusUDFM old.homeUnitEnv_hpt new.homeUnitEnv_hpt}
+
 setTarget :: MVar Cache -> Cache -> HscEnv -> Target -> IO HscEnv
 setTarget cacheVar cache hsc_env target = do
   hsc_env1 <-
@@ -619,7 +628,7 @@ setTarget cacheVar cache hsc_env target = do
         if cache.features.eps
         then hsc_env1 {hsc_unit_env = hsc_env1.hsc_unit_env {ue_eps = cache.eps}}
         else hsc_env1
-  pure $ maybe hsc_env2 (\ hug -> hsc_env2 {hsc_unit_env = hsc_env2.hsc_unit_env {ue_home_unit_graph = unitEnv_union const hug hsc_env.hsc_unit_env.ue_home_unit_graph}}) cache.hug
+  pure $ maybe hsc_env2 (\ hug -> hsc_env2 {hsc_unit_env = hsc_env2.hsc_unit_env {ue_home_unit_graph = unitEnv_union mergeHugs hug hsc_env.hsc_unit_env.ue_home_unit_graph}}) cache.hug
 
 prepareCache :: MVar Cache -> Target -> HscEnv -> Cache -> IO (Cache, (HscEnv, Bool))
 prepareCache cacheVar target hsc_env0 cache0 = do
@@ -639,7 +648,7 @@ prepareCache cacheVar target hsc_env0 cache0 = do
           pure (hsc_env1, cache2)
       else pure (Just (hsc_env1, cache1))
     else pure Nothing
-  let (hsc_env1, cache2) = fromMaybe (hsc_env0, cache1 {features = cache1.features {enable = False}}) result
+  let (hsc_env1, cache2) = fromMaybe (hsc_env0, cache1 {features = cache1.features {loader = False}}) result
   pure (cache2, (hsc_env1, cache2.features.enable))
 
 storeIface :: HscEnv -> ModIface -> IO ()
@@ -647,8 +656,11 @@ storeIface _ _ =
   pure ()
 
 storeHug :: HscEnv -> Cache -> IO Cache
-storeHug hsc_env cache =
-  pure cache {hug = Just hsc_env.hsc_unit_env.ue_home_unit_graph}
+storeHug hsc_env cache = do
+  dbgp (hang (text "Storing HUG:") 2 (showHugShort merged))
+  pure cache {hug = Just merged}
+  where
+    merged = maybe id (unitEnv_union mergeHugs) cache.hug hsc_env.hsc_unit_env.ue_home_unit_graph
 
 finalizeCache ::
   MVar Log ->

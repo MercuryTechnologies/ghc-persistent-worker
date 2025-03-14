@@ -2,23 +2,17 @@
 
 module Internal.Debug where
 
-import Control.Concurrent (MVar, readMVar)
-import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (toList)
-import Data.List (stripPrefix)
 import qualified Data.Map.Strict as Map
-import GHC (DynFlags (..), Ghc, ModLocation (..), getSession, mi_module)
-import GHC.Driver.Env (HscEnv (..))
+import GHC (DynFlags (..), mi_module)
 import GHC.Types.Unique.DFM (udfmToList)
-import GHC.Unit (UnitState (..), homeUnitId, installedModuleEnvElts, moduleEnvToList)
+import GHC.Unit (UnitState (..), homeUnitId, moduleEnvToList, unitPackageId)
 import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), UnitEnvGraph (..))
 import GHC.Unit.External (ExternalPackageState (..), eucEPS)
-import GHC.Unit.Finder (InstalledFindResult (InstalledFound))
 import GHC.Unit.Home.ModInfo (HomePackageTable, hm_iface)
 import GHC.Unit.Module.Graph (ModuleGraph, mgTransDeps)
-import GHC.Utils.Outputable (SDoc, hang, hcat, ppr, text, vcat, (<+>))
-import Internal.Cache (Cache (..), finderEnv)
-import Internal.Log (dbgp)
+import GHC.Utils.Outputable (SDoc, hang, hcat, ppr, text, vcat, (<+>), Outputable)
+import GHC.Types.Unique.Map (nonDetEltsUniqMap)
 
 entryD :: (SDoc, SDoc) -> SDoc
 entryD (k, v) = hang (hcat [k, ":"]) 2 v
@@ -29,24 +23,17 @@ entry (k, v) = entryD (text k, v)
 entries :: [(String, SDoc)] -> SDoc
 entries = vcat . fmap entry
 
+showMap ::
+  Outputable a =>
+  (b -> SDoc) ->
+  [(a, b)] ->
+  SDoc
+showMap pprB m =
+  vcat [ppr from <+> text "->" <+> (pprB to) | (from, to) <- m]
+
 showModGraph :: ModuleGraph -> SDoc
 showModGraph g =
-  vcat [ppr from <+> text "->" <+> (ppr (toList to)) | (from, to) <- Map.toList (mgTransDeps g)]
-
-showFinderCache :: MVar Cache -> FilePath -> IO SDoc
-showFinderCache var tmp = do
-  Cache {finder} <- readMVar var
-  modules <- finderEnv finder
-  pure $ vcat [hcat [ppr m, ":"] <+> showLoc r | (m, r) <- installedModuleEnvElts modules]
-  where
-    showLoc = \case
-      InstalledFound ModLocation {ml_hs_file} _
-        | Just path <- ml_hs_file
-        , Just rel <- stripPrefix tmp path
-        -> text (dropWhile ('/' ==) rel)
-        | otherwise
-        -> "external"
-      _ -> "no loc"
+  showMap (ppr . toList) (Map.toList (mgTransDeps g))
 
 showEps :: ExternalPackageState -> IO SDoc
 showEps EPS {..} = do
@@ -57,9 +44,12 @@ showEps EPS {..} = do
 
 showUnitState :: UnitState -> SDoc
 showUnitState UnitState {..} =
-  entries [
+  entries $ [
     ("homeUnitDepends", ppr homeUnitDepends)
-  ]
+  ] ++
+  if False
+  then [("unitInfoMap", ppr (ppr . unitPackageId <$> nonDetEltsUniqMap unitInfoMap))]
+  else []
 
 showHomeUnitDflags :: DynFlags -> SDoc
 showHomeUnitDflags DynFlags {..} =
@@ -69,16 +59,28 @@ showHomeUnitDflags DynFlags {..} =
 
 showHpt :: HomePackageTable -> SDoc
 showHpt hpt =
-  vcat [entryD (ppr k, ppr (mi_module (hm_iface hmi))) | (k, hmi) <- udfmToList hpt]
+  vcat [ppr (mi_module (hm_iface hmi)) | (_, hmi) <- udfmToList hpt]
+
+showHomeUnitEnvShort :: HomeUnitEnv -> SDoc
+showHomeUnitEnvShort HomeUnitEnv {..} =
+  entries [
+    ("deps", ppr homeUnitEnv_units.homeUnitDepends),
+    ("hpt", showHpt homeUnitEnv_hpt)
+  ]
 
 showHomeUnitEnv :: HomeUnitEnv -> SDoc
 showHomeUnitEnv HomeUnitEnv {..} =
   entries [
     ("units", showUnitState homeUnitEnv_units),
+    ("homeUnitEnv_unit_dbs", ppr homeUnitEnv_unit_dbs),
     ("dflags", showHomeUnitDflags homeUnitEnv_dflags),
     ("hpt", showHpt homeUnitEnv_hpt),
     ("home_unit", ppr (homeUnitId <$> homeUnitEnv_home_unit))
   ]
+
+showHugShort :: HomeUnitGraph -> SDoc
+showHugShort (UnitEnvGraph hug) =
+  vcat [entryD ((ppr k), (showHomeUnitEnvShort e)) | (k, e) <- Map.toList hug]
 
 showHug :: HomeUnitGraph -> SDoc
 showHug (UnitEnvGraph hug) =
@@ -91,16 +93,4 @@ showUnitEnv UnitEnv {..} = do
     ("eps", eps),
     ("hug", showHug ue_home_unit_graph),
     ("current_unit", ppr ue_current_unit)
-    ]
-
-showEnv :: MVar Cache -> FilePath -> Ghc ()
-showEnv cache tmp = do
-  HscEnv {..} <- getSession
-  unit_env <- liftIO (showUnitEnv hsc_unit_env)
-  finder <- liftIO (showFinderCache cache tmp)
-  dbgp $ entries [
-    ("targets", ppr hsc_targets),
-    ("mod_graph", showModGraph hsc_mod_graph),
-    ("finder", finder),
-    ("unit_env", unit_env)
     ]

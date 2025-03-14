@@ -5,7 +5,7 @@ import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (toList, traverse_)
 import Data.IORef (newIORef)
-import Data.List (intercalate)
+import Data.List (intercalate, isPrefixOf)
 import Data.List.NonEmpty (nonEmpty)
 import Data.Maybe (maybeToList)
 import qualified Data.Set as Set
@@ -38,7 +38,7 @@ import GHC.Utils.TmpFs (TempDir (..))
 import Internal.Args (Args (..))
 import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Target (..), withCache)
 import Internal.Error (handleExceptions)
-import Internal.Log (Log (..), logToState)
+import Internal.Log (Log (..), dbgs, logToState)
 import Prelude hiding (log)
 import System.Environment (setEnv)
 
@@ -146,3 +146,82 @@ withGhc env =
 withGhcDefault :: Env -> (Target -> Ghc (Maybe (Maybe ModuleArtifacts, a))) -> IO (Maybe (Maybe ModuleArtifacts, a))
 withGhcDefault env =
   withGhcUsingCache (withCache env.log env.args.workerTargetId env.cache) env
+
+specificPrefixSwitches :: [String]
+specificPrefixSwitches =
+  [
+    "-i"
+  ]
+
+specificSwitches :: [String]
+specificSwitches =
+  [
+    "-o",
+    "-dyno",
+    "-ohi",
+    "-dynohi",
+    "-this-unit-id",
+    "-package",
+    "-package-id",
+    "-package-env",
+    "-stubdir"
+  ]
+
+isSpecificPrefix :: String -> Bool
+isSpecificPrefix arg =
+  any (`isPrefixOf` arg) specificPrefixSwitches
+
+isSpecific :: String -> Bool
+isSpecific =
+  flip elem specificSwitches
+
+withGhcUsingCacheGeneral ::
+  (Target -> Ghc a -> Ghc (Maybe b)) ->
+  Env ->
+  ([String] -> Target -> Ghc a) ->
+  IO (Maybe b)
+withGhcUsingCacheGeneral cacheHandler env prog =
+  runSession env1 $ withGhcInSession env1 \ srcs -> do
+    dbgs general
+    dbgs specific
+    target <- ensureSingleTarget srcs
+    cacheHandler target do
+      initializeSessionPlugins
+      prog specific target
+  where
+    env1 = env {args = env.args {ghcOptions = general}}
+    (general, specific) = spin ([], []) env.args.ghcOptions
+
+    spin (g, s) = \case
+      [] -> (reverse g, reverse s)
+      "-hide-all-packages" : rest
+        -> spin (g, s) rest
+      "-this-unit-id" : uid : rest
+        -> spin (uid : "-this-unit-id" : g, uid : "-this-unit-id" : s) rest
+      switch : arg : rest
+        | isSpecific switch
+        -> spin (g, arg : switch : s) rest
+      arg : rest
+        | isSpecificPrefix arg
+        -> spin (g, arg : s) rest
+        | otherwise
+        -> spin (arg : g, s) rest
+
+withGhcGeneral :: Env -> ([String] -> Target -> Ghc (Maybe a)) -> IO (Maybe a)
+withGhcGeneral env =
+  withGhcUsingCacheGeneral cacheHandler env
+  where
+    cacheHandler target prog = do
+      result <- withCache env.log env.args.workerTargetId env.cache target do
+        res <- prog
+        pure do
+          a <- res
+          pure (Nothing, a)
+      pure (snd <$> result)
+
+withGhcGeneralDefault ::
+  Env ->
+  ([String] -> Target -> Ghc (Maybe (Maybe ModuleArtifacts, a))) ->
+  IO (Maybe (Maybe ModuleArtifacts, a))
+withGhcGeneralDefault env =
+  withGhcUsingCacheGeneral (withCache env.log env.args.workerTargetId env.cache) env

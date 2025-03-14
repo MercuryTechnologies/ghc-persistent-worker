@@ -33,13 +33,16 @@ import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
 import qualified Data.Text.Lazy as LazyText
 import qualified Data.Vector as Vector
-import GHC (Ghc, getSession)
+import GHC (DynFlags (..), Ghc, getSession)
+import GHC.Driver.DynFlags (GhcMode (..))
+import GHC.Driver.Env (hscUpdateFlags)
+import GHC.Driver.Monad (modifySession)
 import GHC.IO.Handle.FD (withFileBlocking)
 import Internal.AbiHash (AbiHash (..), showAbiHash)
-import Internal.Cache (Cache (..), ModuleArtifacts (..), Target, emptyCache)
+import Internal.Cache (Cache (..), CacheFeatures (..), ModuleArtifacts (..), Target, emptyCacheWith)
 import Internal.CompileHpt (compileHpt)
 import Internal.Log (dbg, logFlush, newLog)
-import Internal.Session (Env (..), withGhc)
+import Internal.Session (Env (..), withGhcGeneral)
 import Network.GRPC.HighLevel.Generated (
   ClientConfig (..),
   ClientError,
@@ -74,9 +77,10 @@ commandEnv =
   where
     fromBs = Text.unpack . decodeUtf8Lenient
 
-compileAndReadAbiHash :: BuckArgs -> Target -> Ghc (Maybe CompileResult)
-compileAndReadAbiHash args target = do
-  compileHpt target >>= traverse \ artifacts -> do
+compileAndReadAbiHash :: BuckArgs -> [String] -> Target -> Ghc (Maybe CompileResult)
+compileAndReadAbiHash args specific target = do
+  modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
+  compileHpt undefined undefined specific target >>= traverse \ artifacts -> do
     hsc_env <- getSession
     let
       abiHash :: Maybe AbiHash
@@ -105,7 +109,7 @@ finishJob var _ = do
     pure WorkerStatus {active = new}
 
 debugRequestArgs :: Bool
-debugRequestArgs = True
+debugRequestArgs = False
 
 executeHandler ::
   MVar WorkerStatus ->
@@ -124,7 +128,7 @@ executeHandler status cache (ServerNormalRequest _ ExecuteCommand {executeComman
       bracket (startJob status) (finishJob status) \ _ -> do
         log <- newLog True
         let env = Env {log, cache, args}
-        result <- withGhc env (compileAndReadAbiHash buckArgs)
+        result <- withGhcGeneral env (compileAndReadAbiHash buckArgs)
         pure (env, buckArgs, result)
 
     successResponse (env, buckArgs, result) = do
@@ -189,7 +193,14 @@ primarySocketDiscoveryIn dir = PrimarySocketDiscoveryPath (dir </> "primary")
 runLocalGhc :: ServerSocketPath -> IO ()
 runLocalGhc socket = do
   dbg ("Starting ghc server on " ++ socket.path)
-  cache <- emptyCache False
+  cache <- emptyCacheWith CacheFeatures {
+    hpt = True,
+    loader = False,
+    enable = True,
+    names = False,
+    finder = False,
+    eps = False
+  }
   status <- newMVar WorkerStatus {active = 0}
   workerServer (ghcServerHandlers status cache) (setSocket socket.path defaultServiceOptions)
 

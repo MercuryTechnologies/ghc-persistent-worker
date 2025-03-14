@@ -1,27 +1,57 @@
 module Test1 where
 
-import Control.Concurrent (MVar)
+import Control.Concurrent (MVar, readMVar)
+import Control.Monad.IO.Class (liftIO)
 import Data.Char (toUpper)
 import Data.Foldable (for_, traverse_)
-import Data.List (intercalate)
+import Data.List (intercalate, stripPrefix)
 import Data.List.Extra (replace)
-import GHC.Unit (stringToUnitId)
+import Data.List.NonEmpty (NonEmpty)
+import GHC (DynFlags (..), Ghc, GhcMode (..), ModLocation (..), getSession)
+import GHC.Driver.Env (HscEnv (..), hscUpdateFlags)
+import GHC.Driver.Monad (modifySession)
+import GHC.Unit (installedModuleEnvElts, stringToUnitId)
+import GHC.Unit.Finder (InstalledFindResult (..))
+import GHC.Utils.Outputable (SDoc, hcat, ppr, text, vcat, (<+>))
 import Internal.Args (Args (..))
-import Internal.Cache (Cache, CacheFeatures (..), emptyCacheWith)
+import Internal.Cache (Cache (..), CacheFeatures (..), emptyCacheWith, finderEnv)
 import Internal.CompileHpt (compileHpt)
 import Internal.CompileMake (step1, step2)
-import Internal.Debug (showEnv)
-import Internal.Log (dbg, dbgs, newLog)
-import Internal.Session (Env (..), runSession, withGhc, withGhcInSession)
+import Internal.Debug (entries, showModGraph, showUnitEnv)
+import Internal.Log (dbg, dbgp, dbgs, newLog)
+import Internal.Session (Env (..), runSession, withGhcGeneral, withGhcInSession)
 import Prelude hiding (log)
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, listDirectory)
 import System.Environment (getEnv)
 import System.FilePath (dropExtension, takeDirectory, takeFileName, (</>))
 import System.IO.Temp (withSystemTempDirectory)
-import GHC.Driver.Monad (modifySession)
-import GHC (DynFlags (..), GhcMode (..))
-import GHC.Driver.Env (hscUpdateFlags)
-import Data.List.NonEmpty (NonEmpty)
+
+showFinderCache :: MVar Cache -> FilePath -> IO SDoc
+showFinderCache var tmp = do
+  Cache {finder} <- readMVar var
+  modules <- finderEnv finder
+  pure $ vcat [hcat [ppr m, ":"] <+> showLoc r | (m, r) <- installedModuleEnvElts modules]
+  where
+    showLoc = \case
+      InstalledFound ModLocation {ml_hs_file} _
+        | Just path <- ml_hs_file
+        , Just rel <- stripPrefix tmp path
+        -> text (dropWhile ('/' ==) rel)
+        | otherwise
+        -> "external"
+      _ -> "no loc"
+
+showEnv :: MVar Cache -> FilePath -> Ghc ()
+showEnv cache tmp = do
+  HscEnv {..} <- getSession
+  unit_env <- liftIO (showUnitEnv hsc_unit_env)
+  finder <- liftIO (showFinderCache cache tmp)
+  dbgp $ entries [
+    ("targets", ppr hsc_targets),
+    ("mod_graph", showModGraph hsc_mod_graph),
+    ("finder", finder),
+    ("unit_env", unit_env)
+    ]
 
 data Conf =
   Conf {
@@ -44,14 +74,16 @@ sanitize tmp =
   replace tmp "$tmp"  . unwords
 
 one :: NonEmpty (String, String, [String]) -> Conf -> UnitMod -> IO ()
-one units Conf {..} UnitMod {unit, src, deps = _} = do
+one _ Conf {..} UnitMod {unit, src, deps} = do
   dbg "---------------------------------"
   log <- newLog True
   let env = Env {log, cache, args}
   -- dbg (sanitize tmp fileOptions)
-  result <- withGhc env \ target -> do
-    result <- compileHpt tmp units target
-    showEnv cache tmp
+  result <- withGhcGeneral env \ specific target -> do
+    modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
+    -- showEnv cache tmp
+    result <- compileHpt undefined undefined specific target
+    -- showEnv cache tmp
     pure result
   dbgs result
   pure ()
@@ -63,16 +95,16 @@ one units Conf {..} UnitMod {unit, src, deps = _} = do
 
     fileOptions =
       [
+        "-i",
+        "-this-unit-id",
+        unit,
         "-o",
         tmp </> "out" </> (modName ++ ".dyn_o"),
         "-ohi",
         tmp </> "out" </> (modName ++ ".dyn_hi"),
-        "-dynohi",
-        tmp </> "out" </> (modName ++ ".dyn_hi"),
-        "-this-unit-id",
-        unit,
         src
-      ]
+      ] ++
+      concat [["-package", dep] | dep <- deps]
 
     modName = dropExtension (takeFileName src)
 
@@ -84,6 +116,9 @@ unitMod conf deps modName unit content =
     ..
   }
 
+useTh :: Bool
+useTh = True
+
 modType1 :: Conf -> [String] -> Char -> Int -> [String] -> UnitMod
 modType1 conf pdeps unitTag n deps =
   unitMod conf pdeps modName unit content
@@ -92,10 +127,37 @@ modType1 conf pdeps unitTag n deps =
     content =
       unlines $
         ("module " ++ modName ++ " where") :
+        "import Language.Haskell.TH (ExpQ)" :
+        "import Language.Haskell.TH.Syntax (lift)" :
+        depImports ++
+        if useTh
+        then [
+          binding ++ " :: ExpQ",
+          binding ++ " = lift @_ @Int 5"
+        ]
+        else [
+          binding ++ " :: Int",
+          binding ++ " = 5"
+        ]
+    depImports = ["import " ++ d | d <- deps]
+    modName = toUpper unitTag : show n
+    binding = unitTag : show n
+
+modType2 :: Conf -> [String] -> Char -> Int -> [String] -> [String] -> UnitMod
+modType2 conf pdeps unitTag n deps thDeps =
+  unitMod conf pdeps modName unit content
+  where
+    unit = "unit-" ++ [unitTag]
+    content =
+      unlines $
+        "{-# language TemplateHaskell #-}" :
+        ("module " ++ modName ++ " where") :
         depImports ++
         [
           binding ++ " :: Int",
-          binding ++ " = 5"
+          if useTh
+          then binding ++ " = " ++ foldl' (\ z a -> z ++ " + $(" ++ a ++ ")") "0" thDeps
+          else binding ++ " = 5"
         ]
     depImports = ["import " ++ d | d <- deps]
     modName = toUpper unitTag : show n
@@ -124,10 +186,14 @@ baseArgs ghc_dir tmp =
     binPath = [],
     tempDir = Just (tmp </> "tmp"),
     ghcPath = Nothing,
-    ghcOptions = (artifactDir =<< ["o", "hie", "dump", "stub"]) ++ [
-      -- "-i" ++ (tmp </> "out"),
+    ghcOptions = (artifactDir =<< ["o", "hie", "dump"]) ++ [
+      "-fwrite-ide-info",
+      "-no-link",
       "-dynamic",
-      "-shared",
+      "-fwrite-if-simplified-core",
+      "-fprefer-byte-code",
+      -- "-fpackage-db-byte-code",
+      -- "-shared",
       "-fPIC",
       "-osuf",
       "dyn_o",
@@ -145,10 +211,12 @@ targets1 conf =
   [
     m1 'b' 1 [],
     m1 'b' 2 [],
-    m1d ["unit-b"] 'a' 1 ["B1"],
+    m1d [] 'a' 0 [],
+    modType2 conf ["unit-b"] 'a' 1 ["B1"] ["b1"],
     m1 'b' 3 [],
-    m1d ["unit-b"] 'a' 2 ["A1", "B2", "B3"],
+    m1d ["unit-b"] 'a' 2 ["A0", "A1", "B2", "B3"],
     unitMod conf ["unit-a", "unit-b"] "Main" "main" (mainContent [
+      ('a', 0),
       ('a', 2),
       ('b', 1)
     ])
@@ -181,6 +249,7 @@ withProject use =
       createDirectoryIfMissing False (takeDirectory src)
       writeFile src content
     use conf targets
+    dbgs =<< listDirectory (tmp </> "out")
 
 testWorker :: IO ()
 testWorker =
@@ -204,7 +273,7 @@ testMake =
             ["-i", "-i" ++ (tmp </> "src/unit-a"), "-this-unit-id", "unit-a", "-package-id", "unit-b"],
             ["-i", "-i" ++ (tmp </> "src/main"), "-this-unit-id", "main", "-package-id", "unit-a", "-package-id", "unit-b"]
           ]
-    _ <- runSession env $ withGhcInSession env \ _ -> do
+    _ <- runSession True env $ withGhcInSession env \ _ -> do
       modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
       step1 unitArgs
       showEnv cache tmp
