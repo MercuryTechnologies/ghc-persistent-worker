@@ -8,5 +8,6 @@
     "Debug",
     "Error",
     "Log",
+    "Metadata",
     "Session",
 ]]

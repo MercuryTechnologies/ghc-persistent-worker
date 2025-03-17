@@ -29,6 +29,7 @@ library
                       Internal.Debug
                       Internal.Error
                       Internal.Log
+                      Internal.Metadata
                       Internal.Session
                       Util
     other-modules:  GHC.Main

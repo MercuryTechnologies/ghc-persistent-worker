@@ -2,7 +2,7 @@
 
 module Main where
 
-import BuckArgs (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
+import BuckArgs (BuckArgs (..), CompileResult (..), Mode (..), parseBuckArgs, toGhcArgs, writeResult)
 import BuckWorker (
   ExecuteCommand (..),
   ExecuteCommand_EnvironmentEntry (..),
@@ -25,9 +25,11 @@ import Control.Exception (
   )
 import Control.Monad (foldM, void, when)
 import Data.Functor ((<&>))
+import Data.Int (Int32)
 import Data.List (dropWhileEnd)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
 import Data.String (fromString)
 import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
@@ -42,6 +44,7 @@ import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Cache (Cache (..), CacheFeatures (..), ModuleArtifacts (..), Target, emptyCacheWith)
 import Internal.CompileHpt (compileHpt)
 import Internal.Log (dbg, logFlush, newLog)
+import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhcGeneral)
 import Network.GRPC.HighLevel.Generated (
   ClientConfig (..),
@@ -89,6 +92,17 @@ compileAndReadAbiHash args specific target = do
         Just AbiHash {path, hash = showAbiHash hsc_env artifacts.iface}
     pure CompileResult {artifacts, abiHash}
 
+dispatch :: Env -> BuckArgs -> IO Int32
+dispatch env args =
+  case args.mode of
+    Just ModeCompile -> do
+      result <- withGhcGeneral env (compileAndReadAbiHash args)
+      writeResult args result
+    Just ModeMetadata ->
+      fromMaybe 1 <$> computeMetadata env
+    Just m -> error ("worker: mode not implemented: " ++ show m)
+    Nothing -> error "worker: no mode specified"
+
 startJob ::
   MVar WorkerStatus ->
   IO ()
@@ -109,7 +123,7 @@ finishJob var _ = do
     pure WorkerStatus {active = new}
 
 debugRequestArgs :: Bool
-debugRequestArgs = False
+debugRequestArgs = True
 
 executeHandler ::
   MVar WorkerStatus ->
@@ -128,11 +142,10 @@ executeHandler status cache (ServerNormalRequest _ ExecuteCommand {executeComman
       bracket (startJob status) (finishJob status) \ _ -> do
         log <- newLog True
         let env = Env {log, cache, args}
-        result <- withGhcGeneral env (compileAndReadAbiHash buckArgs)
-        pure (env, buckArgs, result)
+        result <- dispatch env buckArgs
+        pure (env, result)
 
-    successResponse (env, buckArgs, result) = do
-      executeResponseExitCode <- writeResult buckArgs result
+    successResponse (env, executeResponseExitCode) = do
       output <- logFlush env.log
       pure ExecuteResponse {
         executeResponseExitCode,
@@ -337,5 +350,5 @@ main = do
   try (runWorker socket options) >>= \case
     Right () ->
       dbg "Worker terminated without cancellation."
-    Left (err :: SomeException) -> do
+    Left (err :: SomeException) ->
       dbg ("Worker terminated with exception: " ++ displayException err)
