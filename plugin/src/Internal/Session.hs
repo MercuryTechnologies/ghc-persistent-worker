@@ -100,18 +100,21 @@ withGhcInSession env prog argv = do
     srcs <- initGhc dflags0 logger fileish_args dynamicFlagWarnings
     prog srcs
 
-ensureSession :: MVar Cache -> Args -> IO HscEnv
-ensureSession cacheVar args =
+ensureSession :: Bool -> MVar Cache -> Args -> IO HscEnv
+ensureSession reuse cacheVar args =
   modifyMVar cacheVar \ cache -> do
-    newEnv <- maybe (initHscEnv args.topdir) pure cache.baseSession
-    if cache.features.enable
-    then pure (cache {baseSession = Just newEnv}, newEnv)
-    else pure (cache, newEnv)
+    if cache.features.enable && reuse
+    then do
+      newEnv <- maybe (initHscEnv args.topdir) pure cache.baseSession
+      pure (cache {baseSession = Just newEnv}, newEnv)
+    else do
+      newEnv <- initHscEnv args.topdir
+      pure (cache, newEnv)
 
-runSession :: Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
-runSession Env {log, args, cache} prog = do
+runSession :: Bool -> Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
+runSession reuse Env {log, args, cache} prog = do
   modifyMVar_ cache (setupPath args)
-  hsc_env <- ensureSession cache args
+  hsc_env <- ensureSession reuse cache args
   session <- Session <$> newIORef hsc_env
   flip unGhc session $ withSignalHandlers do
     traverse_ (modifySession . setTempDir) args.tempDir
@@ -125,7 +128,7 @@ ensureSingleTarget = \case
 
 withGhcUsingCache :: (Target -> Ghc a -> Ghc (Maybe b)) -> Env -> (Target -> Ghc a) -> IO (Maybe b)
 withGhcUsingCache cacheHandler env prog =
-  runSession env $ withGhcInSession env \ srcs -> do
+  runSession True env $ withGhcInSession env \ srcs -> do
     target <- ensureSingleTarget srcs
     cacheHandler target do
       initializeSessionPlugins
@@ -181,7 +184,7 @@ withGhcUsingCacheGeneral ::
   ([String] -> Target -> Ghc a) ->
   IO (Maybe b)
 withGhcUsingCacheGeneral cacheHandler env prog =
-  runSession env1 $ withGhcInSession env1 \ srcs -> do
+  runSession True env1 $ withGhcInSession env1 \ srcs -> do
     dbgs general
     dbgs specific
     target <- ensureSingleTarget srcs
