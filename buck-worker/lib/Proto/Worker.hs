@@ -9,31 +9,31 @@ module Proto.Worker (
         ExecuteEvent'Data(..), _ExecuteEvent'Command, _ExecuteEvent'Cancel,
         ExecuteResponse()
     ) where
-import qualified Data.ProtoLens.Runtime.Control.DeepSeq as Control.DeepSeq
-import qualified Data.ProtoLens.Runtime.Data.ProtoLens.Prism as Data.ProtoLens.Prism
-import qualified Data.ProtoLens.Runtime.Prelude as Prelude
-import qualified Data.ProtoLens.Runtime.Data.Int as Data.Int
-import qualified Data.ProtoLens.Runtime.Data.Monoid as Data.Monoid
-import qualified Data.ProtoLens.Runtime.Data.Word as Data.Word
-import qualified Data.ProtoLens.Runtime.Data.ProtoLens as Data.ProtoLens
-import qualified Data.ProtoLens.Runtime.Data.ProtoLens.Encoding.Bytes as Data.ProtoLens.Encoding.Bytes
-import qualified Data.ProtoLens.Runtime.Data.ProtoLens.Encoding.Growing as Data.ProtoLens.Encoding.Growing
-import qualified Data.ProtoLens.Runtime.Data.ProtoLens.Encoding.Parser.Unsafe as Data.ProtoLens.Encoding.Parser.Unsafe
-import qualified Data.ProtoLens.Runtime.Data.ProtoLens.Encoding.Wire as Data.ProtoLens.Encoding.Wire
-import qualified Data.ProtoLens.Runtime.Data.ProtoLens.Field as Data.ProtoLens.Field
-import qualified Data.ProtoLens.Runtime.Data.ProtoLens.Message.Enum as Data.ProtoLens.Message.Enum
-import qualified Data.ProtoLens.Runtime.Data.ProtoLens.Service.Types as Data.ProtoLens.Service.Types
-import qualified Data.ProtoLens.Runtime.Lens.Family2 as Lens.Family2
-import qualified Data.ProtoLens.Runtime.Lens.Family2.Unchecked as Lens.Family2.Unchecked
-import qualified Data.ProtoLens.Runtime.Data.Text as Data.Text
-import qualified Data.ProtoLens.Runtime.Data.Map as Data.Map
-import qualified Data.ProtoLens.Runtime.Data.ByteString as Data.ByteString
-import qualified Data.ProtoLens.Runtime.Data.ByteString.Char8 as Data.ByteString.Char8
-import qualified Data.ProtoLens.Runtime.Data.Text.Encoding as Data.Text.Encoding
-import qualified Data.ProtoLens.Runtime.Data.Vector as Data.Vector
-import qualified Data.ProtoLens.Runtime.Data.Vector.Generic as Data.Vector.Generic
-import qualified Data.ProtoLens.Runtime.Data.Vector.Unboxed as Data.Vector.Unboxed
-import qualified Data.ProtoLens.Runtime.Text.Read as Text.Read
+import qualified Control.DeepSeq
+import qualified Data.ProtoLens.Prism
+import qualified Prelude
+import qualified Data.Int
+import qualified Data.Monoid
+import qualified Data.Word
+import qualified Data.ProtoLens
+import qualified Data.ProtoLens.Encoding.Bytes
+import qualified Data.ProtoLens.Encoding.Growing
+import qualified Data.ProtoLens.Encoding.Parser.Unsafe
+import qualified Data.ProtoLens.Encoding.Wire
+import qualified Data.ProtoLens.Field
+import qualified Data.ProtoLens.Message.Enum
+import qualified Data.ProtoLens.Service.Types
+import qualified Lens.Family2
+import qualified Lens.Family2.Unchecked
+import qualified Data.Text
+import qualified Data.Map
+import qualified Data.ByteString
+import qualified Data.ByteString.Char8
+import qualified Data.Text.Encoding
+import qualified Data.Vector
+import qualified Data.Vector.Generic
+import qualified Data.Vector.Unboxed
+import qualified Text.Read
 {- | Fields :
       -}
 data ExecuteCancel
@@ -98,7 +98,7 @@ instance Control.DeepSeq.NFData ExecuteCancel where
     = \ x__
         -> Control.DeepSeq.deepseq (_ExecuteCancel'_unknownFields x__) ()
 {- | Fields :
-     
+
          * 'Proto.Worker_Fields.argv' @:: Lens' ExecuteCommand [Data.ByteString.ByteString]@
          * 'Proto.Worker_Fields.vec'argv' @:: Lens' ExecuteCommand (Data.Vector.Vector Data.ByteString.ByteString)@
          * 'Proto.Worker_Fields.env' @:: Lens' ExecuteCommand [ExecuteCommand'EnvironmentEntry]@
@@ -291,7 +291,7 @@ instance Control.DeepSeq.NFData ExecuteCommand where
                 (_ExecuteCommand'argv x__)
                 (Control.DeepSeq.deepseq (_ExecuteCommand'env x__) ()))
 {- | Fields :
-     
+
          * 'Proto.Worker_Fields.key' @:: Lens' ExecuteCommand'EnvironmentEntry Data.ByteString.ByteString@
          * 'Proto.Worker_Fields.value' @:: Lens' ExecuteCommand'EnvironmentEntry Data.ByteString.ByteString@ -}
 data ExecuteCommand'EnvironmentEntry
@@ -449,7 +449,7 @@ instance Control.DeepSeq.NFData ExecuteCommand'EnvironmentEntry where
                 (Control.DeepSeq.deepseq
                    (_ExecuteCommand'EnvironmentEntry'value x__) ()))
 {- | Fields :
-     
+
          * 'Proto.Worker_Fields.maybe'data'' @:: Lens' ExecuteEvent (Prelude.Maybe ExecuteEvent'Data)@
          * 'Proto.Worker_Fields.maybe'command' @:: Lens' ExecuteEvent (Prelude.Maybe ExecuteCommand)@
          * 'Proto.Worker_Fields.command' @:: Lens' ExecuteEvent ExecuteCommand@
@@ -664,7 +664,7 @@ _ExecuteEvent'Cancel
               (ExecuteEvent'Cancel p__val) -> Prelude.Just p__val
               _otherwise -> Prelude.Nothing)
 {- | Fields :
-     
+
          * 'Proto.Worker_Fields.exitCode' @:: Lens' ExecuteResponse Data.Int.Int32@
          * 'Proto.Worker_Fields.stderr' @:: Lens' ExecuteResponse Data.Text.Text@ -}
 data ExecuteResponse

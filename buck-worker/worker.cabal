@@ -34,10 +34,15 @@ library
     Proto.Worker,
     Proto.Worker_Fields
   build-depends:
+    bytestring,
+    deepseq,
     filepath,
     ghc-persistent-worker-plugin,
     grapesy,
-    proto-lens-runtime
+    lens-family,
+    proto-lens,
+    text,
+    vector
 
 executable worker
   import: all
