@@ -16,7 +16,6 @@ executable multiplex-worker
     ghc-persistent-worker-comm,
     ghc-persistent-worker-plugin,
     ghc-persistent-worker-server,
-    grpc-haskell,
     stm,
     text,
     transformers,
