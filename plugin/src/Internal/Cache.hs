@@ -17,7 +17,7 @@ import Data.Ord (comparing)
 import qualified Data.Set as Set
 import Data.Set (Set, (\\))
 import Data.Traversable (for)
-import GHC (Ghc, ModIface, ModuleName, mi_module, moduleName, moduleNameString, setSession)
+import GHC (Ghc, ModIface, ModuleName, mi_module, moduleName, moduleNameString, setSession, ModuleGraph)
 import GHC.Data.FastString (FastString)
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Monad (withSession)
@@ -53,6 +53,7 @@ import GHC.Utils.Panic (panic)
 #else
 
 import GHC.Unit.Finder (initFinderCache)
+import GHC.Unit.Module.Graph (unionMG)
 
 #endif
 
@@ -242,6 +243,7 @@ data Cache =
     finder :: FinderState,
     eps :: ExternalUnitCache,
     hug :: Maybe HomeUnitGraph,
+    moduleGraph :: Maybe ModuleGraph,
     baseSession :: Maybe HscEnv
   }
 
@@ -263,6 +265,7 @@ emptyCacheWith features = do
     finder,
     eps,
     hug = Nothing,
+    moduleGraph = Nothing,
     baseSession = Nothing
   }
 emptyCache :: Bool -> IO (MVar Cache)
@@ -628,7 +631,18 @@ setTarget cacheVar cache hsc_env target = do
         if cache.features.eps
         then hsc_env1 {hsc_unit_env = hsc_env1.hsc_unit_env {ue_eps = cache.eps}}
         else hsc_env1
-  pure $ maybe hsc_env2 (\ hug -> hsc_env2 {hsc_unit_env = hsc_env2.hsc_unit_env {ue_home_unit_graph = unitEnv_union mergeHugs hug hsc_env.hsc_unit_env.ue_home_unit_graph}}) cache.hug
+      hsc_env3 =
+        maybe hsc_env2 (\ hug -> hsc_env2 {hsc_unit_env = hsc_env2.hsc_unit_env {ue_home_unit_graph = unitEnv_union mergeHugs hug hsc_env.hsc_unit_env.ue_home_unit_graph}}) cache.hug
+      hsc_env4 =
+        maybe id restoreModuleGraph cache.moduleGraph hsc_env3
+  pure hsc_env4
+  where
+    restoreModuleGraph mg e = e {hsc_mod_graph = unionMG e.hsc_mod_graph mg}
+
+updateModuleGraph :: MVar Cache -> ModuleGraph -> IO ()
+updateModuleGraph cacheVar new =
+  modifyMVar_ cacheVar \ cache ->
+    pure cache {moduleGraph = Just (maybe id unionMG cache.moduleGraph new)}
 
 prepareCache :: MVar Cache -> Target -> HscEnv -> Cache -> IO (Cache, (HscEnv, Bool))
 prepareCache cacheVar target hsc_env0 cache0 = do

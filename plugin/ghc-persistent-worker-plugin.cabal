@@ -29,6 +29,8 @@ library
                       Internal.Debug
                       Internal.Error
                       Internal.Log
+                      Internal.MakeFile
+                      Internal.MakeFile.JSON
                       Internal.Metadata
                       Internal.Session
                       Util

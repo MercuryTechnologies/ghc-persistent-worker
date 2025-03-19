@@ -2,7 +2,6 @@
 
 module Internal.CompileHpt where
 
-import Data.Functor ((<&>))
 import Data.List.NonEmpty (NonEmpty)
 import GHC (DynFlags (..), Ghc, GhcMonad (..), ModLocation (..), ModSummary (..), mkGeneralLocated, setUnitDynFlags)
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
@@ -13,16 +12,14 @@ import GHC.Driver.Make (summariseFile)
 import GHC.Driver.Monad (modifySession)
 import GHC.Driver.Pipeline (compileOne)
 import GHC.Driver.Session (parseDynamicFlagsCmdLine)
-import GHC.Runtime.Loader (initializePlugins)
+import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit.Env (UnitEnv (..), addHomeModInfoToHug, ue_unsafeHomeUnit, HomeUnitEnv (..), unitEnv_lookup_maybe, HomeUnitGraph, UnitEnvGraph (..))
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Utils.Monad (MonadIO (..))
 import Internal.Cache (ModuleArtifacts (..), Target (..))
-import Internal.CompileMake (step1)
 import Internal.Debug (showHugShort)
 import Internal.Error (eitherMessages)
 import Internal.Log (dbg, dbgp, dbgs)
-import System.FilePath ((</>))
 import GHC.Unit (UnitState(..), unitIdString, stringToUnitId, UnitId)
 import Data.Foldable (fold)
 import qualified Data.Map.Strict as Map
@@ -55,26 +52,34 @@ adaptHp (UnitEnvGraph ueg) =
       arg : rest -> (arg :) <$> spin seen rest
       [] -> (seen, [])
 
+homeUnitDeps :: HscEnv -> UnitId -> Maybe [UnitId]
+homeUnitDeps hsc_env target = do
+  HomeUnitEnv {homeUnitEnv_units = UnitState {homeUnitDepends}} <- unitEnv_lookup_maybe target hug
+  pure homeUnitDepends
+  where
+    hug = hsc_env.hsc_unit_env.ue_home_unit_graph
+
+homeUnitDepFlags :: HscEnv -> Set UnitId -> UnitId -> [String]
+homeUnitDepFlags hsc_env explicit target =
+  concat [["-package-id", unitIdString u] | u <- fold prev_deps, not (Set.member u explicit)]
+  where
+    prev_deps = homeUnitDeps hsc_env target
+
 compileHpt ::
   String ->
   NonEmpty (String, String, [String]) ->
   [String] ->
   Target ->
   Ghc (Maybe ModuleArtifacts)
-compileHpt tmp units specific (Target src) = do
+compileHpt _ _ specific (Target src) = do
   dbg "------- start"
   dbgp . showHugShort . ue_home_unit_graph . hsc_unit_env =<< getSession
-  hsc_env0 <- liftIO . initializePlugins =<< getSession
+  initializeSessionPlugins
+  hsc_env0 <- getSession
   let current = hsc_env0.hsc_unit_env.ue_current_unit
-      prev_deps = do
-        HomeUnitEnv {homeUnitEnv_units = UnitState {homeUnitDepends}} <- unitEnv_lookup_maybe current hsc_env0.hsc_unit_env.ue_home_unit_graph
-        pure homeUnitDepends
       (explicit, withPackageId) = adaptHp hsc_env0.hsc_unit_env.ue_home_unit_graph specific
-  if manual
-  then do
-    dflags <- unitFlags (withPackageId ++ concat [["-package-id", unitIdString u] | u <- fold prev_deps, not (Set.member u explicit)]) hsc_env0
-    setUnitDynFlags hsc_env0.hsc_unit_env.ue_current_unit dflags
-  else step1 unitArgs
+  dflags <- unitFlags (withPackageId ++ homeUnitDepFlags hsc_env0 explicit current) hsc_env0
+  setUnitDynFlags current dflags
   modifySession (hscSetActiveUnitId current)
   dbg "------- updated"
   dbgp . showHugShort . ue_home_unit_graph . hsc_unit_env =<< getSession
@@ -90,8 +95,3 @@ compileHpt tmp units specific (Target src) = do
   modifySession (addDepsToHscEnv [hmi])
   dbg "------ added"
   pure (Just ModuleArtifacts {iface, bytecode = homeMod_bytecode hm_linkable})
-  where
-    unitArgs = units <&> \ (name, srcDir, deps) ->
-      ["-i", "-i" ++ srcDir, "-hidir" ++ tmp </> "out", "-i" ++ tmp </> "out", "-this-unit-id", name] ++ concat [["-package-id", dep] | dep <- deps]
-
-    manual = True
