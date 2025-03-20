@@ -1,8 +1,7 @@
-{-# language OverloadedStrings #-}
+{-# language OverloadedStrings, CPP #-}
 
 module Internal.Debug where
 
-import Data.Foldable (toList)
 import qualified Data.Map.Strict as Map
 import GHC (DynFlags (..), mi_module)
 import GHC.Types.Unique.DFM (udfmToList)
@@ -10,9 +9,20 @@ import GHC.Unit (UnitState (..), homeUnitId, moduleEnvToList, unitPackageId)
 import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), UnitEnvGraph (..))
 import GHC.Unit.External (ExternalPackageState (..), eucEPS)
 import GHC.Unit.Home.ModInfo (HomePackageTable, hm_iface)
-import GHC.Unit.Module.Graph (ModuleGraph, mgTransDeps)
+import GHC.Unit.Module.Graph (ModuleGraph)
 import GHC.Utils.Outputable (SDoc, hang, hcat, ppr, text, vcat, (<+>), Outputable)
 import GHC.Types.Unique.Map (nonDetEltsUniqMap)
+
+#if __GLASGOW_HASKELL__ < 910
+
+import Data.Foldable (toList)
+import GHC.Unit.Module.Graph (mgTransDeps)
+
+#else
+
+import GHC.Unit.Module.Graph (mgModSummaries')
+
+#endif
 
 entryD :: (SDoc, SDoc) -> SDoc
 entryD (k, v) = hang (hcat [k, ":"]) 2 v
@@ -31,9 +41,19 @@ showMap ::
 showMap pprB m =
   vcat [ppr from <+> text "->" <+> (pprB to) | (from, to) <- m]
 
+#if __GLASGOW_HASKELL__ < 910
+
 showModGraph :: ModuleGraph -> SDoc
 showModGraph g =
   showMap (ppr . toList) (Map.toList (mgTransDeps g))
+
+#else
+
+showModGraph :: ModuleGraph -> SDoc
+showModGraph g =
+  ppr (mgModSummaries' g)
+
+#endif
 
 showEps :: ExternalPackageState -> IO SDoc
 showEps EPS {..} = do
