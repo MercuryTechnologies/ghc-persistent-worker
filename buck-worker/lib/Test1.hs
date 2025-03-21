@@ -7,7 +7,6 @@ import Control.Monad.Trans.State.Strict (StateT, evalStateT, state)
 import Data.Char (toUpper)
 import Data.Foldable (for_, traverse_, toList)
 import Data.List (intercalate, stripPrefix)
-import Data.List.Extra (replace)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
@@ -98,10 +97,6 @@ data UnitConf =
   }
   deriving stock (Eq)
 
-sanitize :: FilePath -> [String] -> String
-sanitize tmp =
-  replace tmp "$tmp"  . unwords
-
 loadModuleGraph :: Env -> UnitMod -> Ghc ()
 loadModuleGraph env UnitMod {src} = do
   module_graph <- withTempSession id do
@@ -140,7 +135,6 @@ one Conf {..} units umod@UnitMod {unit, src, deps} = do
         pure (Just True)
     unless success do
       liftIO $ throwGhcExceptionIO (ProgramError "Metadata failed")
-  -- dbg (sanitize tmp fileOptions)
   result <- liftIO $ withGhcGeneral env \ specific target -> do
     modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
     -- showEnv cache tmp
@@ -313,7 +307,6 @@ dbConf srcDir unit mods =
 
 createDb :: NonEmpty UnitMod -> IO UnitConf
 createDb mods@(mod0 :| _) = do
-  dbgs mods
   let uid = stringToUnitId mod0.unit
   createDirectoryIfMissing False db
   writeFile confFile (dbConf dir mod0.unit (toList mods))
@@ -345,14 +338,13 @@ withProject use =
       [d] -> ghc_dir </> "lib" </> d </> "lib"
       ds -> error ("weird GHC lib dir contains /= 1 entries: " ++ show ds)
     let conf = Conf {tmp, cache, args0 = baseArgs topdir tmp}
-    -- dbg (sanitize tmp conf.args0.ghcOptions)
     let targets = targets1 conf
     for_ targets \ UnitMod {src, content} -> do
       createDirectoryIfMissing False (takeDirectory src)
       writeFile src content
     units <- traverse createDb (NonEmpty.groupAllWith (.unit) targets)
     use conf units targets
-    dbgs =<< listDirectory (tmp </> "out")
+    -- dbgs =<< listDirectory (tmp </> "out")
 
 testWorker :: IO ()
 testWorker =
