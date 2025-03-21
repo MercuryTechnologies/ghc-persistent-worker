@@ -40,7 +40,9 @@ library
     grpc-haskell,
     proto3-suite,
     proto3-wire,
-    temporary
+    temporary,
+    transformers,
+    typed-process
 
 executable worker
   import: all

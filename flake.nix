@@ -173,7 +173,9 @@
             "proto3-suite"
             "proto3-wire"
             "temporary"
+            "transformers"
             "text"
+            "typed-process"
             "vector"
           ];
           default-extensions = ["OverloadedLists"];
