@@ -8,9 +8,9 @@ import GHC.Types.Unique.DFM (udfmToList)
 import GHC.Unit (UnitState (..), homeUnitId, moduleEnvToList, unitPackageId)
 import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), UnitEnvGraph (..))
 import GHC.Unit.External (ExternalPackageState (..), eucEPS)
-import GHC.Unit.Home.ModInfo (HomePackageTable, hm_iface)
+import GHC.Unit.Home.ModInfo (HomePackageTable, hm_iface, HomeModInfo (..))
 import GHC.Unit.Module.Graph (ModuleGraph)
-import GHC.Utils.Outputable (SDoc, hang, hcat, ppr, text, vcat, (<+>), Outputable)
+import GHC.Utils.Outputable (SDoc, hang, hcat, ppr, text, vcat, (<+>), Outputable, punctuate, comma)
 import GHC.Types.Unique.Map (nonDetEltsUniqMap)
 
 #if __GLASGOW_HASKELL__ < 910
@@ -79,7 +79,8 @@ showHomeUnitDflags DynFlags {..} =
 
 showHpt :: HomePackageTable -> SDoc
 showHpt hpt =
-  vcat [ppr (mi_module (hm_iface hmi)) | (_, hmi) <- udfmToList hpt]
+  hcat (punctuate comma [ppr (mi_module hm_iface) | (_, HomeModInfo {..}) <- udfmToList hpt])
+   -- <+> ppr hm_linkable
 
 showHomeUnitEnvShort :: HomeUnitEnv -> SDoc
 showHomeUnitEnvShort HomeUnitEnv {..} =

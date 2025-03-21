@@ -38,7 +38,7 @@ import GHC.Utils.TmpFs (TempDir (..))
 import Internal.Args (Args (..))
 import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Target (..), withCache)
 import Internal.Error (handleExceptions)
-import Internal.Log (Log (..), dbgs, logToState)
+import Internal.Log (Log (..), logToState)
 import Prelude hiding (log)
 import System.Environment (setEnv)
 
@@ -179,19 +179,12 @@ isSpecific :: String -> Bool
 isSpecific =
   flip elem specificSwitches
 
-withGhcUsingCacheGeneral ::
-  (Target -> Ghc a -> Ghc (Maybe b)) ->
+withGhcInSessionGeneral ::
   Env ->
-  ([String] -> Target -> Ghc a) ->
-  IO (Maybe b)
-withGhcUsingCacheGeneral cacheHandler env prog =
-  runSession True env1 $ withGhcInSession env1 \ srcs -> do
-    dbgs general
-    dbgs specific
-    target <- ensureSingleTarget srcs
-    cacheHandler target do
-      initializeSessionPlugins
-      prog specific target
+  ([String] -> [(String, Maybe Phase)] -> Ghc (Maybe a)) ->
+  IO (Maybe a)
+withGhcInSessionGeneral env prog =
+  runSession True env1 $ withGhcInSession env1 (prog specific)
   where
     env1 = env {args = env.args {ghcOptions = general}}
     (general, specific) = spin ([], []) env.args.ghcOptions
@@ -210,6 +203,18 @@ withGhcUsingCacheGeneral cacheHandler env prog =
         -> spin (g, arg : s) rest
         | otherwise
         -> spin (arg : g, s) rest
+
+withGhcUsingCacheGeneral ::
+  (Target -> Ghc a -> Ghc (Maybe b)) ->
+  Env ->
+  ([String] -> Target -> Ghc a) ->
+  IO (Maybe b)
+withGhcUsingCacheGeneral cacheHandler env prog =
+  withGhcInSessionGeneral env \ specific srcs -> do
+    target <- ensureSingleTarget srcs
+    cacheHandler target do
+      initializeSessionPlugins
+      prog specific target
 
 withGhcGeneral :: Env -> ([String] -> Target -> Ghc (Maybe a)) -> IO (Maybe a)
 withGhcGeneral env =

@@ -83,7 +83,7 @@ commandEnv =
 compileAndReadAbiHash :: BuckArgs -> [String] -> Target -> Ghc (Maybe CompileResult)
 compileAndReadAbiHash args specific target = do
   modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
-  compileHpt undefined undefined specific target >>= traverse \ artifacts -> do
+  compileHpt specific target >>= traverse \ artifacts -> do
     hsc_env <- getSession
     let
       abiHash :: Maybe AbiHash
@@ -99,7 +99,9 @@ dispatch env args =
       result <- withGhcGeneral env (compileAndReadAbiHash args)
       writeResult args result
     Just ModeMetadata ->
-      fromMaybe 1 <$> computeMetadata env
+      computeMetadata env <&> \case
+        True -> 0
+        False -> 1
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
 

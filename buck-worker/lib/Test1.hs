@@ -82,7 +82,7 @@ one _ Conf {..} UnitMod {unit, src, deps} = do
   result <- withGhcGeneral env \ specific target -> do
     modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
     -- showEnv cache tmp
-    result <- compileHpt undefined undefined specific target
+    result <- compileHpt specific target
     -- showEnv cache tmp
     pure result
   dbgs result

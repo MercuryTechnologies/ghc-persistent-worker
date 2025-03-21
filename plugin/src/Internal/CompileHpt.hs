@@ -2,10 +2,13 @@
 
 module Internal.CompileHpt where
 
-import Data.List.NonEmpty (NonEmpty)
+import Data.Foldable (fold)
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+import Data.Set (Set)
 import GHC (DynFlags (..), Ghc, GhcMonad (..), ModLocation (..), ModSummary (..), mkGeneralLocated, setUnitDynFlags)
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
-import GHC.Driver.Env (HscEnv (..), hscUpdateHUG, hscSetActiveUnitId)
+import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateHUG)
 import GHC.Driver.Errors (printOrThrowDiagnostics)
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
@@ -13,18 +16,23 @@ import GHC.Driver.Monad (modifySession)
 import GHC.Driver.Pipeline (compileOne)
 import GHC.Driver.Session (parseDynamicFlagsCmdLine)
 import GHC.Runtime.Loader (initializeSessionPlugins)
-import GHC.Unit.Env (UnitEnv (..), addHomeModInfoToHug, ue_unsafeHomeUnit, HomeUnitEnv (..), unitEnv_lookup_maybe, HomeUnitGraph, UnitEnvGraph (..))
+import GHC.Unit (UnitId, UnitState (..), stringToUnitId, unitIdString)
+import GHC.Unit.Env (
+  HomeUnitEnv (..),
+  HomeUnitGraph,
+  UnitEnv (..),
+  UnitEnvGraph (..),
+  addHomeModInfoToHug,
+  ue_unsafeHomeUnit,
+  unitEnv_lookup_maybe,
+  )
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Utils.Monad (MonadIO (..))
 import Internal.Cache (ModuleArtifacts (..), Target (..))
 import Internal.Debug (showHugShort)
 import Internal.Error (eitherMessages)
 import Internal.Log (dbg, dbgp, dbgs)
-import GHC.Unit (UnitState(..), unitIdString, stringToUnitId, UnitId)
-import Data.Foldable (fold)
-import qualified Data.Map.Strict as Map
-import Data.Set (Set)
-import qualified Data.Set as Set
+import System.FilePath (takeFileName)
 
 addDepsToHscEnv :: [HomeModInfo] -> HscEnv -> HscEnv
 addDepsToHscEnv deps = hscUpdateHUG (\hug -> foldr addHomeModInfoToHug hug deps)
@@ -66,13 +74,11 @@ homeUnitDepFlags hsc_env explicit target =
     prev_deps = homeUnitDeps hsc_env target
 
 compileHpt ::
-  String ->
-  NonEmpty (String, String, [String]) ->
   [String] ->
   Target ->
   Ghc (Maybe ModuleArtifacts)
-compileHpt _ _ specific (Target src) = do
-  dbg "------- start"
+compileHpt specific (Target src) = do
+  dbg ("------- start " ++ takeFileName src)
   dbgp . showHugShort . ue_home_unit_graph . hsc_unit_env =<< getSession
   initializeSessionPlugins
   hsc_env0 <- getSession

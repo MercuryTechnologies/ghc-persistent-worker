@@ -66,10 +66,10 @@ import GHC.Utils.Panic.Plain
 
 #if !defined(BUCK)
 depJSON :: DynFlags -> Maybe FilePath
-depJSON = undefined
+depJSON _ = Nothing
 
 ms_opts :: ModSummary -> [String]
-ms_opts = undefined
+ms_opts _ = []
 
 #endif
 
