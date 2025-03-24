@@ -102,6 +102,38 @@ data UnitConf =
   }
   deriving stock (Eq)
 
+baseArgs :: FilePath -> FilePath -> Args
+baseArgs topdir tmp =
+  Args {
+    topdir = Just topdir,
+    workerTargetId = Just "test",
+    env = mempty,
+    binPath = [],
+    tempDir = Just (tmp </> "tmp"),
+    ghcPath = Nothing,
+    ghcOptions = (artifactDir =<< ["o", "hie", "dump"]) ++ [
+      "-fwrite-ide-info",
+      "-no-link",
+      "-dynamic",
+      -- "-fwrite-if-simplified-core",
+      "-fbyte-code-and-object-code",
+      "-fprefer-byte-code",
+      -- "-fpackage-db-byte-code",
+      -- "-shared",
+      "-fPIC",
+      "-osuf",
+      "dyn_o",
+      "-hisuf",
+      "dyn_hi",
+      "-package",
+      "base"
+      -- , "-v"
+      -- , "-ddump-if-trace"
+    ]
+  }
+  where
+    artifactDir a = ["-" ++ a ++ "dir", tmp </> "out"]
+
 loadModuleGraph :: Env -> UnitMod -> Ghc ()
 loadModuleGraph env UnitMod {src} = do
   module_graph <- withTempSession id do
@@ -140,6 +172,9 @@ one Conf {..} units external umod@UnitMod {unit, src, deps} = do
         pure (Just True)
     unless success do
       liftIO $ throwGhcExceptionIO (ProgramError "Metadata failed")
+    mb_mg <- liftIO $ readMVar cache <&> \ Cache {..} -> moduleGraph
+    for_ mb_mg \ mg ->
+      dbgp (text "module graph:" <+> showModGraph mg)
   let dbs = concat (fold externalDepDbs)
   result <- liftIO $ withGhcGeneral env {args = env.args {ghcOptions = dbs ++ env.args.ghcOptions}} \ specific target -> do
     modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
@@ -242,6 +277,25 @@ a1Content :: String
 a1Content =
   "module Dep1 where\na1 :: Int\na1 = 5"
 
+errContent :: String
+errContent =
+  unlines [
+    "module Err where",
+    "num :: Int",
+    "num = 5"
+  ]
+
+bugContent :: String
+bugContent =
+  unlines [
+    "module Bug where",
+    "import Language.Haskell.TH",
+    "import Language.Haskell.TH.Syntax",
+    "import Err",
+    "bug :: ExpQ",
+    "bug = lift @_ @Int num"
+  ]
+
 mainContent :: [(Char, Int)] -> String
 mainContent deps =
   unlines $
@@ -249,51 +303,26 @@ mainContent deps =
     "module Main where" :
     ["import " ++ toUpper c : show i | (c, i) <- deps] ++
     [
+      "import Bug",
       "main :: IO ()",
-      "main = print (" ++ (if useTh then sumTh names else intercalate " + " ("0" : names)) ++ ")"
+      "main = do",
+      "  if False then print $(bug) else pure ()",
+      "  print (" ++ (if useTh then sumTh names else intercalate " + " ("0" : names)) ++ ")"
     ]
   where
     names = [c : show i | (c, i) <- deps]
 
-baseArgs :: FilePath -> FilePath -> Args
-baseArgs topdir tmp =
-  Args {
-    topdir = Just topdir,
-    workerTargetId = Just "test",
-    env = mempty,
-    binPath = [],
-    tempDir = Just (tmp </> "tmp"),
-    ghcPath = Nothing,
-    ghcOptions = (artifactDir =<< ["o", "hie", "dump"]) ++ [
-      "-fwrite-ide-info",
-      "-no-link",
-      "-dynamic",
-      -- "-fwrite-if-simplified-core",
-      "-fbyte-code-and-object-code",
-      "-fprefer-byte-code",
-      -- "-fpackage-db-byte-code",
-      -- "-shared",
-      "-fPIC",
-      "-osuf",
-      "dyn_o",
-      "-hisuf",
-      "dyn_hi"
-      -- , "-v"
-      -- , "-ddump-if-trace"
-    ]
-  }
-  where
-    artifactDir a = ["-" ++ a ++ "dir", tmp </> "out"]
-
 targets1 :: Conf -> [UnitMod]
 targets1 conf =
   [
+    unitMod conf [] "Err" "unit-b" errContent,
     m1 'b' 1 [],
     m1 'b' 2 [],
     m1d ["unit-b"] 'a' 0 ["B2"],
     modType2 conf ["unit-b"] 'a' 1 ["B1"] ["b1"],
     m1 'b' 3 [],
     m1d ["unit-b"] 'a' 2 ["A0", "A1", "B2", "B3"],
+    unitMod conf ["unit-b"] "Bug" "main" bugContent,
     unitMod conf ["unit-a", "unit-b", "clock", "extra"] "Main" "main" (mainContent [
       ('a', 0),
       ('a', 2),
@@ -387,7 +416,10 @@ withProject use =
     let db = createDbExternal ghcPkg (tmp </> "tmp") libPath
     clockDb <- db (stringToUnitId "clock") clockDir
     extraDb <- db (stringToUnitId "extra") extraDir
-    let external = Map.fromList [(stringToUnitId "clock", clockDb), (stringToUnitId "extra", extraDb)]
+    let external = Map.fromList [
+                    (stringToUnitId "clock", clockDb),
+                    (stringToUnitId "extra", extraDb)
+                    ]
     use conf units external targets
     -- dbgs =<< listDirectory (tmp </> "out")
 
