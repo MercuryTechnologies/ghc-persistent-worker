@@ -166,8 +166,6 @@ specificSwitches =
     "-this-unit-id",
     "-package",
     "-package-id",
-    -- "-package-env",
-    "-package-db",
     "-stubdir"
   ]
 

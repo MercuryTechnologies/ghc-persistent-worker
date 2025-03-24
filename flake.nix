@@ -41,7 +41,11 @@
     };
 
     envs.dev = {config, ...}: let
-      env = { ghc_dir = "${config.ghcWithPackages}"; };
+      env = {
+        ghc_dir = "${config.ghc.vanillaGhc.ghc}";
+        extra_dir = "${config.ghc.vanillaGhc.extra}";
+        clock_dir = "${config.ghc.vanillaGhc.clock}";
+      };
     in {
       inherit env;
       buildInputs = [pkgs_old.grpc];

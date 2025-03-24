@@ -5,13 +5,13 @@ module Internal.Debug where
 import qualified Data.Map.Strict as Map
 import GHC (DynFlags (..), mi_module)
 import GHC.Types.Unique.DFM (udfmToList)
-import GHC.Unit (UnitState (..), homeUnitId, moduleEnvToList, unitPackageId)
+import GHC.Types.Unique.Map (nonDetEltsUniqMap)
+import GHC.Unit (UnitDatabase (..), UnitId, UnitState (..), homeUnitId, moduleEnvToList, unitPackageId)
 import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), UnitEnvGraph (..))
 import GHC.Unit.External (ExternalPackageState (..), eucEPS)
-import GHC.Unit.Home.ModInfo (HomePackageTable, hm_iface, HomeModInfo (..))
+import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomePackageTable, hm_iface)
 import GHC.Unit.Module.Graph (ModuleGraph)
-import GHC.Utils.Outputable (SDoc, hang, hcat, ppr, text, vcat, (<+>), Outputable, punctuate, comma)
-import GHC.Types.Unique.Map (nonDetEltsUniqMap)
+import GHC.Utils.Outputable (Outputable, SDoc, comma, hang, hcat, ppr, punctuate, text, vcat, (<+>))
 
 #if __GLASGOW_HASKELL__ < 910
 
@@ -21,6 +21,7 @@ import GHC.Unit.Module.Graph (mgTransDeps)
 #else
 
 import GHC.Unit.Module.Graph (mgModSummaries')
+import System.FilePath (takeDirectory, takeFileName)
 
 #endif
 
@@ -82,10 +83,15 @@ showHpt hpt =
   hcat (punctuate comma [ppr (mi_module hm_iface) | (_, HomeModInfo {..}) <- udfmToList hpt])
    -- <+> ppr hm_linkable
 
+showDbPath :: UnitDatabase UnitId -> SDoc
+showDbPath UnitDatabase {unitDatabasePath} =
+  text (takeFileName (takeDirectory unitDatabasePath))
+
 showHomeUnitEnvShort :: HomeUnitEnv -> SDoc
 showHomeUnitEnvShort HomeUnitEnv {..} =
   entries [
     ("deps", ppr homeUnitEnv_units.homeUnitDepends),
+    ("dbs", maybe (text "not loaded") (ppr . fmap showDbPath) homeUnitEnv_unit_dbs),
     ("hpt", showHpt homeUnitEnv_hpt)
   ]
 
