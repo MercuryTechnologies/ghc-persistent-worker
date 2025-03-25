@@ -28,7 +28,7 @@ common all
 library
   import: all
   hs-source-dirs: lib
-  exposed-modules: BuckArgs, BuckWorker, Test1
+  exposed-modules: BuckArgs, BuckWorker, Test1, TestSetup, TestMake
   build-depends:
     bytestring,
     deepseq,
