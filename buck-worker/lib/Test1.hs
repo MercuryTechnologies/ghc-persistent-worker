@@ -153,8 +153,27 @@ mainContent deps =
   where
     names = [c : show i | (c, i) <- deps]
 
+main1 :: String
+main1 =
+  unlines
+    [
+      "{-# language TemplateHaskell #-}",
+      "module Main where",
+      "import Bug",
+      "main :: IO ()",
+      "main = print $(bug)"
+    ]
+
 targets1 :: Conf -> [UnitMod]
 targets1 conf =
+  [
+    unitMod conf [] "Err" "unit-a" errContent,
+    unitMod conf ["unit-a"] "Bug" "main" bugContent,
+    unitMod conf [] "Main" "main" main1
+  ]
+
+targets2 :: Conf -> [UnitMod]
+targets2 conf =
   [
     unitMod conf [] "Err" "unit-b" errContent,
     m1 'b' 1 [],
@@ -186,22 +205,23 @@ mkExternalDeps conf = do
     (stringToUnitId "extra", extraDb)
     ]
 
-withProject1 ::
+withDeps ::
+  (Conf -> [UnitMod]) ->
   (Conf -> [UnitConf] -> Map UnitId String -> [UnitMod] -> IO ()) ->
   IO ()
-withProject1 use =
-  withProject (pure . targets1) \ conf units targets -> do
+withDeps mkTargets use =
+  withProject (pure . mkTargets) \ conf units targets -> do
     external <- mkExternalDeps conf
     use conf units external targets
 
-testWorker :: IO ()
-testWorker =
-  withProject1 \ conf units external mods ->
+testWorker :: (Conf -> [UnitMod]) -> IO ()
+testWorker mkTargets =
+  withDeps mkTargets \ conf units external mods ->
     evalStateT (traverse_ (makeModule conf units external) mods) Set.empty
 
 testMake :: IO ()
 testMake =
-  withProject1 \ Conf {..} _ _ targets -> do
+  withDeps targets1 \ Conf {..} _ _ targets -> do
     log <- newLog True
     let env = Env {log, cache, args = args0}
         unitArgs =
@@ -220,4 +240,4 @@ testMake =
     pure ()
 
 test1 :: IO ()
-test1 = testWorker
+test1 = testWorker targets1
