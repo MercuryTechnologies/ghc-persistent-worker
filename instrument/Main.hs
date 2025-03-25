@@ -1,49 +1,38 @@
-{-# LANGUAGE GADTs #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
-
 module Main where
 
-import Brick.BChan (newBChan, writeBChan)
+import Brick.BChan (BChan, newBChan, writeBChan)
 import Control.Concurrent (forkIO)
-import Control.Monad (forM_, void)
-import Data.String (fromString)
-import Data.Text qualified as Text
-import Graphics.Vty (Vty(shutdown))
-import Network.GRPC.Client (Server (ServerUnix), rpc, withConnection)
-import Network.GRPC.Client.StreamType.IO (nonStreaming)
+import Control.Exception (try)
+import Control.Monad (void)
+import Data.List (dropWhileEnd, isSuffixOf)
+import Graphics.Vty (Vty (shutdown))
+import Network.GRPC.Client (Server (ServerUnix), ServerDisconnected, rpc, withConnection)
+import Network.GRPC.Client.StreamType.IO (serverStreaming)
 import Network.GRPC.Common (def)
-import Network.GRPC.Common.Protobuf (Protobuf, defMessage, (&), (.~), (^.))
-import Proto.Worker_Fields qualified as Fields
-import System.Environment (getEnv)
-import System.IO (hPutStrLn, stderr)
-import Prelude hiding (log)
+import Network.GRPC.Common.NextElem (whileNext_)
+import Network.GRPC.Common.Protobuf (Protobuf, defMessage)
+import System.FSNotify (Event (..), watchTree, withManager)
 
-import BuckWorker (Worker (..))
+import BuckWorker (Instrument)
 
 import UI
 
--- | The file system path of the socket on which the worker running in this process is supposed to listen.
-newtype ServerSocketPath
-  = ServerSocketPath {path :: FilePath}
-  deriving stock (Eq, Show)
-
-envServerSocket :: IO ServerSocketPath
-envServerSocket = ServerSocketPath <$> getEnv "WORKER_SOCKET"
+listen :: BChan CustomEvent -> FilePath -> IO ()
+listen eventChan instrPath = do
+  writeBChan eventChan $ AddContent $ "Detected instrument path: " <> instrPath
+  void $ forkIO $ withConnection def (ServerUnix instrPath) $ \conn -> do
+    void $ try @ServerDisconnected $ serverStreaming conn (rpc @(Protobuf Instrument "notifyMe")) defMessage $ \recv -> do
+      whileNext_ recv $ writeBChan eventChan . InstrEvent
 
 main :: IO ()
 main = do
   eventChan <- newBChan 10
 
-  serverSocket <- envServerSocket
-  hPutStrLn stderr $ "using worker socket: " <> show serverSocket
-  let server = ServerUnix serverSocket.path
-      buckArgs = ["-fprefer-byte-code", "-B/Users/sjoerdvisscher/.ghcup/ghc/9.10.1/lib/ghc-9.10.1/lib"]
-  void $ forkIO $ withConnection def server $ \conn -> do
-    forM_ @[] ["test/A.hs", "test/B.hs", "test/C.hs"] $ \file -> do
-      writeBChan eventChan $ AddContent file
-      let req = defMessage & Fields.argv .~ (fromString file : buckArgs)
-      resp <- nonStreaming conn (rpc @(Protobuf Worker "execute")) req
-      writeBChan eventChan $ AddContent $ Text.unpack $ resp ^. Fields.stderr
+  withManager $ \mgr -> do
+    void $ watchTree mgr "/tmp/buck2_worker/" (const True) $ \case
+      Modified file _ _ | "/primary" `isSuffixOf` file -> do
+        listen eventChan $ dropWhileEnd (/= '/') file ++ "instrument"
+      _ -> pure ()
 
-  (_, vty) <- customMainWithDefaultVty (Just eventChan) app initialState
-  vty.shutdown
+    (_, vty) <- customMainWithDefaultVty (Just eventChan) app initialState
+    vty.shutdown

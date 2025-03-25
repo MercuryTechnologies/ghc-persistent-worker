@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package instrument;
+
+message Unit {}
+
+message CompileStart {
+  string target = 1;
+}
+
+message CompileEnd {
+  string target = 1;
+  int32 exit_code = 2;
+  string stderr = 3;
+}
+
+message Halt {}
+
+message Event {
+  oneof event {
+    CompileStart compileStart = 1;
+    CompileEnd compileEnd = 2;
+    Halt halt = 3;
+  }
+}
+
+service Instrument {
+  rpc NotifyMe(Unit) returns (stream Event) {};
+}

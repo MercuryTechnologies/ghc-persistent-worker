@@ -9,11 +9,17 @@ import Brick.Widgets.Core (vBox, viewport)
 import Graphics.Vty qualified as V
 import Lens.Micro.Mtl (modifying)
 import Lens.Micro.TH (makeLenses)
+import Network.GRPC.Common.Protobuf (Proto, (^.))
+import qualified Proto.Instrument as Instr
+import qualified Proto.Instrument_Fields as Instr
+import qualified Data.Text as Text
 
 data Name = Main
   deriving stock (Eq, Ord, Show)
 
-data CustomEvent = AddContent String
+data CustomEvent
+  = AddContent String
+  | InstrEvent (Proto Instr.Event)
 
 data State = State
   { _content :: String
@@ -39,7 +45,8 @@ drawUI State{..} =
   ]
 
 handleEvent :: BrickEvent Name CustomEvent -> EventM Name State ()
-handleEvent (AppEvent (AddContent newContent)) = modifying content (++ newContent)
+handleEvent (AppEvent (AddContent newContent)) = modifying content (++ (newContent ++ "\n"))
+handleEvent (AppEvent (InstrEvent evt)) = modifying content (++ (Text.unpack $ evt ^. Instr.compileEnd ^. Instr.stderr))
 handleEvent (VtyEvent (V.EvKey V.KEsc [])) = halt
 handleEvent (VtyEvent (V.EvKey V.KDown [])) = vScrollBy (viewportScroll Main) 1
 handleEvent (VtyEvent (V.EvKey V.KUp [])) = vScrollBy (viewportScroll Main) (-1)

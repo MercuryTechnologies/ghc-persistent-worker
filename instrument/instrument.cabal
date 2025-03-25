@@ -27,8 +27,10 @@ executable instrument
     StrictData,
     TypeFamilies
   build-depends:
+    async,
     base ==4.*,
     brick,
+    fsnotify,
     grapesy,
     microlens-th,
     microlens-mtl,
