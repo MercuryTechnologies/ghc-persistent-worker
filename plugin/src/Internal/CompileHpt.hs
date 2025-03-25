@@ -29,10 +29,8 @@ import GHC.Unit.Env (
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Utils.Monad (MonadIO (..))
 import Internal.Cache (ModuleArtifacts (..), Target (..))
-import Internal.Debug (showHugShort)
 import Internal.Error (eitherMessages)
-import Internal.Log (dbg, dbgp, dbgs)
-import System.FilePath (takeFileName)
+import Internal.Log (dbgs)
 
 addDepsToHscEnv :: [HomeModInfo] -> HscEnv -> HscEnv
 addDepsToHscEnv deps = hscUpdateHUG (\hug -> foldr addHomeModInfoToHug hug deps)
@@ -73,31 +71,36 @@ homeUnitDepFlags hsc_env explicit target =
   where
     prev_deps = homeUnitDeps hsc_env target
 
+initUnit :: [String] -> Ghc ()
+initUnit specific = do
+  hsc_env0 <- getSession
+  let current = hsc_env0.hsc_unit_env.ue_current_unit
+      (explicit, withPackageId) = adaptHp hsc_env0.hsc_unit_env.ue_home_unit_graph specific
+      unitOptions = withPackageId ++ homeUnitDepFlags hsc_env0 explicit current
+  dflags <- unitFlags unitOptions hsc_env0
+  setUnitDynFlags current dflags
+  modifySession (hscSetActiveUnitId current)
+
 compileHpt ::
   [String] ->
   Target ->
   Ghc (Maybe ModuleArtifacts)
 compileHpt specific (Target src) = do
-  dbg ("------- start " ++ takeFileName src)
-  dbgp . showHugShort . ue_home_unit_graph . hsc_unit_env =<< getSession
+  -- dbg ("------- start " ++ takeFileName src)
+  -- dbgp . showHugShort . ue_home_unit_graph . hsc_unit_env =<< getSession
   initializeSessionPlugins
-  hsc_env0 <- getSession
-  let current = hsc_env0.hsc_unit_env.ue_current_unit
-      (explicit, withPackageId) = adaptHp hsc_env0.hsc_unit_env.ue_home_unit_graph specific
-  dflags <- unitFlags (withPackageId ++ homeUnitDepFlags hsc_env0 explicit current) hsc_env0
-  setUnitDynFlags current dflags
-  modifySession (hscSetActiveUnitId current)
-  dbg "------- updated"
-  dbgp . showHugShort . ue_home_unit_graph . hsc_unit_env =<< getSession
+  initUnit specific
+  -- dbg "------- updated"
+  -- dbgp . showHugShort . ue_home_unit_graph . hsc_unit_env =<< getSession
   hsc_env <- getSession
   hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
     summary <-
       fmap (setHiLocation hsc_env) .
       eitherMessages GhcDriverMessage =<<
       summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
-    dbg "------ summarised"
+    -- dbg "------ summarised"
     compileOne hsc_env summary 1 100000 Nothing (HomeModLinkable Nothing Nothing)
-  dbg "------ compiled"
+  -- dbg "------ compiled"
   modifySession (addDepsToHscEnv [hmi])
-  dbg "------ added"
+  -- dbg "------ added"
   pure (Just ModuleArtifacts {iface, bytecode = homeMod_bytecode hm_linkable})

@@ -177,12 +177,9 @@ isSpecific :: String -> Bool
 isSpecific =
   flip elem specificSwitches
 
-withGhcInSessionGeneral ::
-  Env ->
-  ([String] -> [(String, Maybe Phase)] -> Ghc (Maybe a)) ->
-  IO (Maybe a)
-withGhcInSessionGeneral env prog =
-  runSession True env1 $ withGhcInSession env1 (prog specific)
+withUnitSpecificOptions :: Bool -> Env -> (Env -> [String] -> [Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
+withUnitSpecificOptions reuse env use =
+  runSession reuse env1 $ use env1 specific
   where
     env1 = env {args = env.args {ghcOptions = general}}
     (general, specific) = spin ([], []) env.args.ghcOptions
@@ -201,6 +198,13 @@ withGhcInSessionGeneral env prog =
         -> spin (g, arg : s) rest
         | otherwise
         -> spin (arg : g, s) rest
+
+withGhcInSessionGeneral ::
+  Env ->
+  ([String] -> [(String, Maybe Phase)] -> Ghc (Maybe a)) ->
+  IO (Maybe a)
+withGhcInSessionGeneral env prog =
+  withUnitSpecificOptions True env $ \ env1 specific -> withGhcInSession env1 (prog specific)
 
 withGhcUsingCacheGeneral ::
   (Target -> Ghc a -> Ghc (Maybe b)) ->
