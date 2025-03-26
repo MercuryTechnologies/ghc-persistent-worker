@@ -3,7 +3,7 @@
 module Internal.Debug where
 
 import qualified Data.Map.Strict as Map
-import GHC (DynFlags (..), mi_module)
+import GHC (DynFlags (..), mi_module, ModLocation (..))
 import GHC.Types.Unique.DFM (udfmToList)
 import GHC.Types.Unique.Map (nonDetEltsUniqMap)
 import GHC.Unit (UnitDatabase (..), UnitId, UnitState (..), homeUnitId, moduleEnvToList, unitPackageId, UnusableUnit (..))
@@ -17,7 +17,7 @@ import System.FilePath (takeDirectory, takeFileName)
 #if __GLASGOW_HASKELL__ < 911
 
 import Data.Foldable (toList)
-import GHC.Unit.Finder (FindResult (..))
+import GHC.Unit.Finder (FindResult (..), InstalledFindResult (..))
 import GHC.Unit.Module.Graph (mgTransDeps)
 
 #else
@@ -129,3 +129,9 @@ showFindResult = \case
   NoPackage u -> "NoPackage" <+> ppr u
   FoundMultiple ms -> "FoundMultiple" <+> ppr ms
   NotFound {..} -> "NotFound" <+> ppr fr_pkg <+> ppr fr_mods_hidden <+> ppr fr_pkgs_hidden <+> ppr (uuUnit <$> fr_unusables)
+
+showInstalledFindResult :: InstalledFindResult -> SDoc
+showInstalledFindResult = \case
+  InstalledFound m _ -> "Found" <+> maybe "none" text (ml_hs_file m)
+  InstalledNoPackage u -> "NoPackage" <+> ppr u
+  InstalledNotFound _ u -> "NotFound" <+> ppr u

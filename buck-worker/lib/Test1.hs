@@ -168,8 +168,8 @@ targets1 :: Conf -> [UnitMod]
 targets1 conf =
   [
     unitMod conf [] "Err" "unit-a" errContent,
-    unitMod conf ["unit-a"] "Bug" "main" bugContent,
-    unitMod conf [] "Main" "main" main1
+    unitMod conf ["unit-a"] "Bug" "unit-main" bugContent,
+    unitMod conf [] "Main" "unit-main" main1
   ]
 
 targets2 :: Conf -> [UnitMod]
@@ -182,8 +182,8 @@ targets2 conf =
     modType2 conf ["unit-b"] 'a' 1 ["B1"] ["b1"],
     m1 'b' 3 [],
     m1d ["unit-b"] 'a' 2 ["A0", "A1", "B2", "B3"],
-    unitMod conf ["unit-b"] "Bug" "main" bugContent,
-    unitMod conf ["unit-a", "unit-b", "clock", "extra"] "Main" "main" (mainContent [
+    unitMod conf ["unit-b"] "Bug" "unit-main" bugContent,
+    unitMod conf ["unit-a", "unit-b", "clock", "extra"] "Main" "unit-main" (mainContent [
       ('a', 0),
       ('a', 2),
       ('b', 1)
@@ -228,7 +228,7 @@ testMake =
           [
             ["-i", "-i" ++ (tmp </> "src/unit-b"), "-this-unit-id", "unit-b"],
             ["-i", "-i" ++ (tmp </> "src/unit-a"), "-this-unit-id", "unit-a", "-package-id", "unit-b"],
-            ["-i", "-i" ++ (tmp </> "src/main"), "-this-unit-id", "main", "-package-id", "unit-a", "-package-id", "unit-b"]
+            ["-i", "-i" ++ (tmp </> "src/main"), "-this-unit-id", "unit-main", "-package-id", "unit-a", "-package-id", "unit-b"]
           ]
     _ <- runSession True env $ withGhcInSession env \ _ -> do
       modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
