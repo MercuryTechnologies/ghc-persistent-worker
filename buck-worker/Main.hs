@@ -15,17 +15,18 @@ import Control.Exception (
   try,
   )
 import Control.Monad (foldM, void, when, forever)
+import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
 import Data.List (dropWhileEnd)
 import Data.Map (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
 import GHC (Ghc, getSession)
 import GHC.IO.Handle.FD (withFileBlocking)
+import GHC.Stats (getRTSStats, RTSStats (..), GCDetails (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
-import Internal.Cache (Cache (..), ModuleArtifacts (..), Target, emptyCache)
+import Internal.Cache (Cache (..), ModuleArtifacts (..), Target (..), emptyCache)
 import Internal.Compile (compile)
 import Internal.Log (dbg, logFlush, newLog)
 import Internal.Session (Env (..), withGhc)
@@ -42,7 +43,7 @@ import System.Exit (exitFailure)
 import System.FilePath (takeDirectory, (</>))
 import System.IO (BufferMode (LineBuffering), IOMode (..), hGetLine, hPutStrLn, hSetBuffering, stderr, stdout, hPutStr)
 
-import BuckArgs (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult, workerTargetId)
+import BuckArgs (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
 import BuckWorker (ExecuteCommand, ExecuteCommand'EnvironmentEntry, ExecuteEvent, ExecuteResponse, Worker (..), Instrument (..))
 import Proto.Worker_Fields qualified as Fields
 import Proto.Instrument_Fields qualified as Instr
@@ -60,8 +61,18 @@ commandEnv =
   where
     fromBs = Text.unpack . decodeUtf8Lenient
 
-compileAndReadAbiHash :: BuckArgs -> Target -> Ghc (Maybe CompileResult)
-compileAndReadAbiHash args target = do
+compileAndReadAbiHash ::
+  Chan (Proto Instr.Event) ->
+  BuckArgs ->
+  Target ->
+  Ghc (Maybe CompileResult)
+compileAndReadAbiHash instrChan args target = do
+
+  liftIO $ writeChan instrChan $
+    defMessage &
+      Instr.compileStart .~
+        compileStart target.get
+
   compile target >>= traverse \ artifacts -> do
     hsc_env <- getSession
     let
@@ -73,31 +84,32 @@ compileAndReadAbiHash args target = do
 
 compileStart :: String -> Proto Instr.CompileStart
 compileStart target =
-  defMessage &
-    Instr.target .~ Text.pack target
+  defMessage
+    & Instr.target .~ Text.pack target
 
 compileEnd :: String -> Int -> String -> Proto Instr.CompileEnd
 compileEnd target exitCode err =
-  defMessage &
-    Instr.target .~ Text.pack target &
-    Instr.exitCode .~ fromIntegral exitCode &
-    Instr.stderr .~ Text.pack err
+  defMessage
+    & Instr.target .~ Text.pack target
+    & Instr.exitCode .~ fromIntegral exitCode
+    & Instr.stderr .~ Text.pack err
+
+mkStats :: IO (Proto Instr.Stats)
+mkStats = do
+  s <- getRTSStats
+  pure $
+    defMessage
+      & Instr.memory .~ fromIntegral s.gc.gcdetails_mem_in_use_bytes
+      & Instr.gcCpuNs .~ s.gc_cpu_ns
+      & Instr.cpuNs .~ s.cpu_ns
 
 startJob ::
   MVar WorkerStatus ->
-  Chan (Proto Instr.Event) ->
-  Maybe String ->
   IO ()
-startJob var chan target =
+startJob var =
   modifyMVar_ var \ ws@WorkerStatus {active} -> do
     let new = active + 1
     dbg ("Starting job, now " ++ show new ++ " active")
-
-    writeChan chan $
-      defMessage &
-        Instr.compileStart .~
-          compileStart (fromMaybe "" target)
-
     pure ws {active = new}
 
 finishJob ::
@@ -132,15 +144,20 @@ execute status cache instrChan req = do
           (fromIntegral $ msg ^. Fields.exitCode)
           (Text.unpack (msg ^. Fields.stderr))
 
+  stats <- mkStats
+  writeChan instrChan $
+    defMessage &
+      Instr.stats .~ stats
+
   pure msg
   where
     run = do
       buckArgs <- either (throwIO . userError) pure (parseBuckArgs (commandEnv req.env) argv)
       args <- toGhcArgs buckArgs
-      bracket (startJob status instrChan buckArgs.workerTargetId) (finishJob status) \ _ -> do
+      bracket (startJob status) (finishJob status) \ _ -> do
         log <- newLog True
         let env = Env {log, cache, args}
-        result <- withGhc env (compileAndReadAbiHash buckArgs)
+        result <- withGhc env (compileAndReadAbiHash instrChan buckArgs)
         pure (env, buckArgs, result)
 
     successResponse (env, buckArgs, result) = do
@@ -189,9 +206,13 @@ notifyMe ::
   IO ()
 notifyMe chan callback = do
   myChan <- dupChan chan
+  stats <- mkStats
+  callback $ NextElem $
+    defMessage
+      & Instr.stats .~ stats
   forever $ do
     msg <- readChan myChan
-    callback (NextElem msg)
+    callback $ NextElem msg
 
 instrumentMethods ::
   Chan (Proto Instr.Event) ->

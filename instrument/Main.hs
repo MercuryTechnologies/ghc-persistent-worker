@@ -18,15 +18,15 @@ import BuckWorker (Instrument)
 
 import UI
 
-listen :: BChan CustomEvent -> FilePath -> IO ()
+listen :: BChan (SessionId, CustomEvent) -> FilePath -> IO ()
 listen eventChan instrPath = do
-  time <- getCurrentTime
-  writeBChan eventChan $ StartSession instrPath time
   void $ forkIO $ withConnection def (ServerUnix instrPath) $ \conn -> do
+    time <- getCurrentTime
+    writeBChan eventChan $ (instrPath, StartSession time)
     catch @SomeException
       (serverStreaming conn (rpc @(Protobuf Instrument "notifyMe")) defMessage $ \recv -> do
-        whileNext_ recv $ writeBChan eventChan . InstrEvent instrPath)
-      (const $ getCurrentTime >>= writeBChan eventChan . EndSession instrPath)
+        whileNext_ recv $ writeBChan eventChan . (,) instrPath . InstrEvent)
+      (const $ getCurrentTime >>= writeBChan eventChan . (,) instrPath . EndSession)
 
 main :: IO ()
 main = do

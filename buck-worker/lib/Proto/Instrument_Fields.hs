@@ -39,12 +39,22 @@ compileStart ::
    Data.ProtoLens.Field.HasField s "compileStart" a) =>
   Lens.Family2.LensLike' f s a
 compileStart = Data.ProtoLens.Field.field @"compileStart"
+cpuNs ::
+  forall f s a.
+  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "cpuNs" a) =>
+  Lens.Family2.LensLike' f s a
+cpuNs = Data.ProtoLens.Field.field @"cpuNs"
 exitCode ::
   forall f s a.
   (Prelude.Functor f,
    Data.ProtoLens.Field.HasField s "exitCode" a) =>
   Lens.Family2.LensLike' f s a
 exitCode = Data.ProtoLens.Field.field @"exitCode"
+gcCpuNs ::
+  forall f s a.
+  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "gcCpuNs" a) =>
+  Lens.Family2.LensLike' f s a
+gcCpuNs = Data.ProtoLens.Field.field @"gcCpuNs"
 halt ::
   forall f s a.
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "halt" a) =>
@@ -75,6 +85,22 @@ maybe'halt ::
    Data.ProtoLens.Field.HasField s "maybe'halt" a) =>
   Lens.Family2.LensLike' f s a
 maybe'halt = Data.ProtoLens.Field.field @"maybe'halt"
+maybe'stats ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "maybe'stats" a) =>
+  Lens.Family2.LensLike' f s a
+maybe'stats = Data.ProtoLens.Field.field @"maybe'stats"
+memory ::
+  forall f s a.
+  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "memory" a) =>
+  Lens.Family2.LensLike' f s a
+memory = Data.ProtoLens.Field.field @"memory"
+stats ::
+  forall f s a.
+  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "stats" a) =>
+  Lens.Family2.LensLike' f s a
+stats = Data.ProtoLens.Field.field @"stats"
 stderr ::
   forall f s a.
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "stderr" a) =>

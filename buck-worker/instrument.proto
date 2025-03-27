@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package instrument;
 
-message Unit {}
+message Empty {}
 
 message CompileStart {
   string target = 1;
@@ -14,16 +14,21 @@ message CompileEnd {
   string stderr = 3;
 }
 
-message Halt {}
+message Stats {
+  int64 memory = 1;
+  int64 gc_cpu_ns = 2;
+  int64 cpu_ns = 3;
+}
 
 message Event {
   oneof event {
-    CompileStart compileStart = 1;
-    CompileEnd compileEnd = 2;
-    Halt halt = 3;
+    Empty halt = 1;
+    CompileStart compileStart = 2;
+    CompileEnd compileEnd = 3;
+    Stats stats = 4;
   }
 }
 
 service Instrument {
-  rpc NotifyMe(Unit) returns (stream Event) {};
+  rpc NotifyMe(Empty) returns (stream Event) {};
 }
