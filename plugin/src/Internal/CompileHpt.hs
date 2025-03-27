@@ -30,7 +30,6 @@ import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Utils.Monad (MonadIO (..))
 import Internal.Cache (ModuleArtifacts (..), Target (..))
 import Internal.Error (eitherMessages)
-import Internal.Log (dbgs)
 
 addDepsToHscEnv :: [HomeModInfo] -> HscEnv -> HscEnv
 addDepsToHscEnv deps = hscUpdateHUG (\hug -> foldr addHomeModInfoToHug hug deps)
@@ -42,8 +41,7 @@ setHiLocation _ summ = summ
 
 unitFlags :: [String] -> HscEnv -> Ghc DynFlags
 unitFlags args HscEnv {hsc_logger, hsc_dflags = dflags0} = do
-  (dflags, fileish, warns) <- parseDynamicFlagsCmdLine dflags0 (map (mkGeneralLocated "no loc") args)
-  dbgs fileish
+  (dflags, _, warns) <- parseDynamicFlagsCmdLine dflags0 (map (mkGeneralLocated "no loc") args)
   liftIO $ printOrThrowDiagnostics hsc_logger (initPrintConfig dflags) (initDiagOpts dflags) (GhcDriverMessage <$> warns)
   pure dflags
 

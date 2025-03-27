@@ -213,7 +213,7 @@ runLocalGhc socket = do
     loader = False,
     enable = True,
     names = False,
-    finder = False,
+    finder = True,
     eps = False
   }
   status <- newMVar WorkerStatus {active = 0}

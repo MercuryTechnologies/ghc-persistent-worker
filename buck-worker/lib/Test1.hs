@@ -164,6 +164,29 @@ main1 =
       "main = print $(bug)"
     ]
 
+{-
+
+-- unit-a:
+
+module Err where
+num :: Int
+num = 5
+
+
+-- unit-main:
+
+module Bug where
+import Err
+bug :: ExpQ
+bug = lift @_ @Int num
+
+module Main where
+import Bug
+main :: IO ()
+main = print $(bug)
+
+-}
+
 targets1 :: Conf -> [UnitMod]
 targets1 conf =
   [

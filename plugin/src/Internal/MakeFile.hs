@@ -55,10 +55,13 @@ import System.Directory
 import System.FilePath
 import System.IO
 import System.IO.Error  ( isEOFError )
-import Control.Monad    ( when )
+import Control.Monad    ( when, unless )
 import Data.Foldable (traverse_)
 import Data.IORef
 import qualified Data.Set as Set
+import GHC.Driver.Make (downsweep)
+import GHC.Types.Error (unionManyMessages)
+import GHC.Unit (homeUnitId)
 
 #if __GLASGOW_HASKELL__ < 910
 import GHC.Utils.Panic.Plain
@@ -97,12 +100,12 @@ doMkDependHS srcs = do
             , hiSuf_      = "hi"
             , objectSuf_  = "o"
             }
-    GHC.setSessionDynFlags dflags1
+    -- GHC.setSessionDynFlags dflags1
 
     -- If no suffix is provided, use the default -- the empty one
-    let dflags = if null (depSuffixes dflags1)
-                 then dflags1 { depSuffixes = [""] }
-                 else dflags1
+    let dflags = if null (depSuffixes dflags0)
+                 then dflags0 { depSuffixes = [""] }
+                 else dflags0
 
     tmpfs <- hsc_tmpfs <$> getSession
     files <- liftIO $ beginMkDependHS logger tmpfs dflags
@@ -111,7 +114,10 @@ doMkDependHS srcs = do
     targets <- mapM (\s -> GHC.guessTarget s Nothing Nothing) srcs
     GHC.setTargets targets
     let excl_mods = depExcludeMods dflags
-    module_graph <- GHC.depanal excl_mods True {- Allow dup roots -}
+    (errs, graph_nodes) <- withSession \ hsc_env -> liftIO $ downsweep hsc_env [] excl_mods True
+    let msgs = unionManyMessages errs
+    unless (isEmptyMessages msgs) $ throwErrors (fmap GhcDriverMessage msgs)
+    let module_graph = mkModuleGraph graph_nodes
     -- Sort into dependency order
     -- There should be no cycles
     let sorted = GHC.topSortModuleGraph False module_graph Nothing
@@ -240,7 +246,10 @@ processDeps dflags _ _ _ _ _ (AcyclicSCC (InstantiationNode _uid node))
              , nest 2 $ ppr node ]
 processDeps _dflags_ _ _ _ _ _ (AcyclicSCC (LinkNode {})) = return ()
 
-processDeps dflags hsc_env excl_mods root hdl m_dep_json (AcyclicSCC (ModuleNode _ node)) = do
+processDeps dflags hsc_env excl_mods root hdl m_dep_json (AcyclicSCC (ModuleNode _ node))
+  | moduleUnitId (ms_mod node) /= homeUnitId (hsc_home_unit hsc_env)
+  = pure ()
+  | otherwise = do
   pp <- preprocessor
   deps <- fmap concat $ sequence $
     [cpp_deps | depIncludeCppDeps dflags] ++ [
@@ -322,7 +331,7 @@ findDependency hsc_env srcloc pkg imp dep_boot = do
         dep_boot
       }
       where
-        dep_local = isJust (ml_hs_file loc)
+        dep_local = isJust (ml_hs_file loc) && moduleUnitId dep_mod == homeUnitId (hsc_home_unit hsc_env)
 
     fail ->
       throwOneError $
