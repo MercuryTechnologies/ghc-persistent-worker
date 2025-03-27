@@ -62,6 +62,72 @@ unitMod conf deps name unit content =
     ..
   }
 
+errContent :: String
+errContent =
+  unlines [
+    "{-# language DerivingStrategies #-}",
+    "module Err where",
+    "num :: Int",
+    "num = 5",
+    "newtype N = N Int deriving newtype Num"
+  ]
+
+bugContent :: String
+bugContent =
+  unlines [
+    -- "{-# options -ddump-tc -ddump-tc-trace #-}",
+    "module Bug where",
+    "import Language.Haskell.TH",
+    "import Language.Haskell.TH.Syntax",
+    "import Err",
+    "bug :: ExpQ",
+    "bug = lift @_ @Int num",
+    "n :: N",
+    "n = 1"
+  ]
+
+main1 :: String
+main1 =
+  unlines
+    [
+      "{-# language TemplateHaskell #-}",
+      "module Main where",
+      "import Bug",
+      "main :: IO ()",
+      "main = print $(bug)"
+    ]
+
+{-
+
+-- unit-a:
+
+module Err where
+num :: Int
+num = 5
+
+
+-- unit-main:
+
+module Bug where
+import Err
+bug :: ExpQ
+bug = lift @_ @Int num
+
+module Main where
+import Bug
+main :: IO ()
+main = print $(bug)
+
+-}
+
+targets1 :: Conf -> [UnitMod]
+targets1 conf =
+  [
+    unitMod conf [] "Err" "unit-a" errContent,
+    unitMod conf ["unit-a"] "Bug" "unit-main" bugContent,
+    unitMod conf [] "Main" "unit-main" main1
+  ]
+
 useTh :: Bool
 useTh = True
 
@@ -114,29 +180,6 @@ modType2 conf pdeps unitTag n deps thDeps =
     modName = toUpper unitTag : show n
     binding = unitTag : show n
 
-a1Content :: String
-a1Content =
-  "module Dep1 where\na1 :: Int\na1 = 5"
-
-errContent :: String
-errContent =
-  unlines [
-    "module Err where",
-    "num :: Int",
-    "num = 5"
-  ]
-
-bugContent :: String
-bugContent =
-  unlines [
-    "module Bug where",
-    "import Language.Haskell.TH",
-    "import Language.Haskell.TH.Syntax",
-    "import Err",
-    "bug :: ExpQ",
-    "bug = lift @_ @Int num"
-  ]
-
 mainContent :: [(Char, Int)] -> String
 mainContent deps =
   unlines $
@@ -152,48 +195,6 @@ mainContent deps =
     ]
   where
     names = [c : show i | (c, i) <- deps]
-
-main1 :: String
-main1 =
-  unlines
-    [
-      "{-# language TemplateHaskell #-}",
-      "module Main where",
-      "import Bug",
-      "main :: IO ()",
-      "main = print $(bug)"
-    ]
-
-{-
-
--- unit-a:
-
-module Err where
-num :: Int
-num = 5
-
-
--- unit-main:
-
-module Bug where
-import Err
-bug :: ExpQ
-bug = lift @_ @Int num
-
-module Main where
-import Bug
-main :: IO ()
-main = print $(bug)
-
--}
-
-targets1 :: Conf -> [UnitMod]
-targets1 conf =
-  [
-    unitMod conf [] "Err" "unit-a" errContent,
-    unitMod conf ["unit-a"] "Bug" "unit-main" bugContent,
-    unitMod conf [] "Main" "unit-main" main1
-  ]
 
 targets2 :: Conf -> [UnitMod]
 targets2 conf =

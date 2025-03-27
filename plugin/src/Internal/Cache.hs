@@ -17,7 +17,7 @@ import Data.Ord (comparing)
 import qualified Data.Set as Set
 import Data.Set (Set, (\\))
 import Data.Traversable (for)
-import GHC (Ghc, ModIface, ModuleName, mi_module, moduleName, moduleNameString, setSession, ModuleGraph)
+import GHC (Ghc, ModIface, ModuleName, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Data.FastString (FastString)
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Monad (withSession)
@@ -34,10 +34,10 @@ import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
 import GHC.Unit.Finder (InstalledFindResult (..))
 import GHC.Unit.Finder.Types (FinderCache (..))
 import GHC.Unit.Module.Env (InstalledModuleEnv, emptyModuleEnv, moduleEnvKeys, plusModuleEnv)
+import GHC.Unit.Module.Graph (ModuleGraph, unionMG)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
-import Internal.Debug (showHugShort)
-import Internal.Log (Log, dbgp, logd)
+import Internal.Log (Log, logd)
 import System.Environment (lookupEnv)
 
 #if __GLASGOW_HASKELL__ >= 911
@@ -53,7 +53,12 @@ import GHC.Utils.Panic (panic)
 #else
 
 import GHC.Unit.Finder (initFinderCache)
-import GHC.Unit.Module.Graph (unionMG)
+
+#endif
+
+#if defined(MWB)
+
+import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries', mkModuleGraph, mkNodeKey)
 
 #endif
 
@@ -637,12 +642,29 @@ setTarget cacheVar cache hsc_env target = do
         maybe id restoreModuleGraph cache.moduleGraph hsc_env3
   pure hsc_env4
   where
-    restoreModuleGraph mg e = e {hsc_mod_graph = unionMG e.hsc_mod_graph mg}
+    restoreModuleGraph mg e = e {hsc_mod_graph = mg}
 
 updateModuleGraph :: MVar Cache -> ModuleGraph -> IO ()
 updateModuleGraph cacheVar new =
-  modifyMVar_ cacheVar \ cache ->
+  modifyMVar_ cacheVar \ cache -> do
+#if defined(MWB)
+    pure cache {moduleGraph = Just (maybe new merge cache.moduleGraph)}
+  where
+    merge old =
+      mkModuleGraph (Map.elems (Map.unionWith mergeNodes oldMap newMap))
+      where
+        mergeNodes = \cases
+          (ModuleNode oldDeps _) (ModuleNode newDeps summ) -> ModuleNode (mergeDeps oldDeps newDeps) summ
+          _ newNode -> newNode
+
+        mergeDeps oldDeps newDeps = Set.toList (Set.fromList oldDeps <> Set.fromList newDeps)
+
+        oldMap = Map.fromList $ [(mkNodeKey n, n) | n <- mgModSummaries' old]
+
+        newMap = Map.fromList $ [(mkNodeKey n, n) | n <- mgModSummaries' new]
+#else
     pure cache {moduleGraph = Just (maybe id unionMG cache.moduleGraph new)}
+#endif
 
 prepareCache :: MVar Cache -> Target -> HscEnv -> Cache -> IO (Cache, (HscEnv, Bool))
 prepareCache cacheVar target hsc_env0 cache0 = do
@@ -671,7 +693,7 @@ storeIface _ _ =
 
 storeHug :: HscEnv -> Cache -> IO Cache
 storeHug hsc_env cache = do
-  dbgp (hang (text "Storing HUG:") 2 (showHugShort merged))
+  -- dbgp (hang (text "Storing HUG:") 2 (showHugShort merged))
   pure cache {hug = Just merged}
   where
     merged = maybe id (unitEnv_union mergeHugs) cache.hug hsc_env.hsc_unit_env.ue_home_unit_graph

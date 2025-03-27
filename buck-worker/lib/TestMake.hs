@@ -33,7 +33,6 @@ import GHC.Types.Error (unionManyMessages)
 import GHC.Unit (UnitId, UnitState (..), homeUnitId, moduleUnitId, stringToUnitId)
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), ue_findHomeUnitEnv, unitEnv_union)
 import GHC.Unit.Finder (addHomeModuleToFinder)
-import GHC.Unit.Module.Graph (unionMG)
 import GHC.Utils.Outputable (ppr, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.Args (Args (..))
@@ -68,7 +67,7 @@ loadModuleGraph env UnitMod {src} specific = do
     initUnit specific
     mg <- hsc_mod_graph <$> getSession
     dbgp ("existing graph:" <+> showModGraph mg)
-    dbgp ("hug:" <+> showModGraph mg)
+    dbg "hug:"
     dbgp . showHugShort . ue_home_unit_graph . hsc_unit_env =<< getSession
     hsc_env <- getSession
     let ue = hsc_env.hsc_unit_env
@@ -95,7 +94,7 @@ loadModuleGraph env UnitMod {src} specific = do
   where
     dir = takeDirectory src
 
-    restoreModuleGraph mg e = e {hsc_mod_graph = unionMG e.hsc_mod_graph mg}
+    restoreModuleGraph mg e = e {hsc_mod_graph = mg}
 
     restoreHug hug e =
       e {hsc_unit_env = e.hsc_unit_env {ue_home_unit_graph = unitEnv_union mergeHugs hug e.hsc_unit_env.ue_home_unit_graph}}

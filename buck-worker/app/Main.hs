@@ -29,7 +29,6 @@ import Data.Int (Int32)
 import Data.List (dropWhileEnd)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
 import Data.String (fromString)
 import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8Lenient)

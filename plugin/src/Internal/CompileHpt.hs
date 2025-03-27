@@ -6,7 +6,7 @@ import Data.Foldable (fold)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Set (Set)
-import GHC (DynFlags (..), Ghc, GhcMonad (..), ModLocation (..), ModSummary (..), mkGeneralLocated, setUnitDynFlags)
+import GHC (DynFlags (..), Ghc, GhcMonad (..), ModLocation (..), ModSummary (..), mkGeneralLocated, setUnitDynFlags, Logger, gopt, GeneralFlag (Opt_KeepTmpFiles))
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateHUG)
 import GHC.Driver.Errors (printOrThrowDiagnostics)
@@ -30,6 +30,8 @@ import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Utils.Monad (MonadIO (..))
 import Internal.Cache (ModuleArtifacts (..), Target (..))
 import Internal.Error (eitherMessages)
+import GHC.Utils.TmpFs (TmpFs, keepCurrentModuleTempFiles, cleanCurrentModuleTempFiles)
+import Control.Monad (when)
 
 addDepsToHscEnv :: [HomeModInfo] -> HscEnv -> HscEnv
 addDepsToHscEnv deps = hscUpdateHUG (\hug -> foldr addHomeModInfoToHug hug deps)
@@ -79,26 +81,27 @@ initUnit specific = do
   setUnitDynFlags current dflags
   modifySession (hscSetActiveUnitId current)
 
+cleanCurrentModuleTempFilesMaybe :: MonadIO m => Logger -> TmpFs -> DynFlags -> m ()
+cleanCurrentModuleTempFilesMaybe logger tmpfs dflags =
+  if gopt Opt_KeepTmpFiles dflags
+    then liftIO $ keepCurrentModuleTempFiles logger tmpfs
+    else liftIO $ cleanCurrentModuleTempFiles logger tmpfs
+
 compileHpt ::
   [String] ->
   Target ->
   Ghc (Maybe ModuleArtifacts)
 compileHpt specific (Target src) = do
-  -- dbg ("------- start " ++ takeFileName src)
-  -- dbgp . showHugShort . ue_home_unit_graph . hsc_unit_env =<< getSession
   initializeSessionPlugins
   initUnit specific
-  -- dbg "------- updated"
-  -- dbgp . showHugShort . ue_home_unit_graph . hsc_unit_env =<< getSession
   hsc_env <- getSession
   hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
-    summary <-
-      fmap (setHiLocation hsc_env) .
-      eitherMessages GhcDriverMessage =<<
-      summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
-    -- dbg "------ summarised"
-    compileOne hsc_env summary 1 100000 Nothing (HomeModLinkable Nothing Nothing)
-  -- dbg "------ compiled"
+    summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
+    summary <- setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
+    result <- compileOne hsc_env summary 1 100000 Nothing (HomeModLinkable Nothing Nothing)
+    -- This deletes assembly files too early
+    when False do
+      cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts
+    pure result
   modifySession (addDepsToHscEnv [hmi])
-  -- dbg "------ added"
   pure (Just ModuleArtifacts {iface, bytecode = homeMod_bytecode hm_linkable})
