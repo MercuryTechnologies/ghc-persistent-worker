@@ -106,7 +106,7 @@ drawUI State{..} =
                       (borderWithLabel (str " GHC Persistent Worker ") $ center $ str "Waiting for first session")
                       (drawSession . snd . snd)
                       session
-          , modifyDefAttr (`V.withStyle` V.italic) $ str " esc,q: quit   s: toggle session selector"
+          , modifyDefAttr (`V.withStyle` V.italic) $ str " q:quit   s:toggle session selector"
           ]
        ]
 
@@ -187,6 +187,7 @@ handleEvent (AppEvent (sid, StartSession start)) = do
     )
   sessions . listSelectedL .= Just 0
 handleEvent (AppEvent (sid, evt)) = zoom (sessions . listElementsL . each . filtered ((== sid) . fst) . _2) (handleCustomEvent evt)
+handleEvent (VtyEvent (V.EvKey (V.KChar 'q') [])) = halt
 handleEvent (VtyEvent evt) = do
   ss <- use showSessionsSelector
   let hide = modifying showSessionsSelector not
@@ -200,7 +201,6 @@ handleEvent (VtyEvent evt) = do
       vScrollToEnd (viewportScroll Main)
     else case evt of
       V.EvKey V.KEsc [] -> halt
-      V.EvKey (V.KChar 'q') [] -> halt
       V.EvKey V.KDown [] -> vScrollBy (viewportScroll Main) 1
       V.EvKey V.KUp [] -> vScrollBy (viewportScroll Main) (-1)
       V.EvKey V.KPageDown [] -> vScrollPage (viewportScroll Main) Down

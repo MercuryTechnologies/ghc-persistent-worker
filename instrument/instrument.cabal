@@ -31,6 +31,7 @@ executable instrument
     base ==4.*,
     brick,
     containers,
+    directory,
     fsnotify,
     grapesy,
     microlens,
