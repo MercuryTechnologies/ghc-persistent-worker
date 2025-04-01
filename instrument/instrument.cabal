@@ -1,0 +1,44 @@
+cabal-version: 2.2
+name: instrument
+version: 0.1
+synopsis: GHC persistent worker instrumentation
+license: MIT
+build-type: Simple
+
+executable instrument
+  main-is: Main.hs
+  hs-source-dirs: .
+  other-modules: UI
+  ghc-options:
+    -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages
+    -threaded -rtsopts -with-rtsopts=-N
+  default-language: GHC2021
+  default-extensions:
+    BlockArguments,
+    DataKinds,
+    DerivingStrategies,
+    DuplicateRecordFields,
+    LambdaCase,
+    NamedFieldPuns,
+    OverloadedLists,
+    OverloadedRecordDot,
+    OverloadedStrings,
+    RecordWildCards,
+    StrictData,
+    TypeFamilies
+  build-depends:
+    async,
+    base ==4.*,
+    brick,
+    containers,
+    directory,
+    fsnotify,
+    grapesy,
+    microlens,
+    microlens-ghc,
+    microlens-mtl,
+    microlens-th,
+    text,
+    time,
+    worker,
+    vty

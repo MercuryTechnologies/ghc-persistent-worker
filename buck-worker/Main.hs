@@ -4,6 +4,7 @@ module Main where
 
 import Control.Concurrent (MVar, modifyMVar_, newMVar)
 import Control.Concurrent.Async (async, cancel, wait)
+import Control.Concurrent.Chan (Chan, dupChan, readChan, newChan, writeChan)
 import Control.Exception (
   Exception (displayException),
   SomeException (SomeException),
@@ -13,7 +14,9 @@ import Control.Exception (
   throwIO,
   try,
   )
-import Control.Monad (foldM, void, when)
+import Control.Monad (foldM, void, when, forever)
+import Control.Monad.IO.Class (liftIO)
+import Data.Foldable (for_)
 import Data.List (dropWhileEnd)
 import Data.Map (Map)
 import Data.Map.Strict qualified as Map
@@ -21,17 +24,18 @@ import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
 import GHC (Ghc, getSession)
 import GHC.IO.Handle.FD (withFileBlocking)
+import GHC.Stats (getRTSStats, RTSStats (..), GCDetails (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
-import Internal.Cache (Cache (..), ModuleArtifacts (..), Target, emptyCache)
+import Internal.Cache (Cache (..), ModuleArtifacts (..), Target (..), emptyCache)
 import Internal.Compile (compile)
 import Internal.Log (dbg, logFlush, newLog)
 import Internal.Session (Env (..), withGhc)
 import Network.GRPC.Client (Connection, Server (ServerUnix), recvNextOutput, sendFinalInput, withConnection, withRPC)
-import Network.GRPC.Common (NextElem, Proxy (..), def)
-import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&), (.~))
+import Network.GRPC.Common (NextElem (..), Proxy (..), def)
+import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&), (.~), (^.))
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
 import Network.GRPC.Server.Run (InsecureConfig (InsecureUnix), ServerConfig (..), runServerWithHandlers)
-import Network.GRPC.Server.StreamType (Methods (Method, NoMoreMethods), fromMethods, mkClientStreaming, mkNonStreaming)
+import Network.GRPC.Server.StreamType (Methods (Method, NoMoreMethods), fromMethods, mkClientStreaming, mkNonStreaming, mkServerStreaming, simpleMethods)
 import Prelude hiding (log)
 import System.Directory (createDirectory, removeFile)
 import System.Environment (getArgs, getEnv)
@@ -40,14 +44,15 @@ import System.FilePath (takeDirectory, (</>))
 import System.IO (BufferMode (LineBuffering), IOMode (..), hGetLine, hPutStrLn, hSetBuffering, stderr, stdout, hPutStr)
 
 import BuckArgs (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
-import BuckWorker (ExecuteCommand, ExecuteCommand'EnvironmentEntry, ExecuteEvent, ExecuteResponse, Worker (..))
+import BuckWorker (ExecuteCommand, ExecuteCommand'EnvironmentEntry, ExecuteEvent, ExecuteResponse, Worker (..), Instrument (..))
 import Proto.Worker_Fields qualified as Fields
+import Proto.Instrument_Fields qualified as Instr
+import qualified Proto.Instrument as Instr
 
 data WorkerStatus =
   WorkerStatus {
     active :: Int
   }
-  deriving stock (Eq, Show)
 
 commandEnv :: [Proto ExecuteCommand'EnvironmentEntry] -> Map String String
 commandEnv =
@@ -56,8 +61,18 @@ commandEnv =
   where
     fromBs = Text.unpack . decodeUtf8Lenient
 
-compileAndReadAbiHash :: BuckArgs -> Target -> Ghc (Maybe CompileResult)
-compileAndReadAbiHash args target = do
+compileAndReadAbiHash ::
+  Chan (Proto Instr.Event) ->
+  BuckArgs ->
+  Target ->
+  Ghc (Maybe CompileResult)
+compileAndReadAbiHash instrChan args target = do
+
+  liftIO $ writeChan instrChan $
+    defMessage &
+      Instr.compileStart .~
+        compileStart target.get
+
   compile target >>= traverse \ artifacts -> do
     hsc_env <- getSession
     let
@@ -67,24 +82,45 @@ compileAndReadAbiHash args target = do
         Just AbiHash {path, hash = showAbiHash hsc_env artifacts.iface}
     pure CompileResult {artifacts, abiHash}
 
+compileStart :: String -> Proto Instr.CompileStart
+compileStart target =
+  defMessage
+    & Instr.target .~ Text.pack target
+
+compileEnd :: String -> Int -> String -> Proto Instr.CompileEnd
+compileEnd target exitCode err =
+  defMessage
+    & Instr.target .~ Text.pack target
+    & Instr.exitCode .~ fromIntegral exitCode
+    & Instr.stderr .~ Text.pack err
+
+mkStats :: IO (Proto Instr.Stats)
+mkStats = do
+  s <- getRTSStats
+  pure $
+    defMessage
+      & Instr.memory .~ fromIntegral s.gc.gcdetails_mem_in_use_bytes
+      & Instr.gcCpuNs .~ s.gc_cpu_ns
+      & Instr.cpuNs .~ s.cpu_ns
+
 startJob ::
   MVar WorkerStatus ->
   IO ()
 startJob var =
-  modifyMVar_ var \ WorkerStatus {active} -> do
+  modifyMVar_ var \ ws@WorkerStatus {active} -> do
     let new = active + 1
     dbg ("Starting job, now " ++ show new ++ " active")
-    pure WorkerStatus {active = new}
+    pure ws {active = new}
 
 finishJob ::
   MVar WorkerStatus ->
   a ->
   IO ()
 finishJob var _ = do
-  modifyMVar_ var \ WorkerStatus {active} -> do
+  modifyMVar_ var \ ws@WorkerStatus {active} -> do
     let new = active - 1
     dbg ("Finishing job, now " ++ show new ++ " active")
-    pure WorkerStatus {active = new}
+    pure ws {active = new}
 
 debugRequestArgs :: Bool
 debugRequestArgs = False
@@ -92,12 +128,28 @@ debugRequestArgs = False
 execute ::
   MVar WorkerStatus ->
   MVar Cache ->
+  Chan (Proto Instr.Event) ->
   Proto ExecuteCommand ->
   IO (Proto ExecuteResponse)
-execute status cache req = do
+execute status cache instrChan req = do
   when debugRequestArgs do
     hPutStrLn stderr (unlines argv)
-  either exceptionResponse successResponse =<< try run
+  msg <- either exceptionResponse successResponse =<< try run
+
+  writeChan instrChan $
+    defMessage &
+      Instr.compileEnd .~
+        compileEnd
+          ""
+          (fromIntegral $ msg ^. Fields.exitCode)
+          (Text.unpack (msg ^. Fields.stderr))
+
+  stats <- mkStats
+  writeChan instrChan $
+    defMessage &
+      Instr.stats .~ stats
+
+  pure msg
   where
     run = do
       buckArgs <- either (throwIO . userError) pure (parseBuckArgs (commandEnv req.env) argv)
@@ -105,7 +157,7 @@ execute status cache req = do
       bracket (startJob status) (finishJob status) \ _ -> do
         log <- newLog True
         let env = Env {log, cache, args}
-        result <- withGhc env (compileAndReadAbiHash buckArgs)
+        result <- withGhc env (compileAndReadAbiHash instrChan buckArgs)
         pure (env, buckArgs, result)
 
     successResponse (env, buckArgs, result) = do
@@ -141,16 +193,38 @@ exec _ =
 ghcServerMethods ::
   MVar WorkerStatus ->
   MVar Cache ->
+  Chan (Proto Instr.Event) ->
   Methods IO (ProtobufMethodsOf Worker)
-ghcServerMethods status cache =
-  Method (mkClientStreaming exec) $
-  Method (mkNonStreaming (execute status cache)) $
-  NoMoreMethods
+ghcServerMethods status cache instrChan =
+  simpleMethods
+    (mkClientStreaming exec)
+    (mkNonStreaming (execute status cache instrChan))
 
-grpcServerConfig :: ServerSocketPath -> ServerConfig
-grpcServerConfig socket =
+notifyMe ::
+  Chan (Proto Instr.Event) ->
+  (NextElem (Proto Instr.Event) -> IO ()) ->
+  IO ()
+notifyMe chan callback = do
+  myChan <- dupChan chan
+  stats <- mkStats
+  callback $ NextElem $
+    defMessage
+      & Instr.stats .~ stats
+  forever $ do
+    msg <- readChan myChan
+    callback $ NextElem msg
+
+instrumentMethods ::
+  Chan (Proto Instr.Event) ->
+  Methods IO (ProtobufMethodsOf Instrument)
+instrumentMethods chan =
+  simpleMethods
+    (mkServerStreaming (const (notifyMe chan)))
+
+grpcServerConfig :: FilePath -> ServerConfig
+grpcServerConfig socketPath =
   ServerConfig
-    { serverInsecure = Just (InsecureUnix socket.path)
+    { serverInsecure = Just (InsecureUnix socketPath)
     , serverSecure = Nothing
     }
 
@@ -167,6 +241,14 @@ newtype PrimarySocketPath =
   PrimarySocketPath { path :: FilePath }
   deriving stock (Eq, Show)
 
+-- | The file system path of the socket on which the primary worker outputs instrumentation information.
+newtype InstrumentSocketPath =
+  InstrumentSocketPath { path :: FilePath }
+  deriving stock (Eq, Show)
+
+instrumentSocketIn :: FilePath -> InstrumentSocketPath
+instrumentSocketIn dir = InstrumentSocketPath (dir </> "instrument")
+
 -- | The file system path in which the primary worker running the GHC server stores its socket path for clients to
 -- discover.
 newtype PrimarySocketDiscoveryPath =
@@ -177,17 +259,24 @@ primarySocketDiscoveryIn :: FilePath -> PrimarySocketDiscoveryPath
 primarySocketDiscoveryIn dir = PrimarySocketDiscoveryPath (dir </> "primary")
 
 -- | Start a gRPC server that dispatches requests to GHC handlers.
-runLocalGhc :: ServerSocketPath -> IO ()
-runLocalGhc socket = do
+runLocalGhc :: ServerSocketPath -> Maybe InstrumentSocketPath -> IO ()
+runLocalGhc socket minstr = do
   dbg ("Starting ghc server on " ++ socket.path)
-  cache <- emptyCache False
+
+  cache <- emptyCache True
   status <- newMVar WorkerStatus {active = 0}
-  runServerWithHandlers def (grpcServerConfig socket) $ fromMethods (ghcServerMethods status cache)
+  instrChan <- newChan
+
+  for_ minstr $ \instr -> do
+    dbg ("Instrumentation info available on " ++ instr.path)
+    async $ runServerWithHandlers def (grpcServerConfig instr.path) $ fromMethods (instrumentMethods instrChan)
+
+  runServerWithHandlers def (grpcServerConfig socket.path) $ fromMethods (ghcServerMethods status cache instrChan)
 
 -- | Start a gRPC server that runs GHC for client proxies, deleting the discovery file on shutdown.
-runCentralGhc :: PrimarySocketDiscoveryPath -> ServerSocketPath -> IO ()
-runCentralGhc discovery socket =
-  finally (runLocalGhc socket) do
+runCentralGhc :: PrimarySocketDiscoveryPath -> ServerSocketPath -> Maybe InstrumentSocketPath -> IO ()
+runCentralGhc discovery socket instr =
+  finally (runLocalGhc socket instr) do
     dbg ("Shutting down ghc server on " ++ socket.path)
     removeFile discovery.path
 
@@ -234,7 +323,7 @@ proxyServer primary socket = do
     launch =
       withProxy primary \ methods -> do
         dbg ("Starting proxy for " ++ primary.path ++ " on " ++ socket.path)
-        runServerWithHandlers def (grpcServerConfig socket) $ fromMethods methods
+        runServerWithHandlers def (grpcServerConfig socket.path) $ fromMethods methods
 
 -- | Start a gRPC server that either runs GHC (primary server) or a proxy that forwards requests to the primary.
 -- Since multiple workers are started in separate processes, we negotiate using file system locks.
@@ -261,7 +350,7 @@ runOrProxyCentralGhc socket = do
       Right !primary | not (null primary) -> do
         pure (Left (PrimarySocketPath primary))
       _ -> do
-        thread <- async (runCentralGhc primaryFile socket)
+        thread <- async (runCentralGhc primaryFile socket instr)
         hPutStr handle socket.path
         pure (Right thread)
   case result of
@@ -269,6 +358,7 @@ runOrProxyCentralGhc socket = do
     Left primary -> proxyServer primary socket
   where
     primaryFile = primarySocketDiscoveryIn dir
+    instr = Just (instrumentSocketIn dir)
     dir = init (dropWhileEnd ('-' /=) (takeDirectory socket.path))
 
 -- | Global options for the worker, passed when the process is started, in contrast to request options stored in
@@ -293,7 +383,7 @@ runWorker :: ServerSocketPath -> CliOptions -> IO ()
 runWorker socket CliOptions {single} =
   if single
   then runOrProxyCentralGhc socket
-  else runLocalGhc socket
+  else runLocalGhc socket Nothing
 
 main :: IO ()
 main = do

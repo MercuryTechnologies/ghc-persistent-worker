@@ -98,7 +98,7 @@ instance Control.DeepSeq.NFData ExecuteCancel where
     = \ x__
         -> Control.DeepSeq.deepseq (_ExecuteCancel'_unknownFields x__) ()
 {- | Fields :
-
+     
          * 'Proto.Worker_Fields.argv' @:: Lens' ExecuteCommand [Data.ByteString.ByteString]@
          * 'Proto.Worker_Fields.vec'argv' @:: Lens' ExecuteCommand (Data.Vector.Vector Data.ByteString.ByteString)@
          * 'Proto.Worker_Fields.env' @:: Lens' ExecuteCommand [ExecuteCommand'EnvironmentEntry]@
@@ -291,7 +291,7 @@ instance Control.DeepSeq.NFData ExecuteCommand where
                 (_ExecuteCommand'argv x__)
                 (Control.DeepSeq.deepseq (_ExecuteCommand'env x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Worker_Fields.key' @:: Lens' ExecuteCommand'EnvironmentEntry Data.ByteString.ByteString@
          * 'Proto.Worker_Fields.value' @:: Lens' ExecuteCommand'EnvironmentEntry Data.ByteString.ByteString@ -}
 data ExecuteCommand'EnvironmentEntry
@@ -449,7 +449,7 @@ instance Control.DeepSeq.NFData ExecuteCommand'EnvironmentEntry where
                 (Control.DeepSeq.deepseq
                    (_ExecuteCommand'EnvironmentEntry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Worker_Fields.maybe'data'' @:: Lens' ExecuteEvent (Prelude.Maybe ExecuteEvent'Data)@
          * 'Proto.Worker_Fields.maybe'command' @:: Lens' ExecuteEvent (Prelude.Maybe ExecuteCommand)@
          * 'Proto.Worker_Fields.command' @:: Lens' ExecuteEvent ExecuteCommand@
@@ -664,7 +664,7 @@ _ExecuteEvent'Cancel
               (ExecuteEvent'Cancel p__val) -> Prelude.Just p__val
               _otherwise -> Prelude.Nothing)
 {- | Fields :
-
+     
          * 'Proto.Worker_Fields.exitCode' @:: Lens' ExecuteResponse Data.Int.Int32@
          * 'Proto.Worker_Fields.stderr' @:: Lens' ExecuteResponse Data.Text.Text@ -}
 data ExecuteResponse

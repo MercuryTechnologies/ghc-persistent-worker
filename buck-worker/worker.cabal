@@ -33,6 +33,8 @@ library
     BuckWorker,
     Proto.Worker,
     Proto.Worker_Fields
+    Proto.Instrument,
+    Proto.Instrument_Fields
   build-depends:
     bytestring,
     deepseq,
