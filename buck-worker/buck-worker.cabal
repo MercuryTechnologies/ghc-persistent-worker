@@ -60,4 +60,4 @@ executable worker
     ghc,
     ghc-persistent-worker-plugin,
     text,
-    worker
+    buck-worker

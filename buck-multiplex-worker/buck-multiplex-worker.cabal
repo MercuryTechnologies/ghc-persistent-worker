@@ -21,7 +21,7 @@ executable multiplex-worker
     text,
     transformers,
     vector,
-    worker
+    buck-worker
   default-language: GHC2021
   default-extensions:
     BlockArguments,

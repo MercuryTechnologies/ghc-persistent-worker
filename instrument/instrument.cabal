@@ -40,5 +40,5 @@ executable instrument
     microlens-th,
     text,
     time,
-    worker,
+    buck-worker,
     vty
