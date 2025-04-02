@@ -1,14 +1,15 @@
 cabal-version: 2.2
-name:           multiplex-worker
-version:        0.1
-synopsis:       Buck2 GHC persistent worker
-license:        MIT
-build-type:     Simple
+name: buck-multiplex-worker
+version: 0.1
+synopsis: Buck2 GHC persistent worker
+license: MIT
+license-file: LICENSE
+build-type: Simple
 
 executable multiplex-worker
   main-is: Main.hs
   hs-source-dirs: .
-  ghc-options: -Wall -Werror -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages -threaded -rtsopts -with-rtsopts=-N
   build-depends:
     base ==4.*,
     containers,
