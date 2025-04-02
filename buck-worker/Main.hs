@@ -2,57 +2,75 @@
 
 module Main where
 
+import BuckArgs (BuckArgs (..), CompileResult (..), Mode (..), parseBuckArgs, toGhcArgs, writeResult)
+import BuckWorker (
+  ExecuteCommand,
+  ExecuteCommand'EnvironmentEntry,
+  ExecuteEvent,
+  ExecuteResponse,
+  Instrument (..),
+  Worker (..),
+  )
 import Control.Concurrent (MVar, modifyMVar_, newMVar)
 import Control.Concurrent.Async (async, cancel, wait)
-import Control.Concurrent.Chan (Chan, dupChan, readChan, newChan, writeChan)
-import Control.Exception (
-  Exception (displayException),
-  SomeException (SomeException),
-  bracket,
-  finally,
-  onException,
-  throwIO,
-  try,
-  )
-import Control.Monad (foldM, void, when, forever)
+import Control.Concurrent.Chan (Chan, dupChan, newChan, readChan, writeChan)
+import Control.Exception (Exception (..), SomeException (..), bracket, finally, onException, throwIO, try)
+import Control.Monad (foldM, forever, void, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
+import Data.Functor ((<&>))
+import Data.Int (Int32)
 import Data.List (dropWhileEnd)
 import Data.Map (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
-import GHC (Ghc, getSession)
+import GHC (DynFlags (..), Ghc, getSession)
+import GHC.Driver.DynFlags (GhcMode (..))
+import GHC.Driver.Env (hscUpdateFlags)
+import GHC.Driver.Monad (modifySession)
 import GHC.IO.Handle.FD (withFileBlocking)
-import GHC.Stats (getRTSStats, RTSStats (..), GCDetails (..))
+import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import Internal.AbiHash (AbiHash (..), showAbiHash)
-import Internal.Cache (Cache (..), ModuleArtifacts (..), Target (..), emptyCache)
-import Internal.Compile (compile)
+import Internal.Cache (Cache (..), CacheFeatures (..), ModuleArtifacts (..), Target (..), emptyCacheWith)
+import Internal.Compile (compileModuleWithDepsInEps)
+import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (dbg, logFlush, newLog)
-import Internal.Session (Env (..), withGhc)
-import Network.GRPC.Client (Connection, Server (ServerUnix), recvNextOutput, sendFinalInput, withConnection, withRPC)
+import Internal.Metadata (computeMetadata)
+import Internal.Session (Env (..), withGhcMhu)
+import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
 import Network.GRPC.Common (NextElem (..), Proxy (..), def)
 import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&), (.~), (^.))
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
-import Network.GRPC.Server.Run (InsecureConfig (InsecureUnix), ServerConfig (..), runServerWithHandlers)
-import Network.GRPC.Server.StreamType (Methods (Method, NoMoreMethods), fromMethods, mkClientStreaming, mkNonStreaming, mkServerStreaming, simpleMethods)
+import Network.GRPC.Server.Run (InsecureConfig (..), ServerConfig (..), runServerWithHandlers)
+import Network.GRPC.Server.StreamType (
+  Methods (..),
+  fromMethods,
+  mkClientStreaming,
+  mkNonStreaming,
+  mkServerStreaming,
+  simpleMethods,
+  )
 import Prelude hiding (log)
+import qualified Proto.Instrument as Instr
+import Proto.Instrument_Fields qualified as Instr
+import Proto.Worker_Fields qualified as Fields
 import System.Directory (createDirectory, removeFile)
 import System.Environment (getArgs, getEnv)
 import System.Exit (exitFailure)
 import System.FilePath (takeDirectory, (</>))
-import System.IO (BufferMode (LineBuffering), IOMode (..), hGetLine, hPutStrLn, hSetBuffering, stderr, stdout, hPutStr)
-
-import BuckArgs (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
-import BuckWorker (ExecuteCommand, ExecuteCommand'EnvironmentEntry, ExecuteEvent, ExecuteResponse, Worker (..), Instrument (..))
-import Proto.Worker_Fields qualified as Fields
-import Proto.Instrument_Fields qualified as Instr
-import qualified Proto.Instrument as Instr
+import System.IO (BufferMode (..), IOMode (..), hGetLine, hPutStr, hPutStrLn, hSetBuffering, stderr, stdout)
 
 data WorkerStatus =
   WorkerStatus {
     active :: Int
   }
+
+data WorkerMode =
+  WorkerMakeMode
+  |
+  WorkerOneshotMode
+  deriving stock (Eq, Show)
 
 commandEnv :: [Proto ExecuteCommand'EnvironmentEntry] -> Map String String
 commandEnv =
@@ -61,19 +79,25 @@ commandEnv =
   where
     fromBs = Text.unpack . decodeUtf8Lenient
 
+-- | Compile a single module.
+-- Depending on @mode@ this will either use the old EPS-based oneshot-style compilation logic or the HPT-based
+-- make-style implementation.
 compileAndReadAbiHash ::
+  WorkerMode ->
   Chan (Proto Instr.Event) ->
   BuckArgs ->
+  [String] ->
   Target ->
   Ghc (Maybe CompileResult)
-compileAndReadAbiHash instrChan args target = do
+compileAndReadAbiHash mode instrChan args specific target = do
 
   liftIO $ writeChan instrChan $
     defMessage &
       Instr.compileStart .~
         compileStart target.get
 
-  compile target >>= traverse \ artifacts -> do
+  modifySession $ hscUpdateFlags \ d -> d {ghcMode}
+  compile specific target >>= traverse \ artifacts -> do
     hsc_env <- getSession
     let
       abiHash :: Maybe AbiHash
@@ -81,6 +105,31 @@ compileAndReadAbiHash instrChan args target = do
         path <- args.abiOut
         Just AbiHash {path, hash = showAbiHash hsc_env artifacts.iface}
     pure CompileResult {artifacts, abiHash}
+  where
+    (ghcMode, compile) = case mode of
+      WorkerOneshotMode -> (OneShot, compileModuleWithDepsInEps)
+      WorkerMakeMode -> (CompManager, compileModuleWithDepsInHpt)
+
+-- | Process a worker request based on the operational mode specified in the request arguments, either compiling a
+-- single module for 'ModeCompile' (@-c@), or computing and writing the module graph to a JSON file for 'ModeMetadata'
+-- (@-M@).
+dispatch ::
+  WorkerMode ->
+  Chan (Proto Instr.Event) ->
+  Env ->
+  BuckArgs ->
+  IO Int32
+dispatch workerMode instrChan env args =
+  case args.mode of
+    Just ModeCompile -> do
+      result <- withGhcMhu env (compileAndReadAbiHash workerMode instrChan args)
+      writeResult args result
+    Just ModeMetadata ->
+      computeMetadata env <&> \case
+        True -> 0
+        False -> 1
+    Just m -> error ("worker: mode not implemented: " ++ show m)
+    Nothing -> error "worker: no mode specified"
 
 compileStart :: String -> Proto Instr.CompileStart
 compileStart target =
@@ -128,10 +177,11 @@ debugRequestArgs = False
 execute ::
   MVar WorkerStatus ->
   MVar Cache ->
+  WorkerMode ->
   Chan (Proto Instr.Event) ->
   Proto ExecuteCommand ->
   IO (Proto ExecuteResponse)
-execute status cache instrChan req = do
+execute status cache mode instrChan req = do
   when debugRequestArgs do
     hPutStrLn stderr (unlines argv)
   msg <- either exceptionResponse successResponse =<< try run
@@ -157,11 +207,10 @@ execute status cache instrChan req = do
       bracket (startJob status) (finishJob status) \ _ -> do
         log <- newLog True
         let env = Env {log, cache, args}
-        result <- withGhc env (compileAndReadAbiHash instrChan buckArgs)
-        pure (env, buckArgs, result)
+        result <- dispatch mode instrChan env buckArgs
+        pure (env, result)
 
-    successResponse (env, buckArgs, result) = do
-      exitCode <- writeResult buckArgs result
+    successResponse (env, exitCode) = do
       output <- logFlush env.log
       pure $
         defMessage
@@ -193,12 +242,13 @@ exec _ =
 ghcServerMethods ::
   MVar WorkerStatus ->
   MVar Cache ->
+  WorkerMode ->
   Chan (Proto Instr.Event) ->
   Methods IO (ProtobufMethodsOf Worker)
-ghcServerMethods status cache instrChan =
+ghcServerMethods status cache mode instrChan =
   simpleMethods
     (mkClientStreaming exec)
-    (mkNonStreaming (execute status cache instrChan))
+    (mkNonStreaming (execute status cache mode instrChan))
 
 notifyMe ::
   Chan (Proto Instr.Event) ->
@@ -259,11 +309,21 @@ primarySocketDiscoveryIn :: FilePath -> PrimarySocketDiscoveryPath
 primarySocketDiscoveryIn dir = PrimarySocketDiscoveryPath (dir </> "primary")
 
 -- | Start a gRPC server that dispatches requests to GHC handlers.
-runLocalGhc :: ServerSocketPath -> Maybe InstrumentSocketPath -> IO ()
-runLocalGhc socket minstr = do
+runLocalGhc :: WorkerMode -> ServerSocketPath -> Maybe InstrumentSocketPath -> IO ()
+runLocalGhc mode socket minstr = do
   dbg ("Starting ghc server on " ++ socket.path)
-
-  cache <- emptyCache True
+  cache <-
+    case mode of
+      WorkerMakeMode ->
+        emptyCacheWith CacheFeatures {
+          hpt = True,
+          loader = False,
+          enable = True,
+          names = False,
+          finder = True,
+          eps = False
+        }
+      WorkerOneshotMode -> emptyCache True
   status <- newMVar WorkerStatus {active = 0}
   instrChan <- newChan
 
@@ -271,12 +331,12 @@ runLocalGhc socket minstr = do
     dbg ("Instrumentation info available on " ++ instr.path)
     async $ runServerWithHandlers def (grpcServerConfig instr.path) $ fromMethods (instrumentMethods instrChan)
 
-  runServerWithHandlers def (grpcServerConfig socket.path) $ fromMethods (ghcServerMethods status cache instrChan)
+  runServerWithHandlers def (grpcServerConfig socket.path) $ fromMethods (ghcServerMethods status cache mode instrChan)
 
 -- | Start a gRPC server that runs GHC for client proxies, deleting the discovery file on shutdown.
-runCentralGhc :: PrimarySocketDiscoveryPath -> ServerSocketPath -> Maybe InstrumentSocketPath -> IO ()
-runCentralGhc discovery socket instr =
-  finally (runLocalGhc socket instr) do
+runCentralGhc :: WorkerMode -> PrimarySocketDiscoveryPath -> ServerSocketPath -> Maybe InstrumentSocketPath -> IO ()
+runCentralGhc mode discovery socket instr =
+  finally (runLocalGhc mode socket instr) do
     dbg ("Shutting down ghc server on " ++ socket.path)
     removeFile discovery.path
 
@@ -366,24 +426,28 @@ runOrProxyCentralGhc socket = do
 data CliOptions =
   CliOptions {
     -- | Should only a single central GHC server be run, with all other worker processes proxying it?
-    single :: Bool
+    single :: Bool,
+
+    -- | The worker implementation: Make mode or oneshot mode.
+    mode :: WorkerMode
   }
   deriving stock (Eq, Show)
 
 defaultCliOptions :: CliOptions
-defaultCliOptions = CliOptions {single = False}
+defaultCliOptions = CliOptions {single = False, mode = WorkerOneshotMode}
 
 parseOptions :: [String] -> IO CliOptions
 parseOptions =
   flip foldM defaultCliOptions \ z -> \case
     "--single" -> pure z {single = True}
+    "--make" -> pure z {mode = WorkerMakeMode}
     arg -> throwIO (userError ("Invalid worker CLI arg: " ++ arg))
 
 runWorker :: ServerSocketPath -> CliOptions -> IO ()
-runWorker socket CliOptions {single} =
+runWorker socket CliOptions {single, mode} =
   if single
-  then runOrProxyCentralGhc socket
-  else runLocalGhc socket Nothing
+  then runOrProxyCentralGhc socket mode
+  else runLocalGhc socket mode Nothing
 
 main :: IO ()
 main = do
@@ -395,5 +459,5 @@ main = do
   try (runWorker socket options) >>= \case
     Right () ->
       dbg "Worker terminated without cancellation."
-    Left (err :: SomeException) -> do
+    Left (err :: SomeException) ->
       dbg ("Worker terminated with exception: " ++ displayException err)
