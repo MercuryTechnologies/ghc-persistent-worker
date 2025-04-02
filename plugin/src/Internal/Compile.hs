@@ -91,7 +91,7 @@ compileFile hsc_env src = do
     pipe_env = mkPipeEnv NoStop offset_file Nothing output
     pipeline = pipelineOneshot pipe_env (setDumpPrefix pipe_env hsc_env) offset_file
 
-compile :: Target -> Ghc (Maybe ModuleArtifacts)
-compile (Target src) = do
+compileEps :: Target -> Ghc (Maybe ModuleArtifacts)
+compileEps (Target src) = do
   hsc_env <- liftIO . initializePlugins =<< getSession
   liftIO $ compileFile hsc_env src
