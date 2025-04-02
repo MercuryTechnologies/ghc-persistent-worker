@@ -20,5 +20,5 @@ index-state: 2025-01-29T13:43:26Z
 source-repository-package
   type: git
   location: https://github.com/sjoerdvisscher/grapesy
-  tag: 47424fe0d3a2ad6b7edaa56f346c6cfcb9468c02
+  tag: d4202630bba1e13e4164cb27c49ca6ecb21bb0e8
   subdir: grapesy
