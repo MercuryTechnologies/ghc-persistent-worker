@@ -4,6 +4,7 @@
     "Cache",
     "Compile",
     "CompileHpt",
+    "Debug",
     "Error",
     "Log",
     "MakeFile",
