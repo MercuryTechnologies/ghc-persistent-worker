@@ -25,6 +25,7 @@ library
                       Internal.Cache
                       Internal.Compile
                       Internal.CompileHpt
+                      Internal.Debug
                       Internal.Error
                       Internal.Log
                       Internal.MakeFile

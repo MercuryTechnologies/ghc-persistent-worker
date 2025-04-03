@@ -8,6 +8,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
 import Data.Foldable (for_)
+import Data.IORef (readIORef)
 import Data.List (sortBy)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map, (!?))
@@ -30,7 +31,10 @@ import GHC.Types.Unique.FM (UniqFM, minusUFM, nonDetEltsUFM, sizeUFM)
 import GHC.Types.Unique.Supply (initUniqSupply)
 import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), unitEnv_union)
 import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
-import GHC.Unit.Module.Env (emptyModuleEnv, moduleEnvKeys, plusModuleEnv)
+import GHC.Unit.Finder (InstalledFindResult (..))
+import GHC.Unit.Finder.Types (FinderCache (..))
+import GHC.Unit.Module.Env (InstalledModuleEnv, emptyModuleEnv, moduleEnvKeys, plusModuleEnv)
+import GHC.Unit.Module.Graph (ModuleGraph, unionMG)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
 import Internal.Log (Log, logd)
@@ -38,19 +42,23 @@ import System.Environment (lookupEnv)
 
 #if __GLASGOW_HASKELL__ >= 911
 
-import Data.IORef (IORef, newIORef, readIORef)
+import Data.IORef (IORef, newIORef)
 import qualified Data.Map.Lazy as LazyMap
 import GHC.Fingerprint (Fingerprint, getFileHash)
 import GHC.IORef (atomicModifyIORef')
 import GHC.Unit (InstalledModule, extendInstalledModuleEnv, lookupInstalledModuleEnv)
 import GHC.Unit.Finder (FinderCache (..), InstalledFindResult (..))
-import GHC.Unit.Module.Env (InstalledModuleEnv, emptyInstalledModuleEnv)
-import GHC.Unit.Module.Graph (ModuleGraph, unionMG)
 import GHC.Utils.Panic (panic)
 
 #else
 
-import GHC.Unit.Finder (FinderCache, initFinderCache)
+import GHC.Unit.Finder (initFinderCache)
+
+#endif
+
+#if defined(MWB)
+
+import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries', mkModuleGraph, mkNodeKey)
 
 #endif
 
@@ -191,6 +199,10 @@ emptyFinderState =
     files <- newIORef LazyMap.empty
     pure FinderState {modules, files}
 
+finderEnv :: FinderState -> IO (InstalledModuleEnv InstalledFindResult)
+finderEnv FinderState {modules} =
+  readIORef modules
+
 #else
 
 data FinderState =
@@ -203,6 +215,10 @@ emptyFinderState =
   liftIO do
     cache <- initFinderCache
     pure FinderState {cache}
+
+finderEnv :: FinderState -> IO (InstalledModuleEnv InstalledFindResult)
+finderEnv FinderState {cache = FinderCache {fcModuleCache}} =
+  readIORef fcModuleCache
 
 #endif
 
@@ -224,7 +240,6 @@ newCacheFeatures = CacheFeatures {enable = True, loader = True, names = True, fi
 data Cache =
   Cache {
     features :: CacheFeatures,
-    initialized :: Bool,
     interp :: Maybe InterpCache,
     names :: OrigNameCache,
     stats :: Map Target CacheStats,
@@ -624,7 +639,24 @@ setTarget cacheVar cache hsc_env target = do
 updateModuleGraph :: MVar Cache -> ModuleGraph -> IO ()
 updateModuleGraph cacheVar new =
   modifyMVar_ cacheVar \ cache -> do
+#if defined(MWB)
+    pure cache {moduleGraph = Just (maybe new merge cache.moduleGraph)}
+  where
+    merge old =
+      mkModuleGraph (Map.elems (Map.unionWith mergeNodes oldMap newMap))
+      where
+        mergeNodes = \cases
+          (ModuleNode oldDeps _) (ModuleNode newDeps summ) -> ModuleNode (mergeDeps oldDeps newDeps) summ
+          _ newNode -> newNode
+
+        mergeDeps oldDeps newDeps = Set.toList (Set.fromList oldDeps <> Set.fromList newDeps)
+
+        oldMap = Map.fromList $ [(mkNodeKey n, n) | n <- mgModSummaries' old]
+
+        newMap = Map.fromList $ [(mkNodeKey n, n) | n <- mgModSummaries' new]
+#else
     pure cache {moduleGraph = Just (maybe id unionMG cache.moduleGraph new)}
+#endif
 
 prepareCache :: MVar Cache -> Target -> HscEnv -> Cache -> IO (Cache, (HscEnv, Bool))
 prepareCache cacheVar target hsc_env0 cache0 = do
