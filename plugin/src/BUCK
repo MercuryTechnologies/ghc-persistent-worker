@@ -3,7 +3,12 @@
     "Args",
     "Cache",
     "Compile",
+    "CompileHpt",
+    "Debug",
     "Error",
     "Log",
+    "MakeFile",
+    "MakeFile/JSON",
+    "Metadata",
     "Session",
 ]]

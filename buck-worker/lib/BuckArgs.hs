@@ -104,8 +104,8 @@ options =
     withArg "--bin-exe" \ z a -> z {binPath = takeDirectory a : z.binPath},
     withArg "--worker-mode" \ z a -> z {mode = Just (parseMode a)},
     flag "--worker-multiplexer-custom" \ z -> z {multiplexerCustom = True},
-    ("-c", \ rest z -> Right (rest, z {mode = Just ModeCompile}))
-    -- skip "-c"
+    ("-c", \ rest z -> Right (rest, z {mode = Just ModeCompile})),
+    ("-M", \ rest z -> Right (rest, z {mode = Just ModeMetadata}))
   ]
   where
     addEnv z a = case z.envKey of
