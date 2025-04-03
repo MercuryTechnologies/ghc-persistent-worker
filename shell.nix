@@ -4,5 +4,6 @@ let
     sha256 = "07qjibn85hc6p8c7lwg00fwpyqjlmaxncz9wa2l6qpy1hsk51k8f";
   }) {};
 in pkgs.mkShell {
+  ghc_dir = "${pkgs.haskell.compiler.ghc910}";
   packages = [pkgs.haskell.compiler.ghc910 pkgs.zlib pkgs.zlib.dev pkgs.snappy pkgs.protobuf];
 }
