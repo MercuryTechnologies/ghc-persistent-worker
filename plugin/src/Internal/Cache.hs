@@ -114,7 +114,7 @@ data NamesStats =
 
 data StatsUpdate =
   StatsUpdate {
-    loader :: LoaderStats,
+    loaderStats :: LoaderStats,
     symbols :: SymbolsStats,
     names :: NamesStats
   }
@@ -123,7 +123,7 @@ data StatsUpdate =
 emptyStatsUpdate :: StatsUpdate
 emptyStatsUpdate =
   StatsUpdate {
-    loader = emptyLoaderStats,
+    loaderStats = emptyLoaderStats,
     symbols = SymbolsStats {new = 0},
     names = NamesStats {new = 0}
   }
@@ -352,8 +352,8 @@ pushStats :: Bool -> Target -> Maybe LoaderStats -> SymbolsStats -> NamesStats -
 pushStats restoring target (Just new) symbols names =
   modifyStats target add
   where
-    add old | restoring = old {restore = old.restore {loader = new, symbols, names}}
-            | otherwise = old {update = old.update {loader = new, symbols, names}}
+    add old | restoring = old {restore = old.restore {loaderStats = new, symbols, names}}
+            | otherwise = old {update = old.update {loaderStats = new, symbols, names}}
 pushStats _ _ _ _ _ =
   id
 
@@ -474,18 +474,18 @@ statsMessages CacheStats {restore, update, finder} =
   hang (text "Finder:") 2 finderStats
   where
       restoreStats =
-        text (show (length restore.loader.newBcos)) <+> text "BCOs" $$
-        text (show restore.loader.linker.newClosures) <+> text "closures" $$
+        text (show (length restore.loaderStats.newBcos)) <+> text "BCOs" $$
+        text (show restore.loaderStats.linker.newClosures) <+> text "closures" $$
         text (show restore.symbols.new) <+> text "symbols" $$
-        text (show restore.loader.sameBcos) <+> text "BCOs already in cache"
+        text (show restore.loaderStats.sameBcos) <+> text "BCOs already in cache"
 
-      newBcos = text <$> update.loader.newBcos
+      newBcos = text <$> update.loaderStats.newBcos
 
       updateStats =
         (if null newBcos then text "No new BCOs" else text "New BCOs:" <+> fsep (punctuate comma newBcos)) $$
-        text (show update.loader.linker.newClosures) <+> text "new closures" $$
+        text (show update.loaderStats.linker.newClosures) <+> text "new closures" $$
         text (show update.symbols.new) <+> text "new symbols" $$
-        text (show update.loader.sameBcos) <+> text "BCOs already in cache"
+        text (show update.loaderStats.sameBcos) <+> text "BCOs already in cache"
 
       finderStats =
         hang (text "Hits:") 2 (moduleColumns finder.hits) $$
