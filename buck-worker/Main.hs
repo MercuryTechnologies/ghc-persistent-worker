@@ -2,6 +2,8 @@
 
 module Main where
 
+import BuckArgs (BuckArgs (abiOut), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
+import BuckWorker (ExecuteCommand, ExecuteCommand'EnvironmentEntry, ExecuteEvent, ExecuteResponse, Worker (..), Instrument (..))
 import Control.Concurrent (MVar, modifyMVar_, newMVar)
 import Control.Concurrent.Async (async, cancel, wait)
 import Control.Concurrent.Chan (Chan, dupChan, readChan, newChan, writeChan)
@@ -43,8 +45,6 @@ import System.Exit (exitFailure)
 import System.FilePath (takeDirectory, (</>))
 import System.IO (BufferMode (LineBuffering), IOMode (..), hGetLine, hPutStrLn, hSetBuffering, stderr, stdout, hPutStr)
 
-import BuckArgs (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
-import BuckWorker (ExecuteCommand, ExecuteCommand'EnvironmentEntry, ExecuteEvent, ExecuteResponse, Worker (..), Instrument (..))
 import Proto.Worker_Fields qualified as Fields
 import Proto.Instrument_Fields qualified as Instr
 import qualified Proto.Instrument as Instr
@@ -54,6 +54,12 @@ data WorkerStatus =
     active :: Int
   }
 
+data WorkerMode =
+  WorkerMakeMode
+  |
+  WorkerOneshotMode
+  deriving stock (Eq, Show)
+
 commandEnv :: [Proto ExecuteCommand'EnvironmentEntry] -> Map String String
 commandEnv =
   Map.fromList .
@@ -61,12 +67,16 @@ commandEnv =
   where
     fromBs = Text.unpack . decodeUtf8Lenient
 
+-- | Compile a single module.
+-- Depending on @mode@ this will either use the old EPS-based oneshot-style compilation logic or the HPT-based
+-- make-style implementation.
 compileAndReadAbiHash ::
+  WorkerMode ->
   Chan (Proto Instr.Event) ->
   BuckArgs ->
   Target ->
   Ghc (Maybe CompileResult)
-compileAndReadAbiHash instrChan args target = do
+compileAndReadAbiHash _mode instrChan args target = do
 
   liftIO $ writeChan instrChan $
     defMessage &
@@ -128,10 +138,11 @@ debugRequestArgs = False
 execute ::
   MVar WorkerStatus ->
   MVar Cache ->
+  WorkerMode ->
   Chan (Proto Instr.Event) ->
   Proto ExecuteCommand ->
   IO (Proto ExecuteResponse)
-execute status cache instrChan req = do
+execute status cache mode instrChan req = do
   when debugRequestArgs do
     hPutStrLn stderr (unlines argv)
   msg <- either exceptionResponse successResponse =<< try run
@@ -157,7 +168,7 @@ execute status cache instrChan req = do
       bracket (startJob status) (finishJob status) \ _ -> do
         log <- newLog True
         let env = Env {log, cache, args}
-        result <- withGhc env (compileAndReadAbiHash instrChan buckArgs)
+        result <- withGhc env (compileAndReadAbiHash mode instrChan buckArgs)
         pure (env, buckArgs, result)
 
     successResponse (env, buckArgs, result) = do
@@ -193,12 +204,13 @@ exec _ =
 ghcServerMethods ::
   MVar WorkerStatus ->
   MVar Cache ->
+  WorkerMode ->
   Chan (Proto Instr.Event) ->
   Methods IO (ProtobufMethodsOf Worker)
-ghcServerMethods status cache instrChan =
+ghcServerMethods status cache mode instrChan =
   simpleMethods
     (mkClientStreaming exec)
-    (mkNonStreaming (execute status cache instrChan))
+    (mkNonStreaming (execute status cache mode instrChan))
 
 notifyMe ::
   Chan (Proto Instr.Event) ->
@@ -259,8 +271,8 @@ primarySocketDiscoveryIn :: FilePath -> PrimarySocketDiscoveryPath
 primarySocketDiscoveryIn dir = PrimarySocketDiscoveryPath (dir </> "primary")
 
 -- | Start a gRPC server that dispatches requests to GHC handlers.
-runLocalGhc :: ServerSocketPath -> Maybe InstrumentSocketPath -> IO ()
-runLocalGhc socket minstr = do
+runLocalGhc :: WorkerMode -> ServerSocketPath -> Maybe InstrumentSocketPath -> IO ()
+runLocalGhc mode socket minstr = do
   dbg ("Starting ghc server on " ++ socket.path)
 
   cache <- emptyCache True
@@ -271,12 +283,12 @@ runLocalGhc socket minstr = do
     dbg ("Instrumentation info available on " ++ instr.path)
     async $ runServerWithHandlers def (grpcServerConfig instr.path) $ fromMethods (instrumentMethods instrChan)
 
-  runServerWithHandlers def (grpcServerConfig socket.path) $ fromMethods (ghcServerMethods status cache instrChan)
+  runServerWithHandlers def (grpcServerConfig socket.path) $ fromMethods (ghcServerMethods status cache mode instrChan)
 
 -- | Start a gRPC server that runs GHC for client proxies, deleting the discovery file on shutdown.
-runCentralGhc :: PrimarySocketDiscoveryPath -> ServerSocketPath -> Maybe InstrumentSocketPath -> IO ()
-runCentralGhc discovery socket instr =
-  finally (runLocalGhc socket instr) do
+runCentralGhc :: WorkerMode -> PrimarySocketDiscoveryPath -> ServerSocketPath -> Maybe InstrumentSocketPath -> IO ()
+runCentralGhc mode discovery socket instr =
+  finally (runLocalGhc mode socket instr) do
     dbg ("Shutting down ghc server on " ++ socket.path)
     removeFile discovery.path
 
@@ -350,7 +362,8 @@ runOrProxyCentralGhc socket = do
       Right !primary | not (null primary) -> do
         pure (Left (PrimarySocketPath primary))
       _ -> do
-        thread <- async (runCentralGhc primaryFile socket instr)
+        let mode = WorkerOneshotMode
+        thread <- async (runCentralGhc mode primaryFile socket instr)
         hPutStr handle socket.path
         pure (Right thread)
   case result of
@@ -366,24 +379,28 @@ runOrProxyCentralGhc socket = do
 data CliOptions =
   CliOptions {
     -- | Should only a single central GHC server be run, with all other worker processes proxying it?
-    single :: Bool
+    single :: Bool,
+
+    -- | The worker implementation: Make mode or oneshot mode.
+    mode :: WorkerMode
   }
   deriving stock (Eq, Show)
 
 defaultCliOptions :: CliOptions
-defaultCliOptions = CliOptions {single = False}
+defaultCliOptions = CliOptions {single = False, mode = WorkerOneshotMode}
 
 parseOptions :: [String] -> IO CliOptions
 parseOptions =
   flip foldM defaultCliOptions \ z -> \case
     "--single" -> pure z {single = True}
+    "--make" -> pure z {mode = WorkerMakeMode}
     arg -> throwIO (userError ("Invalid worker CLI arg: " ++ arg))
 
 runWorker :: ServerSocketPath -> CliOptions -> IO ()
-runWorker socket CliOptions {single} =
+runWorker socket CliOptions {single, mode} =
   if single
   then runOrProxyCentralGhc socket
-  else runLocalGhc socket Nothing
+  else runLocalGhc mode socket Nothing
 
 main :: IO ()
 main = do
