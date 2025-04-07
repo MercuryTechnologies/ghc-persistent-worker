@@ -28,7 +28,7 @@ import GHC (Ghc, getSession)
 import GHC.IO.Handle.FD (withFileBlocking)
 import GHC.Stats (getRTSStats, RTSStats (..), GCDetails (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
-import Internal.Cache (Cache (..), ModuleArtifacts (..), Target (..), emptyCache)
+import Internal.Cache (Cache (..), CacheFeatures (..), ModuleArtifacts (..), Target (..), emptyCache, emptyCacheWith)
 import Internal.Compile (compile)
 import Internal.Log (dbg, logFlush, newLog)
 import Internal.Session (Env (..), withGhc)
@@ -275,7 +275,18 @@ runLocalGhc :: WorkerMode -> ServerSocketPath -> Maybe InstrumentSocketPath -> I
 runLocalGhc mode socket minstr = do
   dbg ("Starting ghc server on " ++ socket.path)
 
-  cache <- emptyCache True
+  cache <-
+    case mode of
+      WorkerMakeMode ->
+        emptyCacheWith CacheFeatures {
+          hpt = True,
+          loader = False,
+          enable = True,
+          names = False,
+          finder = True,
+          eps = False
+        }
+      WorkerOneshotMode -> emptyCache True
   status <- newMVar WorkerStatus {active = 0}
   instrChan <- newChan
 
@@ -412,5 +423,5 @@ main = do
   try (runWorker socket options) >>= \case
     Right () ->
       dbg "Worker terminated without cancellation."
-    Left (err :: SomeException) -> do
+    Left (err :: SomeException) ->
       dbg ("Worker terminated with exception: " ++ displayException err)
