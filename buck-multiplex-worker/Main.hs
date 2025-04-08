@@ -5,11 +5,10 @@ module Main where
 import BuckArgs (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
 import BuckWorker (
   ExecuteCommand (..),
-  ExecuteCommand_EnvironmentEntry (..),
+  ExecuteCommand'EnvironmentEntry (..),
   ExecuteEvent (..),
   ExecuteResponse (..),
   Worker (..),
-  workerServer,
   )
 import Control.Concurrent.MVar (MVar)
 import Control.Concurrent.STM (TVar, newTVarIO)
@@ -35,14 +34,6 @@ import Internal.Cache (Cache (..), ModuleArtifacts (..), emptyCache)
 import Internal.Log (newLog)
 import Internal.Session (Env (..), withGhc)
 import Message
-import Network.GRPC.HighLevel.Generated (
-  GRPCMethodType (..),
-  ServerRequest (..),
-  ServerResponse (..),
-  ServiceOptions (..),
-  StatusCode (..),
-  defaultServiceOptions,
-  )
 import Pool (Pool (..), dumpStatus, removeWorker)
 import Prelude hiding (log)
 import Server (assignLoop)
@@ -50,13 +41,14 @@ import System.Environment (lookupEnv)
 import System.IO (BufferMode (LineBuffering), hPutStrLn, hSetBuffering, stderr, stdout)
 import Worker (work)
 
-commandEnv :: Vector.Vector ExecuteCommand_EnvironmentEntry -> Map String String
-commandEnv =
-  Map.fromList .
-  fmap (\ (ExecuteCommand_EnvironmentEntry key value) -> (fromBs key, fromBs value)) .
-  Vector.toList
-  where
-    fromBs = Text.unpack . decodeUtf8Lenient
+commandEnv :: Vector.Vector ExecuteCommand'EnvironmentEntry -> Map String String
+commandEnv = undefined
+  -- THIS CODE IS NOT YET COMPATIBLE WITH grapesy yet.
+  -- Map.fromList .
+  -- fmap (\ (ExecuteCommand'EnvironmentEntry key value) -> (fromBs key, fromBs value)) .
+  --   Vector.toList
+  -- where
+  --   fromBs = Text.unpack . decodeUtf8Lenient
 
 abiHashIfSuccess :: Env -> BuckArgs -> Int -> IO (Maybe CompileResult)
 abiHashIfSuccess env args code
@@ -94,70 +86,78 @@ processRequest pool buckArgs env@Env {args} = do
       dumpStatus pool
       pure (result, unlines (responseConsoleStdOut ++ responseConsoleStdErr))
 
-executeHandler ::
-  MVar Cache ->
-  TVar Pool ->
-  ServerRequest 'Normal ExecuteCommand ExecuteResponse ->
-  IO (ServerResponse 'Normal ExecuteResponse)
-executeHandler cache pool (ServerNormalRequest _ ExecuteCommand {executeCommandArgv, executeCommandEnv}) = do
-  hPutStrLn stderr (unlines argv)
-  response <- either exceptionResponse successResponse =<< try run
-  pure (ServerNormalResponse response [] StatusOk "")
-  where
-    run = do
-      buckArgs <- either (throwIO . userError) pure (parseBuckArgs (commandEnv executeCommandEnv) argv)
-      args <- toGhcArgs buckArgs
-      log <- newLog False
-      result <- processRequest pool buckArgs Env {cache, args, log}
-      pure (buckArgs, result)
-
-    successResponse (buckArgs, (result, diagnostics)) = do
-      executeResponseExitCode <- writeResult buckArgs result
-      pure ExecuteResponse {
-        executeResponseExitCode,
-        executeResponseStderr = LazyText.pack diagnostics
-      }
-
-    exceptionResponse (SomeException e) =
-      pure ExecuteResponse {
-        executeResponseExitCode = 1,
-        executeResponseStderr = "Uncaught exception: " <> LazyText.pack (show e)
-      }
-
-    argv = Text.unpack . decodeUtf8Lenient <$> Vector.toList executeCommandArgv
-
-execHandler ::
-  ServerRequest 'ClientStreaming ExecuteEvent ExecuteResponse ->
-  IO (ServerResponse 'ClientStreaming ExecuteResponse)
-execHandler (ServerReaderRequest _metadata _recv) = do
-  hPutStrLn stderr "Received Exec"
-  error "not implemented"
-
-handlers :: MVar Cache -> TVar Pool -> Worker ServerRequest ServerResponse
-handlers cache srv =
-  Worker
-    { workerExecute = executeHandler cache srv,
-      workerExec = execHandler
-    }
-
 main :: IO ()
-main = do
-  hSetBuffering stdout LineBuffering
-  hSetBuffering stderr LineBuffering
-  socket <- lookupEnv "WORKER_SOCKET"
-  hPutStrLn stderr $ "using worker socket: " <> show socket
-  let
-    n = 1
-    thePool = Pool
-        { poolLimit = n,
-          poolNewWorkerId = 1,
-          poolNewJobId = 1,
-          poolStatus = mempty,
-          poolHandles = []
-        }
+main = pure ()
 
-  poolRef <- newTVarIO thePool
-  cache <- emptyCache False
-  workerServer (handlers cache poolRef) (maybe id setSocket socket defaultServiceOptions)
-  where
-    setSocket s options = options {serverHost = fromString ("unix://" <> s <> "\x00"), serverPort = 0}
+-- TODO: Revice the following code.
+--
+-- THE FOLLOWING CODE IS NOT COMPATIBLE WITH grapesy YET.
+--
+
+-- executeHandler ::
+--   MVar Cache ->
+--   TVar Pool ->
+--   ServerRequest 'Normal ExecuteCommand ExecuteResponse ->
+--   IO (ServerResponse 'Normal ExecuteResponse)
+-- executeHandler cache pool (ServerNormalRequest _ ExecuteCommand {executeCommandArgv, executeCommandEnv}) = do
+--   hPutStrLn stderr (unlines argv)
+--   response <- either exceptionResponse successResponse =<< try run
+--   pure (ServerNormalResponse response [] StatusOk "")
+--   where
+--     run = do
+--       buckArgs <- either (throwIO . userError) pure (parseBuckArgs (commandEnv executeCommandEnv) argv)
+--       args <- toGhcArgs buckArgs
+--       log <- newLog False
+--       result <- processRequest pool buckArgs Env {cache, args, log}
+--       pure (buckArgs, result)
+
+--     successResponse (buckArgs, (result, diagnostics)) = do
+--       executeResponseExitCode <- writeResult buckArgs result
+--       pure ExecuteResponse {
+--         executeResponseExitCode,
+--         executeResponseStderr = LazyText.pack diagnostics
+--       }
+
+--     exceptionResponse (SomeException e) =
+--       pure ExecuteResponse {
+--         executeResponseExitCode = 1,
+--         executeResponseStderr = "Uncaught exception: " <> LazyText.pack (show e)
+--       }
+
+--     argv = Text.unpack . decodeUtf8Lenient <$> Vector.toList executeCommandArgv
+
+-- execHandler ::
+--   ServerRequest 'ClientStreaming ExecuteEvent ExecuteResponse ->
+--   IO (ServerResponse 'ClientStreaming ExecuteResponse)
+-- execHandler (ServerReaderRequest _metadata _recv) = do
+--   hPutStrLn stderr "Received Exec"
+--   error "not implemented"
+
+-- handlers :: MVar Cache -> TVar Pool -> Worker ServerRequest ServerResponse
+-- handlers cache srv =
+--   Worker
+--     { workerExecute = executeHandler cache srv,
+--       workerExec = execHandler
+--     }
+
+-- main :: IO ()
+-- main = do
+--   hSetBuffering stdout LineBuffering
+--   hSetBuffering stderr LineBuffering
+--   socket <- lookupEnv "WORKER_SOCKET"
+--   hPutStrLn stderr $ "using worker socket: " <> show socket
+--   let
+--     n = 1
+--     thePool = Pool
+--         { poolLimit = n,
+--           poolNewWorkerId = 1,
+--           poolNewJobId = 1,
+--           poolStatus = mempty,
+--           poolHandles = []
+--         }
+
+--   poolRef <- newTVarIO thePool
+--   cache <- emptyCache False
+--   workerServer (handlers cache poolRef) (maybe id setSocket socket defaultServiceOptions)
+--   where
+--     setSocket s options = options {serverHost = fromString ("unix://" <> s <> "\x00"), serverPort = 0}
