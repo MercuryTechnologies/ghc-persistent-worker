@@ -39,6 +39,7 @@ import Internal.Cache (Cache (..), CacheFeatures (..), ModuleArtifacts (..), Tar
 import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (dbg, logFlush, newLog)
+import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhcMhu)
 import Network.GRPC.Client (Connection, Server (ServerUnix), recvNextOutput, sendFinalInput, withConnection, withRPC)
 import Network.GRPC.Common (NextElem (..), Proxy (..), def)

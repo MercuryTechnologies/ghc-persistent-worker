@@ -6,5 +6,8 @@
     "CompileHpt",
     "Error",
     "Log",
+    "MakeFile",
+    "MakeFile/JSON",
+    "Metadata",
     "Session",
 ]]
