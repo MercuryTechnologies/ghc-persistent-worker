@@ -2,7 +2,8 @@
 
 module Main where
 
-import BuckArgs (BuckArgs (abiOut), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
+import BuckArgs (BuckArgs (abiOut), CompileResult (..), Mode (..), parseBuckArgs, toGhcArgs, writeResult)
+import qualified BuckArgs (BuckArgs (mode))
 import BuckWorker (ExecuteCommand, ExecuteCommand'EnvironmentEntry, ExecuteEvent, ExecuteResponse, Worker (..), Instrument (..))
 import Control.Concurrent (MVar, modifyMVar_, newMVar)
 import Control.Concurrent.Async (async, cancel, wait)
@@ -19,35 +20,48 @@ import Control.Exception (
 import Control.Monad (foldM, void, when, forever)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
+import Data.Functor ((<&>))
+import Data.Int (Int32)
 import Data.List (dropWhileEnd)
 import Data.Map (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
+import GHC (DynFlags (..), Ghc, getSession)
+import GHC.Driver.DynFlags (GhcMode (..))
+import GHC.Driver.Env (hscUpdateFlags)
+import GHC.Driver.Monad (modifySession)
 import GHC (Ghc, getSession)
 import GHC.IO.Handle.FD (withFileBlocking)
-import GHC.Stats (getRTSStats, RTSStats (..), GCDetails (..))
+import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Cache (Cache (..), CacheFeatures (..), ModuleArtifacts (..), Target (..), emptyCache, emptyCacheWith)
-import Internal.Compile (compile)
+import Internal.Compile (compileModuleWithDepsInEps)
+import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (dbg, logFlush, newLog)
-import Internal.Session (Env (..), withGhc)
+import Internal.Session (Env (..), withGhcMhu)
 import Network.GRPC.Client (Connection, Server (ServerUnix), recvNextOutput, sendFinalInput, withConnection, withRPC)
 import Network.GRPC.Common (NextElem (..), Proxy (..), def)
 import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&), (.~), (^.))
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
-import Network.GRPC.Server.Run (InsecureConfig (InsecureUnix), ServerConfig (..), runServerWithHandlers)
-import Network.GRPC.Server.StreamType (Methods (Method, NoMoreMethods), fromMethods, mkClientStreaming, mkNonStreaming, mkServerStreaming, simpleMethods)
+import Network.GRPC.Server.Run (InsecureConfig (..), ServerConfig (..), runServerWithHandlers)
+import Network.GRPC.Server.StreamType (
+  Methods (..),
+  fromMethods,
+  mkClientStreaming,
+  mkNonStreaming,
+  mkServerStreaming,
+  simpleMethods,
+  )
 import Prelude hiding (log)
+import qualified Proto.Instrument as Instr
+import Proto.Instrument_Fields qualified as Instr
+import Proto.Worker_Fields qualified as Fields
 import System.Directory (createDirectory, removeFile)
 import System.Environment (getArgs, getEnv)
 import System.Exit (exitFailure)
 import System.FilePath (takeDirectory, (</>))
-import System.IO (BufferMode (LineBuffering), IOMode (..), hGetLine, hPutStrLn, hSetBuffering, stderr, stdout, hPutStr)
-
-import Proto.Worker_Fields qualified as Fields
-import Proto.Instrument_Fields qualified as Instr
-import qualified Proto.Instrument as Instr
+import System.IO (BufferMode (..), IOMode (..), hGetLine, hPutStr, hPutStrLn, hSetBuffering, stderr, stdout)
 
 data WorkerStatus =
   WorkerStatus {
@@ -74,15 +88,17 @@ compileAndReadAbiHash ::
   WorkerMode ->
   Chan (Proto Instr.Event) ->
   BuckArgs ->
+  [String] ->
   Target ->
   Ghc (Maybe CompileResult)
-compileAndReadAbiHash _mode instrChan args target = do
+compileAndReadAbiHash mode instrChan args specific target = do
 
   liftIO $ writeChan instrChan $
     defMessage &
       Instr.compileStart .~
         compileStart target.get
 
+  modifySession $ hscUpdateFlags \ d -> d {ghcMode}
   compile target >>= traverse \ artifacts -> do
     hsc_env <- getSession
     let
@@ -91,6 +107,27 @@ compileAndReadAbiHash _mode instrChan args target = do
         path <- args.abiOut
         Just AbiHash {path, hash = showAbiHash hsc_env artifacts.iface}
     pure CompileResult {artifacts, abiHash}
+  where
+    (ghcMode, compile) = case mode of
+      WorkerOneshotMode -> (OneShot, compileModuleWithDepsInEps)
+      WorkerMakeMode -> (CompManager, compileModuleWithDepsInHpt specific)
+
+-- | Process a worker request based on the operational mode specified in the request arguments, either compiling a
+-- single module for 'ModeCompile' (@-c@), or computing and writing the module graph to a JSON file for 'ModeMetadata'
+-- (@-M@).
+dispatch ::
+  WorkerMode ->
+  Chan (Proto Instr.Event) ->
+  Env ->
+  BuckArgs ->
+  IO Int32
+dispatch workerMode instrChan env args =
+  case args.mode of
+    Just ModeCompile -> do
+      result <- withGhcMhu env (compileAndReadAbiHash workerMode instrChan args)
+      writeResult args result
+    Just m -> error ("worker: mode not implemented: " ++ show m)
+    Nothing -> error "worker: no mode specified"
 
 compileStart :: String -> Proto Instr.CompileStart
 compileStart target =
@@ -168,11 +205,10 @@ execute status cache mode instrChan req = do
       bracket (startJob status) (finishJob status) \ _ -> do
         log <- newLog True
         let env = Env {log, cache, args}
-        result <- withGhc env (compileAndReadAbiHash mode instrChan buckArgs)
-        pure (env, buckArgs, result)
+        result <- dispatch mode instrChan env buckArgs
+        pure (env, result)
 
-    successResponse (env, buckArgs, result) = do
-      exitCode <- writeResult buckArgs result
+    successResponse (env, exitCode) = do
       output <- logFlush env.log
       pure $
         defMessage

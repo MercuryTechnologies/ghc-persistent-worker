@@ -21,7 +21,7 @@ import GHC.Runtime.Interpreter.Types (Interp (..), InterpInstance (..))
 import GHC.Settings.Config (cProjectVersion)
 import Internal.Args (Args (..), emptyArgs)
 import Internal.Cache (emptyCache)
-import Internal.Compile (compile)
+import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log, logFlushBytes, logToState, newLog)
 import Internal.Session (Env (..), withGhc)
@@ -160,7 +160,7 @@ workerImplCustom =
     use cache logVar args = do
       let env' = Env {log = logVar, cache, args = (emptyArgs mempty) {ghcOptions = sanitize args}}
       fmap (fromMaybe 2) $ withGhc env' \ target ->
-        compile target >>= \case
+        compileModuleWithDepsInEps target >>= \case
           Just _ -> pure (Just 0)
           Nothing -> pure (Just 1)
 

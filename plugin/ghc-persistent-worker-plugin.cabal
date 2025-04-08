@@ -29,6 +29,7 @@ library
                       Internal.Args
                       Internal.Cache
                       Internal.Compile
+                      Internal.CompileHpt
                       Internal.Error
                       Internal.Log
                       Internal.Session

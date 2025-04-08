@@ -3,6 +3,7 @@
     "Args",
     "Cache",
     "Compile",
+    "CompileHpt",
     "Error",
     "Log",
     "Session",
