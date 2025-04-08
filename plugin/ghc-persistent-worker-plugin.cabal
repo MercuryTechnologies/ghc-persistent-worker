@@ -16,6 +16,11 @@ extra-doc-files:    CHANGELOG.md
 common warnings
     ghc-options: -Wall
 
+flag mwb
+    description: use mwb-customized GHC
+    manual: True
+    default: False
+
 library
     import:           warnings
     hs-source-dirs:   src
@@ -42,6 +47,9 @@ library
 
     if (impl(ghc >= 9.8) && impl(ghc < 9.9))
         build-depends: base ^>=4.19
+
+    if (flag(mwb))
+        cpp-options: -DMWB
 
     build-depends:    binary,
                       bytestring,
