@@ -6,8 +6,11 @@ packages: ./plugin
           ./buck-worker
           ./buck-multiplex-worker
 
+-- For MWB-customized GHC, turn this on.
+-- flags: +mwb
+
 allow-newer:
-  proto-lens:base,
+  proto-lens:base
 
 if (impl(ghc >= 9.11))
   allow-newer:
