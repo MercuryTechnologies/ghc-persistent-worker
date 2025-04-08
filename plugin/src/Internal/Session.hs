@@ -42,13 +42,22 @@ import Internal.Log (Log (..), logToState)
 import Prelude hiding (log)
 import System.Environment (setEnv)
 
+-- | Worker state.
 data Env =
   Env {
+    -- | Logger used to receive messages from GHC and relay them to Buck.
     log :: MVar Log,
+
+    -- | Parts of @HscEnv@ we share between sessions.
     cache :: MVar Cache,
+
+    -- | Preprocessed command line args from Buck.
     args :: Args
   }
 
+-- | Add all the directories passed by Buck in @--bin-path@ options to the global @$PATH@.
+-- Although Buck intends these to be module specific, all subsequent compile jobs will see all previous jobs' entries,
+-- since we only have one process environment.
 setupPath :: Args -> Cache -> IO Cache
 setupPath args old = do
   setEnv "PATH" (intercalate ":" (toList path.extra ++ maybeToList path.initial))
@@ -68,6 +77,8 @@ setTempDir dir = hscUpdateFlags \ dflags -> dflags {tmpDir = TempDir dir}
 dummyLocation :: a -> Located a
 dummyLocation = mkGeneralLocated "by Buck2"
 
+-- | Parse command line flags into @DynFlags@ and set up the logger. Extracted from GHC.
+-- Returns the subset of args that have not been recognized as options.
 parseFlags :: [Located String] -> Ghc (DynFlags, Logger, [Located String], DriverMessages)
 parseFlags argv = do
   dflags0 <- GHC.getSessionDynFlags
@@ -77,6 +88,8 @@ parseFlags argv = do
   (dflags, fileish_args, dynamicFlagWarnings) <- parseDynamicFlags logger2 dflags1 argv
   pure (dflags, setLogFlags logger2 (initLogFlags dflags), fileish_args, dynamicFlagWarnings)
 
+-- | Parse CLI args and set up the GHC session.
+-- Returns the subset of args that have not been recognized as options.
 initGhc ::
   DynFlags ->
   Logger ->
@@ -92,6 +105,10 @@ initGhc dflags0 logger fileish_args dynamicFlagWarnings = do
   where
     flagWarnings' = GhcDriverMessage <$> dynamicFlagWarnings
 
+-- | Run a program with a fresh session constructed from command line args.
+-- Passes the unprocessed args to the callback, which usually consist of the file or module names intended for
+-- compilation.
+-- In a Buck compile step these should always be a single path, but in the metadata step they enumerate an entire unit.
 withGhcInSession :: Env -> ([(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
 withGhcInSession env prog argv = do
   pushLogHookM (const (logToState env.log))
@@ -100,6 +117,9 @@ withGhcInSession env prog argv = do
     srcs <- initGhc dflags0 logger fileish_args dynamicFlagWarnings
     prog srcs
 
+-- | Create a base session and store it in the cache.
+-- On subsequent calls, return the cached session, unless the cache is disabled or @reuse@ is true.
+-- This will at some point be replaced by more deliberate methods.
 ensureSession :: MVar Cache -> Args -> IO HscEnv
 ensureSession cacheVar args =
   modifyMVar cacheVar \ cache -> do
@@ -108,6 +128,8 @@ ensureSession cacheVar args =
     then pure (cache {baseSession = Just newEnv}, newEnv)
     else pure (cache, newEnv)
 
+-- | Run a @Ghc@ program to completion with a fresh clone of the base session.
+-- See 'ensureSession' for @reuse@.
 runSession :: Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
 runSession Env {log, args, cache} prog = do
   modifyMVar_ cache (setupPath args)
@@ -117,12 +139,16 @@ runSession Env {log, args, cache} prog = do
     traverse_ (modifySession . setTempDir) args.tempDir
     handleExceptions log Nothing (prog (map dummyLocation args.ghcOptions))
 
+-- | When compiling a module, the leftover arguments from parsing @DynFlags@ should be a single source file path.
+-- Wrap it in 'Target' or terminate.
 ensureSingleTarget :: [(String, Maybe Phase)] -> Ghc Target
 ensureSingleTarget = \case
   [(src, Nothing)] -> pure (Target src)
   [(_, phase)] -> panic ("Called worker with unexpected start phase: " ++ show phase)
   args -> panic ("Called worker with multiple targets: " ++ show args)
 
+-- | Run a @Ghc@ program to completion with a fresh clone of the base session, wrapped in a handler operating on a
+-- compilation target.
 withGhcUsingCache :: (Target -> Ghc a -> Ghc (Maybe b)) -> Env -> (Target -> Ghc a) -> IO (Maybe b)
 withGhcUsingCache cacheHandler env prog =
   runSession env $ withGhcInSession env \ srcs -> do
@@ -131,6 +157,8 @@ withGhcUsingCache cacheHandler env prog =
       initializeSessionPlugins
       prog target
 
+-- | Run a @Ghc@ program to completion with a fresh clone of the base session augmented by some persisted state.
+-- This is a compat shim for the multiplex worker.
 withGhc :: Env -> (Target -> Ghc (Maybe a)) -> IO (Maybe a)
 withGhc env =
   withGhcUsingCache cacheHandler env
@@ -143,6 +171,8 @@ withGhc env =
           pure (Nothing, a)
       pure (snd <$> result)
 
+-- | Run a @Ghc@ program to completion with a fresh clone of the base session augmented by some persisted state.
+-- Return the interface and bytecode.
 withGhcDefault :: Env -> (Target -> Ghc (Maybe (Maybe ModuleArtifacts, a))) -> IO (Maybe (Maybe ModuleArtifacts, a))
 withGhcDefault env =
   withGhcUsingCache (withCache env.log env.args.workerTargetId env.cache) env
