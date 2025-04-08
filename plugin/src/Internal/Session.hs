@@ -5,7 +5,7 @@ import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (toList, traverse_)
 import Data.IORef (newIORef)
-import Data.List (intercalate)
+import Data.List (intercalate, isPrefixOf)
 import Data.List.NonEmpty (nonEmpty)
 import Data.Maybe (maybeToList)
 import qualified Data.Set as Set
@@ -82,7 +82,7 @@ dummyLocation = mkGeneralLocated "by Buck2"
 parseFlags :: [Located String] -> Ghc (DynFlags, Logger, [Located String], DriverMessages)
 parseFlags argv = do
   dflags0 <- GHC.getSessionDynFlags
-  let dflags1 = dflags0 {ghcMode = OneShot, ghcLink = LinkBinary, verbosity = 0}
+  let dflags1 = dflags0 {ghcLink = LinkBinary, verbosity = 0}
   logger1 <- getLogger
   let logger2 = setLogFlags logger1 (initLogFlags dflags1)
   (dflags, fileish_args, dynamicFlagWarnings) <- parseDynamicFlags logger2 dflags1 argv
@@ -120,20 +120,23 @@ withGhcInSession env prog argv = do
 -- | Create a base session and store it in the cache.
 -- On subsequent calls, return the cached session, unless the cache is disabled or @reuse@ is true.
 -- This will at some point be replaced by more deliberate methods.
-ensureSession :: MVar Cache -> Args -> IO HscEnv
-ensureSession cacheVar args =
+ensureSession :: Bool -> MVar Cache -> Args -> IO HscEnv
+ensureSession reuse cacheVar args =
   modifyMVar cacheVar \ cache -> do
-    newEnv <- maybe (initHscEnv args.topdir) pure cache.baseSession
-    if cache.features.enable
-    then pure (cache {baseSession = Just newEnv}, newEnv)
-    else pure (cache, newEnv)
+    if cache.features.enable && reuse
+    then do
+      newEnv <- maybe (initHscEnv args.topdir) pure cache.baseSession
+      pure (cache {baseSession = Just newEnv}, newEnv)
+    else do
+      newEnv <- initHscEnv args.topdir
+      pure (cache, newEnv)
 
 -- | Run a @Ghc@ program to completion with a fresh clone of the base session.
 -- See 'ensureSession' for @reuse@.
-runSession :: Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
-runSession Env {log, args, cache} prog = do
+runSession :: Bool -> Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
+runSession reuse Env {log, args, cache} prog = do
   modifyMVar_ cache (setupPath args)
-  hsc_env <- ensureSession cache args
+  hsc_env <- ensureSession reuse cache args
   session <- Session <$> newIORef hsc_env
   flip unGhc session $ withSignalHandlers do
     traverse_ (modifySession . setTempDir) args.tempDir
@@ -151,7 +154,7 @@ ensureSingleTarget = \case
 -- compilation target.
 withGhcUsingCache :: (Target -> Ghc a -> Ghc (Maybe b)) -> Env -> (Target -> Ghc a) -> IO (Maybe b)
 withGhcUsingCache cacheHandler env prog =
-  runSession env $ withGhcInSession env \ srcs -> do
+  runSession True env $ withGhcInSession env \ srcs -> do
     target <- ensureSingleTarget srcs
     cacheHandler target do
       initializeSessionPlugins
@@ -176,3 +179,106 @@ withGhc env =
 withGhcDefault :: Env -> (Target -> Ghc (Maybe (Maybe ModuleArtifacts, a))) -> IO (Maybe (Maybe ModuleArtifacts, a))
 withGhcDefault env =
   withGhcUsingCache (withCache env.log env.args.workerTargetId env.cache) env
+
+
+-- | Command line args that have to be stored in the current home unit env.
+-- These are specified as a single program argument with their option argument, without whitespace in between.
+specificPrefixSwitches :: [String]
+specificPrefixSwitches =
+  [
+    "-i"
+  ]
+
+-- | Command line args that have to be stored in the current home unit env.
+specificSwitches :: [String]
+specificSwitches =
+  [
+    "-o",
+    "-dyno",
+    "-ohi",
+    "-dynohi",
+    "-this-unit-id",
+    "-package",
+    "-package-id",
+    "-stubdir"
+  ]
+
+-- | Indicate whether the CLI arg starts with any of the values in 'specificPrefixSwitches'.
+isSpecificPrefix :: String -> Bool
+isSpecificPrefix arg =
+  any (`isPrefixOf` arg) specificPrefixSwitches
+
+-- | Indicate whether the CLI arg is in 'specificSwitches'.
+isSpecific :: String -> Bool
+isSpecific =
+  flip elem specificSwitches
+
+-- | Separate the command line given by Buck into options pertaining to the target home unit and the rest.
+-- Write the rest back to the 'Env' passed to the continuation for processing as global args, and pass the home unit
+-- specific args as the second argument to the continuation.
+--
+-- @-hide-all-packages@ is removed entirely, which may be obsolete.
+-- @-this-unit-id@ is added to both parts, since the global session is always initialized with a default session.
+withUnitSpecificOptions :: Bool -> Env -> (Env -> [String] -> [Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
+withUnitSpecificOptions reuse env use =
+  runSession reuse env1 $ use env1 specific
+  where
+    env1 = env {args = env.args {ghcOptions = general}}
+    (general, specific) = spin ([], []) env.args.ghcOptions
+
+    spin (g, s) = \case
+      [] -> (reverse g, reverse s)
+      "-hide-all-packages" : rest
+        -> spin (g, s) rest
+      "-this-unit-id" : uid : rest
+        -> spin (uid : "-this-unit-id" : g, uid : "-this-unit-id" : s) rest
+      switch : arg : rest
+        | isSpecific switch
+        -> spin (g, arg : switch : s) rest
+      arg : rest
+        | isSpecificPrefix arg
+        -> spin (g, arg : s) rest
+        | otherwise
+        -> spin (arg : g, s) rest
+
+-- | Run a GHC session with multiple home unit support, separating the CLI args for the current unit from the rest.
+withGhcInSessionMhu ::
+  Env ->
+  ([String] -> [(String, Maybe Phase)] -> Ghc (Maybe a)) ->
+  IO (Maybe a)
+withGhcInSessionMhu env prog =
+  withUnitSpecificOptions True env \ env1 specific -> withGhcInSession env1 (prog specific)
+
+-- | Like @withGhcInSessionMhu@, but wrap with the given function operating on the current target for caching purposes.
+withGhcUsingCacheMhu ::
+  (Target -> Ghc a -> Ghc (Maybe b)) ->
+  Env ->
+  ([String] -> Target -> Ghc a) ->
+  IO (Maybe b)
+withGhcUsingCacheMhu cacheHandler env prog =
+  withGhcInSessionMhu env \ specific srcs -> do
+    target <- ensureSingleTarget srcs
+    cacheHandler target do
+      initializeSessionPlugins
+      prog specific target
+
+-- | Like @withGhcUsingCacheMhu@, using the default cache handler @withCache@.
+withGhcMhu :: Env -> ([String] -> Target -> Ghc (Maybe a)) -> IO (Maybe a)
+withGhcMhu env =
+  withGhcUsingCacheMhu cacheHandler env
+  where
+    cacheHandler target prog = do
+      result <- withCache env.log env.args.workerTargetId env.cache target do
+        res <- prog
+        pure do
+          a <- res
+          pure (Nothing, a)
+      pure (snd <$> result)
+
+-- | Like @withGhcMhu@, specialized to @ModuleArtifacts@.
+withGhcMhuDefault ::
+  Env ->
+  ([String] -> Target -> Ghc (Maybe (Maybe ModuleArtifacts, a))) ->
+  IO (Maybe (Maybe ModuleArtifacts, a))
+withGhcMhuDefault env =
+  withGhcUsingCacheMhu (withCache env.log env.args.workerTargetId env.cache) env
