@@ -13,7 +13,6 @@ import GHC (
   DynFlags (..),
   Ghc,
   GhcLink (LinkBinary),
-  GhcMode (OneShot),
   Phase,
   getSessionDynFlags,
   parseDynamicFlags,
@@ -179,7 +178,6 @@ withGhc env =
 withGhcDefault :: Env -> (Target -> Ghc (Maybe (Maybe ModuleArtifacts, a))) -> IO (Maybe (Maybe ModuleArtifacts, a))
 withGhcDefault env =
   withGhcUsingCache (withCache env.log env.args.workerTargetId env.cache) env
-
 
 -- | Command line args that have to be stored in the current home unit env.
 -- These are specified as a single program argument with their option argument, without whitespace in between.

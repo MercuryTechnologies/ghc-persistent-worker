@@ -4,20 +4,19 @@ module Main where
 
 import BuckArgs (BuckArgs (abiOut), CompileResult (..), Mode (..), parseBuckArgs, toGhcArgs, writeResult)
 import qualified BuckArgs (BuckArgs (mode))
-import BuckWorker (ExecuteCommand, ExecuteCommand'EnvironmentEntry, ExecuteEvent, ExecuteResponse, Worker (..), Instrument (..))
+import BuckWorker (
+  ExecuteCommand,
+  ExecuteCommand'EnvironmentEntry,
+  ExecuteEvent,
+  ExecuteResponse,
+  Instrument (..),
+  Worker (..),
+  )
 import Control.Concurrent (MVar, modifyMVar_, newMVar)
 import Control.Concurrent.Async (async, cancel, wait)
-import Control.Concurrent.Chan (Chan, dupChan, readChan, newChan, writeChan)
-import Control.Exception (
-  Exception (displayException),
-  SomeException (SomeException),
-  bracket,
-  finally,
-  onException,
-  throwIO,
-  try,
-  )
-import Control.Monad (foldM, void, when, forever)
+import Control.Concurrent.Chan (Chan, dupChan, newChan, readChan, writeChan)
+import Control.Exception (Exception (..), SomeException (..), bracket, finally, onException, throwIO, try)
+import Control.Monad (foldM, forever, void, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
 import Data.Functor ((<&>))
@@ -31,7 +30,6 @@ import GHC (DynFlags (..), Ghc, getSession)
 import GHC.Driver.DynFlags (GhcMode (..))
 import GHC.Driver.Env (hscUpdateFlags)
 import GHC.Driver.Monad (modifySession)
-import GHC (Ghc, getSession)
 import GHC.IO.Handle.FD (withFileBlocking)
 import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import Internal.AbiHash (AbiHash (..), showAbiHash)
@@ -41,7 +39,7 @@ import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (dbg, logFlush, newLog)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhcMhu)
-import Network.GRPC.Client (Connection, Server (ServerUnix), recvNextOutput, sendFinalInput, withConnection, withRPC)
+import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
 import Network.GRPC.Common (NextElem (..), Proxy (..), def)
 import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&), (.~), (^.))
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
@@ -311,7 +309,6 @@ primarySocketDiscoveryIn dir = PrimarySocketDiscoveryPath (dir </> "primary")
 runLocalGhc :: WorkerMode -> ServerSocketPath -> Maybe InstrumentSocketPath -> IO ()
 runLocalGhc mode socket minstr = do
   dbg ("Starting ghc server on " ++ socket.path)
-
   cache <-
     case mode of
       WorkerMakeMode ->
