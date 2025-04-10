@@ -2,7 +2,8 @@
 
 module Main where
 
-import BuckArgs (BuckArgs (..), CompileResult (..), Mode (..), parseBuckArgs, toGhcArgs, writeResult)
+import BuckArgs (BuckArgs, CompileResult (..), Mode (..), parseBuckArgs, toGhcArgs, writeResult)
+import qualified BuckArgs as BuckArgs
 import BuckWorker (
   ExecuteCommand,
   ExecuteCommand'EnvironmentEntry,
@@ -32,7 +33,7 @@ import GHC.Driver.Monad (modifySession)
 import GHC.IO.Handle.FD (withFileBlocking)
 import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import Internal.AbiHash (AbiHash (..), showAbiHash)
-import Internal.Cache (Cache (..), CacheFeatures (..), ModuleArtifacts (..), Target (..), emptyCacheWith)
+import Internal.Cache (Cache (..), CacheFeatures (..), ModuleArtifacts (..), Target (..), emptyCache, emptyCacheWith)
 import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (dbg, logFlush, newLog)
@@ -107,7 +108,7 @@ compileAndReadAbiHash mode instrChan args specific target = do
     pure CompileResult {artifacts, abiHash}
   where
     (ghcMode, compile) = case mode of
-      WorkerOneshotMode -> (OneShot, compileModuleWithDepsInEps)
+      WorkerOneshotMode -> (OneShot, const compileModuleWithDepsInEps)
       WorkerMakeMode -> (CompManager, compileModuleWithDepsInHpt)
 
 -- | Process a worker request based on the operational mode specified in the request arguments, either compiling a
@@ -399,8 +400,8 @@ proxyServer primary socket = do
 --   later in the build due to dependencies and/or parallelism limits, the contents of the `primary` file are read to
 --   obtain the primary's socket path.
 --   A gRPC server is started that resends all requests to that socket.
-runOrProxyCentralGhc :: ServerSocketPath -> IO ()
-runOrProxyCentralGhc socket = do
+runOrProxyCentralGhc :: WorkerMode -> ServerSocketPath -> IO ()
+runOrProxyCentralGhc mode socket = do
   void $ try @IOError (createDirectory dir)
   result <- withFileBlocking primaryFile.path ReadWriteMode \ handle -> do
     try @IOError (hGetLine handle) >>= \case
@@ -410,7 +411,7 @@ runOrProxyCentralGhc socket = do
       Right !primary | not (null primary) -> do
         pure (Left (PrimarySocketPath primary))
       _ -> do
-        thread <- async (runCentralGhc primaryFile socket instr)
+        thread <- async (runCentralGhc mode primaryFile socket instr)
         hPutStr handle socket.path
         pure (Right thread)
   case result of
@@ -446,8 +447,8 @@ parseOptions =
 runWorker :: ServerSocketPath -> CliOptions -> IO ()
 runWorker socket CliOptions {single, mode} =
   if single
-  then runOrProxyCentralGhc socket mode
-  else runLocalGhc socket mode Nothing
+  then runOrProxyCentralGhc mode socket
+  else runLocalGhc mode socket Nothing
 
 main :: IO ()
 main = do
