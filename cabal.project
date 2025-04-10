@@ -18,6 +18,9 @@ if (impl(ghc >= 9.11))
   constraints:
     extra == 1.8
 
+constraints:
+  digest == 0.0.2.0
+
 index-state: 2025-01-29T13:43:26Z
 
 source-repository-package
