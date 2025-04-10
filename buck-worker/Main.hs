@@ -2,8 +2,8 @@
 
 module Main where
 
-import BuckArgs (BuckArgs, CompileResult (..), Mode (..), parseBuckArgs, toGhcArgs, writeResult)
 import qualified BuckArgs as BuckArgs
+import BuckArgs (BuckArgs, CompileResult (..), Mode (..), parseBuckArgs, toGhcArgs, writeResult)
 import BuckWorker (
   ExecuteCommand,
   ExecuteCommand'EnvironmentEntry,
@@ -38,7 +38,7 @@ import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (dbg, logFlush, newLog)
 import Internal.Metadata (computeMetadata)
-import Internal.Session (Env (..), withGhcMhu)
+import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
 import Network.GRPC.Common (NextElem (..), Proxy (..), def)
 import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&), (.~), (^.))
@@ -84,13 +84,13 @@ commandEnv =
 -- Depending on @mode@ this will either use the old EPS-based oneshot-style compilation logic or the HPT-based
 -- make-style implementation.
 compileAndReadAbiHash ::
-  WorkerMode ->
+  GhcMode ->
+  (Target -> Ghc (Maybe ModuleArtifacts)) ->
   Chan (Proto Instr.Event) ->
   BuckArgs ->
-  [String] ->
   Target ->
   Ghc (Maybe CompileResult)
-compileAndReadAbiHash mode instrChan args specific target = do
+compileAndReadAbiHash ghcMode compile instrChan args target = do
 
   liftIO $ writeChan instrChan $
     defMessage &
@@ -98,7 +98,7 @@ compileAndReadAbiHash mode instrChan args specific target = do
         compileStart target.get
 
   modifySession $ hscUpdateFlags \ d -> d {ghcMode}
-  compile specific target >>= traverse \ artifacts -> do
+  compile target >>= traverse \ artifacts -> do
     hsc_env <- getSession
     let
       abiHash :: Maybe AbiHash
@@ -106,10 +106,6 @@ compileAndReadAbiHash mode instrChan args specific target = do
         path <- args.abiOut
         Just AbiHash {path, hash = showAbiHash hsc_env artifacts.iface}
     pure CompileResult {artifacts, abiHash}
-  where
-    (ghcMode, compile) = case mode of
-      WorkerOneshotMode -> (OneShot, const compileModuleWithDepsInEps)
-      WorkerMakeMode -> (CompManager, compileModuleWithDepsInHpt)
 
 -- | Process a worker request based on the operational mode specified in the request arguments, either compiling a
 -- single module for 'ModeCompile' (@-c@), or computing and writing the module graph to a JSON file for 'ModeMetadata'
@@ -123,7 +119,7 @@ dispatch ::
 dispatch workerMode instrChan env args =
   case args.mode of
     Just ModeCompile -> do
-      result <- withGhcMhu env (compileAndReadAbiHash workerMode instrChan args)
+      result <- compile
       writeResult args result
     Just ModeMetadata ->
       computeMetadata env <&> \case
@@ -131,6 +127,13 @@ dispatch workerMode instrChan env args =
         False -> 1
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
+  where
+    compile = case workerMode of
+      WorkerOneshotMode ->
+        withGhc env (compileAndReadAbiHash OneShot compileModuleWithDepsInEps instrChan args)
+      WorkerMakeMode ->
+        withGhcMhu env \ specific ->
+          compileAndReadAbiHash CompManager (compileModuleWithDepsInHpt specific) instrChan args
 
 compileStart :: String -> Proto Instr.CompileStart
 compileStart target =
