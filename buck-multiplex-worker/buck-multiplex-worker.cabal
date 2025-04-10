@@ -8,18 +8,33 @@ build-type: Simple
 
 executable multiplex-worker
   main-is: Main.hs
+  other-modules:
+    Message
+    Pool
+    Server
+    Util
+    Worker
   hs-source-dirs: .
   ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages -threaded -rtsopts -with-rtsopts=-N
   build-depends:
     base ==4.*,
+    binary,
+    bytestring,
     containers,
+    deepseq,
+    directory,
+    extra,
+    filepath,
     ghc,
-    ghc-persistent-worker-comm,
     ghc-persistent-worker-plugin,
-    ghc-persistent-worker-server,
+    network,
+    optparse-applicative,
+    process,
     stm,
     text,
+    time,
     transformers,
+    unix,
     vector,
     buck-worker
   default-language: GHC2021

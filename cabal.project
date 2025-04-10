@@ -1,6 +1,4 @@
 packages: ./plugin
-          ./comm
-          ./server
           ./instrument
           ./buck-worker
           ./buck-multiplex-worker
