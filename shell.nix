@@ -5,5 +5,5 @@ let
   }) {};
 in pkgs.mkShell {
   ghc_dir = "${pkgs.haskell.compiler.ghc910}";
-  packages = [pkgs.haskell.compiler.ghc910 pkgs.zlib pkgs.zlib.dev pkgs.snappy pkgs.protobuf];
+  packages = [pkgs.haskell.compiler.ghc910 pkgs.zlib pkgs.zlib.dev pkgs.zstd pkgs.snappy pkgs.protobuf];
 }
