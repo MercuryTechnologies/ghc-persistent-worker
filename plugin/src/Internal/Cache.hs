@@ -39,7 +39,7 @@ import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuat
 import Internal.Log (Log, logd)
 import System.Environment (lookupEnv)
 
-#if __GLASGOW_HASKELL__ >= 911 || defined(MWB)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 
 import Data.IORef (IORef, newIORef)
 import qualified Data.Map.Lazy as LazyMap
@@ -185,7 +185,7 @@ data BinPath =
   }
   deriving stock (Eq, Show)
 
-#if __GLASGOW_HASKELL__ >= 911 || defined(MWB)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 
 data FinderState =
   FinderState {
@@ -541,7 +541,7 @@ report logVar workerId target cache = do
 
     workerDesc wid = text (" (" ++ wid ++ ")")
 
-#if __GLASGOW_HASKELL__ >= 911 || defined(MWB)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 
 -- | This replacement of the Finder implementation has the sole purpose of recording some cache stats, for now.
 -- While its mutable state is allocated separately and shared across sessions, this doesn't really make a difference at
@@ -600,7 +600,7 @@ newFinderCache _ Cache {finder = FinderState {cache}} _ = pure cache
 
 withHscState :: HscEnv -> (MVar OrigNameCache -> MVar (Maybe LoaderState) -> MVar SymbolMap -> IO a) -> IO (Maybe a)
 withHscState HscEnv {hsc_interp, hsc_NC = NameCache {nsNames}} use =
-#if __GLASGOW_HASKELL__ >= 911 || defined(MWB)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
   for hsc_interp \ Interp {interpLoader = Loader {loader_state}, interpLookupSymbolCache} ->
     liftIO $ use nsNames loader_state interpLookupSymbolCache
 #else
