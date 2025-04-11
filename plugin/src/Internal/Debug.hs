@@ -14,7 +14,7 @@ import GHC.Unit.Module.Graph (ModuleGraph)
 import GHC.Utils.Outputable (Outputable, SDoc, comma, hang, hcat, ppr, punctuate, text, vcat, (<+>))
 import System.FilePath (takeDirectory, takeFileName)
 
-#if __GLASGOW_HASKELL__ < 911 && !defined(MWB)
+#if !MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) && !defined(MWB)
 
 import Data.Foldable (toList)
 import GHC.Unit.Module.Graph (mgTransDeps)
@@ -42,7 +42,7 @@ showMap ::
 showMap pprB m =
   vcat [ppr from <+> text "->" <+> (pprB to) | (from, to) <- m]
 
-#if __GLASGOW_HASKELL__ < 911 && !defined(MWB)
+#if !MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) && !defined(MWB)
 
 showModGraph :: ModuleGraph -> SDoc
 showModGraph g =

@@ -63,7 +63,7 @@ import GHC.Driver.Make (downsweep)
 import GHC.Types.Error (unionManyMessages)
 import GHC.Unit (homeUnitId)
 
-#if __GLASGOW_HASKELL__ < 910
+#if !MIN_VERSION_GLASGOW_HASKELL(9,10,0,0)
 import GHC.Utils.Panic.Plain
 #endif
 

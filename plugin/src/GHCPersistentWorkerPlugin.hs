@@ -30,7 +30,7 @@ import System.Environment (setEnv)
 import System.IO (BufferMode (..), Handle, hFlush, hGetLine, hPutStrLn, hSetBuffering, stderr, stdin, stdout)
 import Text.Read (readMaybe)
 
-#if __GLASGOW_HASKELL__ >= 911 || defined(MWB)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 import Control.Concurrent.MVar (newMVar)
 import GHC.Types.Unique.FM (emptyUFM)
 #endif
@@ -116,7 +116,7 @@ workerImplDefault =
       GHC.initGhcMonad Nothing
       -- explicitly initialize loader.
       loader <- liftIO Loader.uninitializedLoader
-#if __GLASGOW_HASKELL__ >= 911 || defined(MWB)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
       lookup_cache <- liftIO $ newMVar emptyUFM
       let interp = Interp InternalInterp loader lookup_cache
 #else
