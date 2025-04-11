@@ -88,7 +88,6 @@ compileAndReadAbiHash ::
   (Target -> Ghc (Maybe ModuleArtifacts)) ->
   Chan (Proto Instr.Event) ->
   BuckArgs ->
-  [String] ->
   Target ->
   Ghc (Maybe CompileResult)
 compileAndReadAbiHash ghcMode compile instrChan args target = do
@@ -107,27 +106,6 @@ compileAndReadAbiHash ghcMode compile instrChan args target = do
         path <- args.abiOut
         Just AbiHash {path, hash = showAbiHash hsc_env artifacts.iface}
     pure CompileResult {artifacts, abiHash}
-  where
-    (ghcMode, compile) = case mode of
-      WorkerOneshotMode -> (OneShot, compileModuleWithDepsInEps)
-      WorkerMakeMode -> (CompManager, compileModuleWithDepsInHpt specific)
-
--- | Process a worker request based on the operational mode specified in the request arguments, either compiling a
--- single module for 'ModeCompile' (@-c@), or computing and writing the module graph to a JSON file for 'ModeMetadata'
--- (@-M@).
-dispatch ::
-  WorkerMode ->
-  Chan (Proto Instr.Event) ->
-  Env ->
-  BuckArgs ->
-  IO Int32
-dispatch workerMode instrChan env args =
-  case args.mode of
-    Just ModeCompile -> do
-      result <- withGhcMhu env (compileAndReadAbiHash workerMode instrChan args)
-      writeResult args result
-    Just m -> error ("worker: mode not implemented: " ++ show m)
-    Nothing -> error "worker: no mode specified"
 
 -- | Process a worker request based on the operational mode specified in the request arguments, either compiling a
 -- single module for 'ModeCompile' (@-c@), or computing and writing the module graph to a JSON file for 'ModeMetadata'
