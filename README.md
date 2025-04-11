@@ -22,6 +22,7 @@ The system consists of three components.
 * **ghc-persistent-worker-client**: GHC Client. The CLI arguments of this client is identical
   to ordinary GHC and it sends those arguments to the server.
 
+
 To start:
 ```
 $ cabal install --lib ghc-persistent-worker-plugin
