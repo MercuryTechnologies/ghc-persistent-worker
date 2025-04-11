@@ -36,7 +36,7 @@ import GHC.Utils.Misc
 import GHC.Utils.Outputable
 import System.FilePath (normalise)
 
-#if !defined(BUCK)
+#if !defined(MWB)
 import GHC.Data.FastString (lexicalCompareFS)
 
 instance Ord PackageId where
