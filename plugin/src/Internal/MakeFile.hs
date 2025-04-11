@@ -89,19 +89,6 @@ doMkDependHS srcs = do
     -- Initialisation
     dflags0 <- GHC.getSessionDynFlags
 
-    -- We kludge things a bit for dependency generation. Rather than
-    -- generating dependencies for each way separately, we generate
-    -- them once and then duplicate them for each way's osuf/hisuf.
-    -- We therefore do the initial dependency generation with an empty
-    -- way and .o/.hi extensions, regardless of any flags that might
-    -- be specified.
-    let dflags1 = dflags0
-            { targetWays_ = Set.empty
-            , hiSuf_      = "hi"
-            , objectSuf_  = "o"
-            }
-    -- GHC.setSessionDynFlags dflags1
-
     -- If no suffix is provided, use the default -- the empty one
     let dflags = if null (depSuffixes dflags0)
                  then dflags0 { depSuffixes = [""] }

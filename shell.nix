@@ -1,9 +1,31 @@
 let
   pkgs = import (fetchTarball {
-    url = "https://github.com/nixos/nixpkgs/archive/e913ae340076bbb73d9f4d3d065c2bca7caafb16.tar.gz";
-    sha256 = "07qjibn85hc6p8c7lwg00fwpyqjlmaxncz9wa2l6qpy1hsk51k8f";
+    url = "https://github.com/nixos/nixpkgs/archive/ba487dbc9d04e0634c64e3b1f0d25839a0a68246.tar.gz";
+    sha256 = "0wr8pnx2bkr88vxv3aqa9y9vrcixicm2vahws7i2kvcpy8mnb4sr";
   }) {};
+
+  libs = [
+    pkgs.zstd
+    pkgs.xz
+    pkgs.bzip2
+    pkgs.zlib
+  ];
+
+
 in pkgs.mkShell {
+
   ghc_dir = "${pkgs.haskell.compiler.ghc910}";
-  packages = [pkgs.haskell.compiler.ghc910 pkgs.zlib pkgs.zlib.dev pkgs.snappy pkgs.protobuf pkgs.cabal-install];
+
+  packages = [
+    (pkgs.haskell.packages.ghc910.ghcWithPackages (g: [g.cabal-install]))
+    pkgs.zlib.dev
+    pkgs.snappy
+    pkgs.protobuf
+    pkgs.git
+  ] ++ libs;
+
+  shellHook = ''
+  export LD_LIBRARY_PATH="${pkgs.lib.makeSearchPathOutput "out" "lib" libs}:$LD_LIBRARY_PATH"
+  '';
+
 }

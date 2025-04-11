@@ -21,5 +21,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Init Cabal
         run: nix-shell --run 'cabal update'
+      - name: Build packages
+        run: nix-shell --run 'cabal build all'
       - name: Run tests
         run: nix-shell --run 'cabal test buck-worker'

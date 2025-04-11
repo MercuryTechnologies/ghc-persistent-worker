@@ -2,8 +2,8 @@
 
 module Main where
 
-import BuckArgs (BuckArgs (abiOut), CompileResult (..), Mode (..), parseBuckArgs, toGhcArgs, writeResult)
-import qualified BuckArgs (BuckArgs (mode))
+import qualified BuckArgs as BuckArgs
+import BuckArgs (BuckArgs, CompileResult (..), Mode (..), parseBuckArgs, toGhcArgs, writeResult)
 import BuckWorker (
   ExecuteCommand,
   ExecuteCommand'EnvironmentEntry,
@@ -38,7 +38,7 @@ import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (dbg, logFlush, newLog)
 import Internal.Metadata (computeMetadata)
-import Internal.Session (Env (..), withGhcMhu)
+import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
 import Network.GRPC.Common (NextElem (..), Proxy (..), def)
 import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&), (.~), (^.))
@@ -84,13 +84,14 @@ commandEnv =
 -- Depending on @mode@ this will either use the old EPS-based oneshot-style compilation logic or the HPT-based
 -- make-style implementation.
 compileAndReadAbiHash ::
-  WorkerMode ->
+  GhcMode ->
+  (Target -> Ghc (Maybe ModuleArtifacts)) ->
   Chan (Proto Instr.Event) ->
   BuckArgs ->
   [String] ->
   Target ->
   Ghc (Maybe CompileResult)
-compileAndReadAbiHash mode instrChan args specific target = do
+compileAndReadAbiHash ghcMode compile instrChan args target = do
 
   liftIO $ writeChan instrChan $
     defMessage &
@@ -127,6 +128,34 @@ dispatch workerMode instrChan env args =
       writeResult args result
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
+
+-- | Process a worker request based on the operational mode specified in the request arguments, either compiling a
+-- single module for 'ModeCompile' (@-c@), or computing and writing the module graph to a JSON file for 'ModeMetadata'
+-- (@-M@).
+dispatch ::
+  WorkerMode ->
+  Chan (Proto Instr.Event) ->
+  Env ->
+  BuckArgs ->
+  IO Int32
+dispatch workerMode instrChan env args =
+  case args.mode of
+    Just ModeCompile -> do
+      result <- compile
+      writeResult args result
+    Just ModeMetadata ->
+      computeMetadata env <&> \case
+        True -> 0
+        False -> 1
+    Just m -> error ("worker: mode not implemented: " ++ show m)
+    Nothing -> error "worker: no mode specified"
+  where
+    compile = case workerMode of
+      WorkerOneshotMode ->
+        withGhc env (compileAndReadAbiHash OneShot compileModuleWithDepsInEps instrChan args)
+      WorkerMakeMode ->
+        withGhcMhu env \ specific ->
+          compileAndReadAbiHash CompManager (compileModuleWithDepsInHpt specific) instrChan args
 
 compileStart :: String -> Proto Instr.CompileStart
 compileStart target =
@@ -396,8 +425,8 @@ proxyServer primary socket = do
 --   later in the build due to dependencies and/or parallelism limits, the contents of the `primary` file are read to
 --   obtain the primary's socket path.
 --   A gRPC server is started that resends all requests to that socket.
-runOrProxyCentralGhc :: ServerSocketPath -> IO ()
-runOrProxyCentralGhc socket = do
+runOrProxyCentralGhc :: WorkerMode -> ServerSocketPath -> IO ()
+runOrProxyCentralGhc mode socket = do
   void $ try @IOError (createDirectory dir)
   result <- withFileBlocking primaryFile.path ReadWriteMode \ handle -> do
     try @IOError (hGetLine handle) >>= \case
@@ -407,7 +436,6 @@ runOrProxyCentralGhc socket = do
       Right !primary | not (null primary) -> do
         pure (Left (PrimarySocketPath primary))
       _ -> do
-        let mode = WorkerOneshotMode
         thread <- async (runCentralGhc mode primaryFile socket instr)
         hPutStr handle socket.path
         pure (Right thread)
@@ -444,7 +472,7 @@ parseOptions =
 runWorker :: ServerSocketPath -> CliOptions -> IO ()
 runWorker socket CliOptions {single, mode} =
   if single
-  then runOrProxyCentralGhc socket
+  then runOrProxyCentralGhc mode socket
   else runLocalGhc mode socket Nothing
 
 main :: IO ()

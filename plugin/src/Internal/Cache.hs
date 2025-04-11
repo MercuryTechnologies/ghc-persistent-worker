@@ -3,7 +3,7 @@
 module Internal.Cache where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
-import Control.Monad (join, unless, when)
+import Control.Monad (join)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
@@ -28,7 +28,6 @@ import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import GHC.Types.Name.Cache (NameCache (..), OrigNameCache)
 import GHC.Types.Unique.DFM (plusUDFM)
 import GHC.Types.Unique.FM (UniqFM, minusUFM, nonDetEltsUFM, sizeUFM)
-import GHC.Types.Unique.Supply (initUniqSupply)
 import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), unitEnv_union)
 import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
 import GHC.Unit.Finder (InstalledFindResult (..))
@@ -47,9 +46,7 @@ import qualified Data.Map.Lazy as LazyMap
 import GHC.Fingerprint (Fingerprint, getFileHash)
 import GHC.IORef (atomicModifyIORef')
 import GHC.Unit (InstalledModule, extendInstalledModuleEnv, lookupInstalledModuleEnv)
-import GHC.Unit.Finder (InstalledFindResult (..))
-import GHC.Unit.Finder.Types (FinderCache (..))
-import GHC.Unit.Module.Env (InstalledModuleEnv, emptyInstalledModuleEnv)
+import GHC.Unit.Finder (FinderCache (..), InstalledFindResult (..))
 import GHC.Utils.Panic (panic)
 
 #else
@@ -65,12 +62,6 @@ import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries', mkModuleGra
 #endif
 
 import GHC.Unit.Module.Graph (ModuleGraph, unionMG)
-
-#if defined(MWB)
-
-import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries', mkModuleGraph, mkNodeKey)
-
-#endif
 
 data ModuleArtifacts =
   ModuleArtifacts {
