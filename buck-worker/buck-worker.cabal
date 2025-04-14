@@ -32,15 +32,23 @@ library
   exposed-modules:
     BuckArgs,
     BuckWorker,
+    GhcHandler,
     Grpc,
+    Instrumentation,
+    Orchestration,
     Proto.Worker,
     Proto.Worker_Fields
     Proto.Instrument,
-    Proto.Instrument_Fields
+    Proto.Instrument_Fields,
+    Run
   build-depends:
+    async,
     bytestring,
     deepseq,
+    directory,
+    exceptions,
     filepath,
+    ghc,
     ghc-persistent-worker-plugin,
     grapesy ^>=1.0.1,
     lens-family,
@@ -56,7 +64,6 @@ executable worker
   build-depends:
     async,
     directory,
-    exceptions,
     filepath,
     grapesy,
     ghc,
