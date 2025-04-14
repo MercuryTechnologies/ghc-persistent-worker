@@ -2,54 +2,43 @@
 
 module Main where
 
-import BuckArgs (BuckArgs (..), CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
-import BuckWorker (
-  ExecuteCommand (..),
-  ExecuteCommand'EnvironmentEntry (..),
-  ExecuteEvent (..),
-  ExecuteResponse (..),
-  Worker (..),
-  )
-import Control.Concurrent.MVar (MVar)
+import qualified BuckArgs as BuckArgs
+import BuckArgs (BuckArgs, CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
+import BuckWorker (Worker (..))
+import Control.Concurrent (Chan, MVar, newMVar)
 import Control.Concurrent.STM (TVar, newTVarIO)
-import Control.Exception (SomeException (SomeException), throwIO, try)
+import Control.Exception (throwIO)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
 import Control.Monad.Trans.Reader (runReaderT)
 import Data.Foldable (traverse_)
 import Data.Functor ((<&>))
-import Data.Map (Map)
-import qualified Data.Map.Strict as Map
+import Data.Int (Int32)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (maybeToList)
-import Data.String (fromString)
-import qualified Data.Text as Text
-import Data.Text.Encoding (decodeUtf8Lenient)
-import qualified Data.Text.Lazy as LazyText
-import qualified Data.Vector as Vector
 import GHC (getSession)
+import Grpc (GrpcHandler (GrpcHandler), ghcServerMethods)
+import Instrumentation (Hooks (..), InstrumentedHandler (..), WorkerStatus (..), toGrpcHandler)
 import Internal.AbiHash (readAbiHash)
 import Internal.Args (Args (..))
 import Internal.Cache (Cache (..), ModuleArtifacts (..), emptyCache)
 import Internal.Log (newLog)
 import Internal.Session (Env (..), withGhc)
-import Message
+import Message (Request (..), Response (..), TargetId (..))
+import Network.GRPC.Common.Protobuf (Proto)
+import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
+import Network.GRPC.Server.StreamType (Methods (..))
+import Orchestration (CreateMethods (..), envServerSocket, runLocalGhc)
 import Pool (Pool (..), dumpStatus, removeWorker)
 import Prelude hiding (log)
+import qualified Proto.Instrument as Instr
+import Run (createInstrumentMethods)
 import Server (assignLoop)
-import System.Environment (lookupEnv)
-import System.IO (BufferMode (LineBuffering), hPutStrLn, hSetBuffering, stderr, stdout)
+import System.IO (BufferMode (..), hPutStrLn, hSetBuffering, stderr, stdout)
 import Worker (work)
 
-commandEnv :: Vector.Vector ExecuteCommand'EnvironmentEntry -> Map String String
-commandEnv = undefined
-  -- THIS CODE IS NOT YET COMPATIBLE WITH grapesy yet.
-  -- Map.fromList .
-  -- fmap (\ (ExecuteCommand'EnvironmentEntry key value) -> (fromBs key, fromBs value)) .
-  --   Vector.toList
-  -- where
-  --   fromBs = Text.unpack . decodeUtf8Lenient
-
+-- | Write the compiled module's ABI hash to the Buck output file.
 abiHashIfSuccess :: Env -> BuckArgs -> Int -> IO (Maybe CompileResult)
 abiHashIfSuccess env args code
   | 0 == code
@@ -65,13 +54,19 @@ note msg = \case
   Just a -> pure a
   Nothing -> throwE msg
 
-processRequest :: TVar Pool -> BuckArgs -> Env -> IO (Maybe CompileResult, String)
-processRequest pool buckArgs env@Env {args} = do
-  either (Nothing,) id <$> runExceptT do
+-- | Compile a module by relaying the Buck request to a worker process orchestrated by the multiplexer logic.
+dispatch ::
+  TVar Pool ->
+  BuckArgs ->
+  Env ->
+  IO ([String], Int32)
+dispatch pool buckArgs env@Env {args} = do
+  either failure id <$> runExceptT do
     ghcPath <- note "no --ghc-path given" args.ghcPath
     requestWorkerTargetId <- Just . TargetId <$> note "no --worker-target-id given" args.workerTargetId
     liftIO do
-      (j, i, hset) <- assignLoop buckArgs.multiplexerCustom ghcPath (maybeToList buckArgs.pluginDb) pool requestWorkerTargetId
+      (j, i, hset) <-
+        assignLoop buckArgs.multiplexerCustom ghcPath (maybeToList buckArgs.pluginDb) pool requestWorkerTargetId
       let
         req = Request {
           requestWorkerTargetId,
@@ -84,80 +79,57 @@ processRequest pool buckArgs env@Env {args} = do
       when (requestWorkerClose req) do
         traverse_ (removeWorker pool) requestWorkerTargetId
       dumpStatus pool
-      pure (result, unlines (responseConsoleStdOut ++ responseConsoleStdErr))
+      exitCode <- writeResult buckArgs result
+      pure (responseConsoleStdOut ++ responseConsoleStdErr, exitCode)
+  where
+    failure msg = ([msg], 1)
+
+-- | Implementation of 'InstrumentedHandler' for the process multiplexer.
+-- Mostly identical to the default handler, just calling the custom 'dispatch'.
+--
+-- Calls the instrumentation hook 'compileStart' with no data, since the source file is parsed in the subprocess.
+-- As of now, this is a no-op.
+ghcHandler ::
+  TVar Pool ->
+  MVar Cache ->
+  InstrumentedHandler
+ghcHandler pool cache =
+  InstrumentedHandler \ hooks -> GrpcHandler \ commandEnv argv -> do
+    buckArgs <- either (throwIO . userError) pure (parseBuckArgs commandEnv argv)
+    args <- toGhcArgs buckArgs
+    log <- newLog False
+    let env = Env {log, cache, args}
+    hooks.compileStart Nothing
+    dispatch pool buckArgs env
+
+-- | Grapesy server methods for the process multiplexer.
+createGhcMethods ::
+  TVar Pool ->
+  MVar WorkerStatus ->
+  MVar Cache ->
+  Maybe (Chan (Proto Instr.Event)) ->
+  IO (Methods IO (ProtobufMethodsOf Worker))
+createGhcMethods pool status cache instrChan =
+  pure (ghcServerMethods (toGrpcHandler (ghcHandler pool cache) status instrChan))
 
 main :: IO ()
-main = pure ()
-
--- TODO: Revice the following code.
---
--- THE FOLLOWING CODE IS NOT COMPATIBLE WITH grapesy YET.
---
-
--- executeHandler ::
---   MVar Cache ->
---   TVar Pool ->
---   ServerRequest 'Normal ExecuteCommand ExecuteResponse ->
---   IO (ServerResponse 'Normal ExecuteResponse)
--- executeHandler cache pool (ServerNormalRequest _ ExecuteCommand {executeCommandArgv, executeCommandEnv}) = do
---   hPutStrLn stderr (unlines argv)
---   response <- either exceptionResponse successResponse =<< try run
---   pure (ServerNormalResponse response [] StatusOk "")
---   where
---     run = do
---       buckArgs <- either (throwIO . userError) pure (parseBuckArgs (commandEnv executeCommandEnv) argv)
---       args <- toGhcArgs buckArgs
---       log <- newLog False
---       result <- processRequest pool buckArgs Env {cache, args, log}
---       pure (buckArgs, result)
-
---     successResponse (buckArgs, (result, diagnostics)) = do
---       executeResponseExitCode <- writeResult buckArgs result
---       pure ExecuteResponse {
---         executeResponseExitCode,
---         executeResponseStderr = LazyText.pack diagnostics
---       }
-
---     exceptionResponse (SomeException e) =
---       pure ExecuteResponse {
---         executeResponseExitCode = 1,
---         executeResponseStderr = "Uncaught exception: " <> LazyText.pack (show e)
---       }
-
---     argv = Text.unpack . decodeUtf8Lenient <$> Vector.toList executeCommandArgv
-
--- execHandler ::
---   ServerRequest 'ClientStreaming ExecuteEvent ExecuteResponse ->
---   IO (ServerResponse 'ClientStreaming ExecuteResponse)
--- execHandler (ServerReaderRequest _metadata _recv) = do
---   hPutStrLn stderr "Received Exec"
---   error "not implemented"
-
--- handlers :: MVar Cache -> TVar Pool -> Worker ServerRequest ServerResponse
--- handlers cache srv =
---   Worker
---     { workerExecute = executeHandler cache srv,
---       workerExec = execHandler
---     }
-
--- main :: IO ()
--- main = do
---   hSetBuffering stdout LineBuffering
---   hSetBuffering stderr LineBuffering
---   socket <- lookupEnv "WORKER_SOCKET"
---   hPutStrLn stderr $ "using worker socket: " <> show socket
---   let
---     n = 1
---     thePool = Pool
---         { poolLimit = n,
---           poolNewWorkerId = 1,
---           poolNewJobId = 1,
---           poolStatus = mempty,
---           poolHandles = []
---         }
-
---   poolRef <- newTVarIO thePool
---   cache <- emptyCache False
---   workerServer (handlers cache poolRef) (maybe id setSocket socket defaultServiceOptions)
---   where
---     setSocket s options = options {serverHost = fromString ("unix://" <> s <> "\x00"), serverPort = 0}
+main = do
+  hSetBuffering stdout LineBuffering
+  hSetBuffering stderr LineBuffering
+  socket <- envServerSocket
+  hPutStrLn stderr $ "using worker socket: " <> show socket
+  poolRef <- newTVarIO Pool {
+    poolLimit = 1,
+    poolNewWorkerId = 1,
+    poolNewJobId = 1,
+    poolStatus = mempty,
+    poolHandles = []
+  }
+  cache <- emptyCache False
+  status <- newMVar WorkerStatus {active = 0}
+  let
+    methods = CreateMethods {
+      createInstrumentation = createInstrumentMethods,
+      createGhc = createGhcMethods poolRef status cache
+    }
+  runLocalGhc methods socket Nothing

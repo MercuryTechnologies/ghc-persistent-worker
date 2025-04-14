@@ -30,6 +30,7 @@ executable multiplex-worker
     network,
     optparse-applicative,
     process,
+    grapesy,
     stm,
     text,
     time,
