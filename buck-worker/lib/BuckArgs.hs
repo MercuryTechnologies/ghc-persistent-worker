@@ -1,18 +1,20 @@
 module BuckArgs where
 
 import Control.Applicative ((<|>))
+import Data.Coerce (coerce)
 import Data.Foldable (for_)
 import Data.Int (Int32)
 import Data.List (dropWhileEnd)
 import Data.Map (Map)
+import qualified Data.Map.Strict as Map
 import Data.Map.Strict ((!?))
 import Data.Maybe (fromMaybe)
+import Grpc (CommandEnv (..), RequestArgs (..))
 import Internal.AbiHash (AbiHash (..))
 import qualified Internal.Args
 import Internal.Args (Args (Args))
 import Internal.Cache (ModuleArtifacts)
 import System.FilePath (takeDirectory)
-import qualified Data.Map.Strict as Map
 
 -- | Right now the 'Maybe' just corresponds to the presence of the CLI argument @--abi-out@ – errors occuring while
 -- reading the iface are thrown.
@@ -126,9 +128,9 @@ options =
         new <- store arg
         Right (rest, new)
 
-parseBuckArgs :: Map String String -> [String] -> Either String BuckArgs
+parseBuckArgs :: CommandEnv -> RequestArgs -> Either String BuckArgs
 parseBuckArgs env =
-  spin (emptyBuckArgs env)
+  spin (emptyBuckArgs (coerce env)) . coerce
   where
     spin z = \case
       ('-' : 'B' : path) : rest -> spin z {topdir = Just path} rest

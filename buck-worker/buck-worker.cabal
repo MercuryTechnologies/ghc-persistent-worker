@@ -32,6 +32,7 @@ library
   exposed-modules:
     BuckArgs,
     BuckWorker,
+    Grpc,
     Proto.Worker,
     Proto.Worker_Fields
     Proto.Instrument,
@@ -55,6 +56,7 @@ executable worker
   build-depends:
     async,
     directory,
+    exceptions,
     filepath,
     grapesy,
     ghc,
