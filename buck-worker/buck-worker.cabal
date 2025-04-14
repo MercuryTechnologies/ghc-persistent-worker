@@ -41,7 +41,7 @@ library
     deepseq,
     filepath,
     ghc-persistent-worker-plugin,
-    grapesy,
+    grapesy ^>=1.0.1,
     lens-family,
     proto-lens,
     text,
