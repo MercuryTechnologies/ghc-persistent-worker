@@ -1,0 +1,14 @@
+[export_file("Internal/" + f + ".hs", visibility = ["PUBLIC"]) for f in [
+    "AbiHash",
+    "Args",
+    "Cache",
+    "Compile",
+    "CompileHpt",
+    "Debug",
+    "Error",
+    "Log",
+    "MakeFile",
+    "MakeFile/JSON",
+    "Metadata",
+    "Session",
+]]
