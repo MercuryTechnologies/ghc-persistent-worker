@@ -52,7 +52,9 @@ library
     ghc,
     ghc-persistent-worker-plugin,
     grapesy ^>=1.0.1,
+    hashable,
     lens-family,
+    process,
     proto-lens,
     text,
     vector

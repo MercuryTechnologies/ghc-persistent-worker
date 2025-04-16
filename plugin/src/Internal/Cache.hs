@@ -66,8 +66,6 @@ import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries', mkModuleGra
 
 #endif
 
-import GHC.Unit.Module.Graph (ModuleGraph, unionMG)
-
 data ModuleArtifacts =
   ModuleArtifacts {
     iface :: ModIface,
