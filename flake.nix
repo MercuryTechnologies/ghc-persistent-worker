@@ -1,7 +1,8 @@
 {
   description = "GHC persistent worker";
 
-  inputs.hix.url = "github:tek/hix/684bfba0b7e70dbba7b6d9232a229787eb356a34";
+  inputs.hix.url = "github:tek/hix";
+  inputs.hix.inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
 
   outputs = {hix, ...}: hix {
 
