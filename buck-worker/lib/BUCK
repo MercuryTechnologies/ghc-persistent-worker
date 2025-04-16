@@ -1,8 +1,13 @@
-[export_file(f, visibility = ["PUBLIC"]) for f in
-  [ "BuckArgs.hs"
-  , "BuckWorker.hs"
-  , "Proto/Instrument.hs"
-  , "Proto/Instrument_Fields.hs"
-  , "Proto/Worker.hs"
-  , "Proto/Worker_Fields.hs"
+[export_file(f, visibility = ["PUBLIC"]) for f in [
+    "BuckArgs.hs",
+    "BuckWorker.hs",
+    "GhcHandler.hs",
+    "Grpc.hs",
+    "Instrumentation.hs",
+    "Orchestration.hs",
+    "Proto/Instrument.hs",
+    "Proto/Instrument_Fields.hs",
+    "Proto/Worker.hs",
+    "Proto/Worker_Fields.hs",
+    "Run.hs",
   ]]

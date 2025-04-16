@@ -3,12 +3,15 @@
 module Orchestration where
 
 import BuckWorker (ExecuteCommand, ExecuteResponse)
-import Control.Concurrent.Async (async, cancel, wait)
-import Control.Exception (finally, onException, try)
-import Control.Monad (void)
-import Data.List (dropWhileEnd)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (async)
+import Control.Exception (bracket_, finally, try)
+import Control.Monad (void, when)
+import Data.Hashable (hash)
+import Data.Maybe (isJust)
 import Data.Traversable (for)
-import GHC.IO.Handle.FD (withFileBlocking)
+import GHC.IO.Handle (LockMode (..), hLock)
+import GHC.IO.Handle.Lock (hUnlock)
 import Grpc (streamingNotImplemented)
 import Internal.Log (dbg)
 import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
@@ -20,11 +23,12 @@ import Network.GRPC.Server.StreamType (Methods (..), fromMethods, mkClientStream
 import Proto.Instrument (Instrument (..))
 import Proto.Worker (Worker (..))
 import Proto.Worker_Fields qualified as Fields
-import System.Directory (createDirectory, removeFile)
+import System.Directory (createDirectory, getCurrentDirectory, removeFile)
 import System.Environment (getEnv)
 import System.Exit (exitFailure)
 import System.FilePath (takeDirectory, (</>))
-import System.IO (IOMode (..), hGetLine, hPutStr)
+import System.IO (IOMode (..), hGetLine, hPutStr, withFile)
+import System.Process (ProcessHandle, getProcessExitCode, spawnProcess)
 
 -- | The file system path of the socket on which the worker running in this process is supposed to listen.
 newtype ServerSocketPath =
@@ -91,7 +95,8 @@ runCentralGhc ::
 runCentralGhc mode discovery socket instr =
   finally (runLocalGhc mode socket instr) do
     dbg ("Shutting down ghc server on " ++ socket.path)
-    removeFile discovery.path
+    when False do
+      removeFile discovery.path
 
 -- | Forward a request received from a client to another gRPC server and forward the response back,
 -- prefixing the error messages so we know where the error originated.
@@ -145,6 +150,34 @@ proxyServer primary socket = do
         dbg ("Starting proxy for " ++ primary.path ++ " on " ++ socket.path)
         runServerWithHandlers def (grpcServerConfig socket.path) $ fromMethods methods
 
+waitForCentralGhc :: ProcessHandle -> PrimarySocketPath -> IO ()
+waitForCentralGhc proc _ = do
+  dbg "Waiting for server"
+  threadDelay 2_000_000
+  exitCode <- getProcessExitCode proc
+  when (isJust exitCode) do
+    dbg "Central GHC fork failed."
+
+forkCentralGhc :: FilePath -> FilePath -> IO PrimarySocketPath
+forkCentralGhc exe dir = do
+  dbg ("Forking GHC server at " ++ socket)
+  proc <- spawnProcess exe ["--make", "--serve", socket]
+  let primary = PrimarySocketPath socket
+  waitForCentralGhc proc primary
+  pure primary
+  where
+    socket = dir </> "server"
+
+runCentralGhcForked :: CreateMethods -> FilePath -> IO ()
+runCentralGhcForked methods socket =
+  runCentralGhc methods primaryFile (ServerSocketPath socket) instr
+  where
+    instr = Just (instrumentSocketIn dir)
+
+    primaryFile = primarySocketDiscoveryIn dir
+
+    dir = takeDirectory socket
+
 -- | Start a gRPC server that either runs GHC (primary server) or a proxy that forwards requests to the primary.
 -- Since multiple workers are started in separate processes, we negotiate using file system locks.
 -- There are two major scenarios:
@@ -159,24 +192,31 @@ proxyServer primary socket = do
 --   later in the build due to dependencies and/or parallelism limits, the contents of the `primary` file are read to
 --   obtain the primary's socket path.
 --   A gRPC server is started that resends all requests to that socket.
-runOrProxyCentralGhc :: CreateMethods -> ServerSocketPath -> IO ()
-runOrProxyCentralGhc mode socket = do
-  void $ try @IOError (createDirectory dir)
-  result <- withFileBlocking primaryFile.path ReadWriteMode \ handle -> do
-    try @IOError (hGetLine handle) >>= \case
-      -- If the file didn't exist, `hGetLine` will still return the empty string.
-      -- File IO is buffered/lazy, so we have to force the pattern to avoid read after close (though this is already
-      -- achieved by calling `null`).
-      Right !primary | not (null primary) -> do
-        pure (Left (PrimarySocketPath primary))
-      _ -> do
-        thread <- async (runCentralGhc mode primaryFile socket instr)
-        hPutStr handle socket.path
-        pure (Right thread)
-  case result of
-    Right thread -> onException (wait thread) (cancel thread)
-    Left primary -> proxyServer primary socket
-  where
+runOrProxyCentralGhc :: FilePath -> ServerSocketPath -> IO ()
+runOrProxyCentralGhc exe socket = do
+  cwd <- getCurrentDirectory
+  let
+    projectId = hash cwd
+    dir = "/tmp/buck2_worker/" ++ show projectId
     primaryFile = primarySocketDiscoveryIn dir
-    instr = Just (instrumentSocketIn dir)
-    dir = init (dropWhileEnd ('-' /=) (takeDirectory socket.path))
+  void $ try @IOError (createDirectory dir)
+  primary <- withFile primaryFile.path ReadWriteMode \ handle -> do
+    bracket_ (hLock handle ExclusiveLock) (hUnlock handle) do
+      let
+        fork = do
+          primary <- forkCentralGhc exe dir
+          hPutStr handle primary.path
+          pure primary
+      try @IOError (hGetLine handle) >>= \case
+        -- If the file didn't exist, `hGetLine` will still return the empty string.
+        -- File IO is buffered/lazy, so we have to force the pattern to avoid read after close (though this is already
+        -- achieved by calling `null`).
+        Right !primary | not (null primary) ->
+          pure (PrimarySocketPath primary)
+        Right _ -> do
+          dbg "empty primary file"
+          fork
+        Left err -> do
+          dbg ("primary file error: " ++ show err)
+          fork
+  proxyServer primary socket
