@@ -7,6 +7,8 @@ packages: ./buck-proxy
           ./test-common
           ./types
 
+tests: true
+
 -- For MWB-customized GHC, turn this on.
 -- flags: +mwb
 

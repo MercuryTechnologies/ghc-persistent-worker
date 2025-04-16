@@ -3,7 +3,7 @@ name: Tests
 on:
   push:
     branches:
-      - main
+      - tek/dev
   pull_request:
 
 jobs:
@@ -19,9 +19,23 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@v16
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Enable cachix
+        uses: cachix/cachix-action@v17
+        with:
+          name: tek
+      - name: Free up space
+        run: rm -rf /opt/hostedtoolcache
+      - name: Nix build and test
+        run: nix -L build
+      - name: Nix build and test with mwb-25-10
+        run: nix -L build .#mwb-25-10.ghc-worker
       - name: Init Cabal
-        run: nix-shell --run 'cabal update'
+        run: nix -L develop -c cabal update
       - name: Build packages
-        run: nix-shell --run 'cabal build all'
-      - name: Run tests
-        run: nix-shell --run 'cabal test buck-worker'
+        run: nix -L develop -c cabal build -fmwb all
+      - name: Run resource tests
+        run: nix -L develop .#test-ext-deps -c cabal test ghc-worker --test-option='-p /resources/'
+      - name: Clean up Cabal store to switch to vanilla GHC
+        run: rm -rf $(nix develop -c cabal path --store-dir)/ghc-9.10.1-inplace dist-newstyle
+      - name: Build packages with vanilla GHC
+        run: nix -L develop .#ghc910 -c cabal build -f-mwb all
