@@ -67,7 +67,7 @@ import GHC.Unit (homeUnitId)
 import GHC.Utils.Panic.Plain
 #endif
 
-#if !defined(MWB)
+#if !defined(MWB) && !defined(TCR)
 depJSON :: DynFlags -> Maybe FilePath
 depJSON _ = Nothing
 

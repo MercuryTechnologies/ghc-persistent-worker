@@ -5,7 +5,7 @@ import Internal.Log (dbg)
 import Orchestration (envServerSocket)
 import Run (parseOptions, runWorker)
 import System.Environment (getArgs)
-import System.IO (BufferMode (..), hPutStrLn, hSetBuffering, stderr, stdout)
+import System.IO (BufferMode (..), hSetBuffering, stderr, stdout)
 
 main :: IO ()
 main = do
@@ -13,7 +13,6 @@ main = do
   hSetBuffering stderr LineBuffering
   options <- parseOptions =<< getArgs
   socket <- envServerSocket
-  hPutStrLn stderr $ "using worker socket: " <> show socket
   try (runWorker socket options) >>= \case
     Right () ->
       dbg "Worker terminated without cancellation."
