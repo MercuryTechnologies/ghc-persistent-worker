@@ -39,7 +39,7 @@ import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuat
 import Internal.Log (Log, logd)
 import System.Environment (lookupEnv)
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
 import Data.IORef (IORef, newIORef)
 import qualified Data.Map.Lazy as LazyMap
@@ -190,7 +190,7 @@ data BinPath =
   }
   deriving stock (Eq, Show)
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
 data FinderState =
   FinderState {
@@ -546,7 +546,7 @@ report logVar workerId target cache = do
 
     workerDesc wid = text (" (" ++ wid ++ ")")
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
 -- | This replacement of the Finder implementation has the sole purpose of recording some cache stats, for now.
 -- While its mutable state is allocated separately and shared across sessions, this doesn't really make a difference at
