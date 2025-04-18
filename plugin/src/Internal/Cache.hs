@@ -45,7 +45,12 @@ import Data.IORef (IORef, newIORef)
 import qualified Data.Map.Lazy as LazyMap
 import GHC.Fingerprint (Fingerprint, getFileHash)
 import GHC.IORef (atomicModifyIORef')
-import GHC.Unit (InstalledModule, extendInstalledModuleEnv, lookupInstalledModuleEnv)
+import GHC.Unit
+  ( InstalledModule,
+    emptyInstalledModuleEnv,
+    extendInstalledModuleEnv,
+    lookupInstalledModuleEnv,
+  )
 import GHC.Unit.Finder (FinderCache (..), InstalledFindResult (..))
 import GHC.Utils.Panic (panic)
 
