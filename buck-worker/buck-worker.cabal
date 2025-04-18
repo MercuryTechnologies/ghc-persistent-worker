@@ -28,6 +28,7 @@ common all
 
 library
   import: all
+  ghc-options: -O2
   hs-source-dirs: lib
   exposed-modules:
     BuckArgs,
@@ -60,7 +61,8 @@ executable worker
   import: all
   main-is: Main.hs
   hs-source-dirs: .
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -O2 -threaded -with-rtsopts=-N -with-rtsopts=-T
+
   build-depends:
     async,
     directory,
