@@ -2,9 +2,11 @@
 
 module Orchestration where
 
+import qualified BuckWorker as Worker
 import BuckWorker (ExecuteCommand, ExecuteResponse)
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel, wait)
-import Control.Exception (bracket_, finally, onException, try)
+import Control.Exception (SomeException, bracket_, finally, onException, try)
 import Control.Monad (void)
 import Data.List (dropWhileEnd)
 import Data.Traversable (for)
@@ -13,7 +15,7 @@ import Grpc (streamingNotImplemented)
 import Internal.Log (dbg)
 import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
 import Network.GRPC.Common (Proxy (..), def)
-import Network.GRPC.Common.Protobuf (Proto, Protobuf, (%~), (&))
+import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&))
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
 import Network.GRPC.Server.Run (InsecureConfig (..), ServerConfig (..), runServerWithHandlers)
 import Network.GRPC.Server.StreamType (Methods (..), fromMethods, mkClientStreaming, mkNonStreaming)
@@ -39,6 +41,9 @@ envServerSocket = ServerSocketPath <$> getEnv "WORKER_SOCKET"
 newtype PrimarySocketPath =
   PrimarySocketPath { path :: FilePath }
   deriving stock (Eq, Show)
+
+primarySocketIn :: FilePath -> PrimarySocketPath
+primarySocketIn dir = PrimarySocketPath (dir </> "server")
 
 -- | The file system path of the socket on which the primary worker outputs instrumentation information.
 newtype InstrumentSocketPath =
@@ -145,6 +150,26 @@ proxyServer primary socket = do
         dbg ("Starting proxy for " ++ primary.path ++ " on " ++ socket.path)
         runServerWithHandlers def (grpcServerConfig socket.path) $ fromMethods methods
 
+messageExecute :: Proto Worker.ExecuteCommand
+messageExecute = defMessage
+
+waitPoll :: PrimarySocketPath -> IO ()
+waitPoll socket =
+  check
+  where
+    check =
+      try connect >>= \case
+        Right () -> pure ()
+        Left (_ :: SomeException) -> do
+          threadDelay 100_000
+          check
+
+    connect = withConnection def (ServerUnix socket.path) \ connection -> do
+      withRPC connection def (Proxy @(Protobuf Worker "execute")) \ call -> do
+        sendFinalInput call messageExecute
+        _ <- recvNextOutput call
+        pure ()
+
 -- | Start a gRPC server that either runs GHC (primary server) or a proxy that forwards requests to the primary.
 -- Since multiple workers are started in separate processes, we negotiate using file system locks.
 -- There are two major scenarios:
@@ -172,6 +197,7 @@ runOrProxyCentralGhc mode socket = do
           pure (Left (PrimarySocketPath primary))
         _ -> do
           thread <- async (runCentralGhc mode primaryFile socket instr)
+          waitPoll (PrimarySocketPath socket.path)
           hPutStr handle socket.path
           pure (Right thread)
   case result of
