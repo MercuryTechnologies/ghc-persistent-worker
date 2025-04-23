@@ -4,11 +4,11 @@ module Orchestration where
 
 import BuckWorker (ExecuteCommand, ExecuteResponse)
 import Control.Concurrent.Async (async, cancel, wait)
-import Control.Exception (finally, onException, try)
+import Control.Exception (bracket_, finally, onException, try)
 import Control.Monad (void)
 import Data.List (dropWhileEnd)
 import Data.Traversable (for)
-import GHC.IO.Handle.FD (withFileBlocking)
+import GHC.IO.Handle.Lock (LockMode (ExclusiveLock), hLock, hUnlock)
 import Grpc (streamingNotImplemented)
 import Internal.Log (dbg)
 import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
@@ -24,7 +24,7 @@ import System.Directory (createDirectory, removeFile)
 import System.Environment (getEnv)
 import System.Exit (exitFailure)
 import System.FilePath (takeDirectory, (</>))
-import System.IO (IOMode (..), hGetLine, hPutStr)
+import System.IO (IOMode (..), hGetLine, hPutStr, withFile)
 
 -- | The file system path of the socket on which the worker running in this process is supposed to listen.
 newtype ServerSocketPath =
@@ -162,17 +162,18 @@ proxyServer primary socket = do
 runOrProxyCentralGhc :: CreateMethods -> ServerSocketPath -> IO ()
 runOrProxyCentralGhc mode socket = do
   void $ try @IOError (createDirectory dir)
-  result <- withFileBlocking primaryFile.path ReadWriteMode \ handle -> do
-    try @IOError (hGetLine handle) >>= \case
-      -- If the file didn't exist, `hGetLine` will still return the empty string.
-      -- File IO is buffered/lazy, so we have to force the pattern to avoid read after close (though this is already
-      -- achieved by calling `null`).
-      Right !primary | not (null primary) -> do
-        pure (Left (PrimarySocketPath primary))
-      _ -> do
-        thread <- async (runCentralGhc mode primaryFile socket instr)
-        hPutStr handle socket.path
-        pure (Right thread)
+  result <- withFile primaryFile.path ReadWriteMode \ handle -> do
+    bracket_ (hLock handle ExclusiveLock) (hUnlock handle) do
+      try @IOError (hGetLine handle) >>= \case
+        -- If the file didn't exist, `hGetLine` will still return the empty string.
+        -- File IO is buffered/lazy, so we have to force the pattern to avoid read after close (though this is already
+        -- achieved by calling `null`).
+        Right !primary | not (null primary) -> do
+          pure (Left (PrimarySocketPath primary))
+        _ -> do
+          thread <- async (runCentralGhc mode primaryFile socket instr)
+          hPutStr handle socket.path
+          pure (Right thread)
   case result of
     Right thread -> onException (wait thread) (cancel thread)
     Left primary -> proxyServer primary socket
