@@ -6,6 +6,12 @@ packages: ./plugin
 -- For MWB-customized GHC, turn this on.
 -- flags: +mwb
 
+package buck-worker
+  executable-dynamic: true
+
+package buck-multiplex-worker
+  executable-dynamic: true
+
 allow-newer:
   proto-lens:base
 
