@@ -77,7 +77,7 @@ baseArgs topdir tmp =
     workerTargetId = Just "test",
     env = mempty,
     binPath = [],
-    tempDir = Just (tmp </> "tmp"),
+    tempDir = Nothing,
     ghcPath = Nothing,
     ghcOptions = (artifactDir =<< ["o", "hie", "dump"]) ++ [
       "-fwrite-ide-info",
@@ -145,8 +145,8 @@ createDbUnitMod conf mods@(mod0 :| _) = do
 -- | Set up an environment with dummy package DBs for the set of modules returned by the first argument, then run the
 -- second argument with the resulting unit configurations.
 withProject ::
-  (Conf -> IO [UnitMod]) ->
-  (Conf -> [UnitConf] -> [UnitMod] -> IO a) ->
+  (Conf -> IO (NonEmpty UnitMod)) ->
+  (Conf -> [UnitConf] -> NonEmpty UnitMod -> IO a) ->
   IO a
 withProject mkTargets use =
   withSystemTempDirectory "buck-worker-test" \ tmp -> do
@@ -170,6 +170,6 @@ withProject mkTargets use =
     for_ targets \ UnitMod {src, content} -> do
       createDirectoryIfMissing False (takeDirectory src)
       writeFile src content
-    let unitMods = NonEmpty.groupAllWith (.unit) targets
+    let unitMods = NonEmpty.groupAllWith (.unit) (toList targets)
     units <- traverse (createDbUnitMod conf) unitMods
     use conf units targets
