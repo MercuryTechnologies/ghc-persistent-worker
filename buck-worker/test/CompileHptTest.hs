@@ -8,6 +8,7 @@ import Data.Char (toUpper)
 import Data.Foldable (for_, traverse_)
 import Data.Functor (void, (<&>))
 import Data.List (intercalate)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -41,11 +42,12 @@ import Internal.Cache (Cache (..), Target (..), mergeHugs, newFinderCache, updat
 import Internal.CompileHpt (adaptHp, compileModuleWithDepsInHpt, initUnit)
 import Internal.Debug (showHugShort, showModGraph)
 import Internal.Log (dbg, dbgp, dbgs, newLog)
-import Internal.Session (Env (..), dummyLocation, withGhcMhu, withGhcInSession, withUnitSpecificOptions)
+import Internal.Session (Env (..), dummyLocation, withGhcInSession, withGhcMhu, withUnitSpecificOptions)
 import Prelude hiding (log)
-import System.Directory (listDirectory)
-import System.FilePath (dropExtension, takeDirectory, takeExtension, takeFileName, (</>))
+import System.Directory (listDirectory, removeDirectoryRecursive, createDirectoryIfMissing)
+import System.FilePath (dropExtension, takeDirectory, takeExtension, takeFileName, (</>), takeBaseName)
 import TestSetup (Conf (..), UnitConf (..), UnitMod (..), withProject)
+import Data.List.NonEmpty (NonEmpty)
 
 debugState :: Bool
 debugState = False
@@ -91,7 +93,8 @@ loadModuleGraph env UnitMod {src} specific = do
 -- running downsweep, and merging the resulting module graph into the persisted state.
 makeModule :: Conf -> [UnitConf] -> UnitMod -> StateT (Set String) IO ()
 makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
-  log <- newLog False
+  log <- newLog True
+  liftIO $ createDirectoryIfMissing False sessionTmpDir
   let env = Env {log, cache, args}
       envC = env {args = env.args {ghcOptions = env.args.ghcOptions}}
   firstTime <- state \ seen ->
@@ -138,11 +141,6 @@ makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
     dbg ""
     dbg (">>> compiling " ++ takeFileName target.get)
     modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
-    when False do
-      cache' <- liftIO $ readMVar env.cache
-      modifySessionM \ hsc_env -> do
-        hsc_FC <- liftIO $ newFinderCache env.cache cache' target
-        pure hsc_env {hsc_FC}
     compileModuleWithDepsInHpt specific target
   when (isNothing result) do
       liftIO $ throwGhcExceptionIO (ProgramError "Compile failed")
@@ -150,8 +148,12 @@ makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
   where
     args =
       args0 {
-        ghcOptions = args0.ghcOptions ++ fileOptions
+        ghcOptions = args0.ghcOptions ++ fileOptions,
+        -- Ensure that each module gets a separate temp directory, to resemble circumstances in a Buck build
+        tempDir = Just sessionTmpDir
       }
+
+    sessionTmpDir = tmp </> "tmp" </> takeBaseName src
 
     fileOptions =
       [
@@ -238,7 +240,7 @@ main = print $(bug)
 
 -}
 
-targets1 :: Conf -> [UnitMod]
+targets1 :: Conf -> NonEmpty UnitMod
 targets1 conf =
   [
     unitMod conf [] "Err" "unit-a" errContent,
@@ -313,7 +315,7 @@ mainContent deps =
   where
     names = [c : show i | (c, i) <- deps]
 
-targets2 :: Conf -> [UnitMod]
+targets2 :: Conf -> NonEmpty UnitMod
 targets2 conf =
   [
     unitMod conf [] "Err" "unit-b" errContent,
@@ -335,11 +337,28 @@ targets2 conf =
 
     m1d = modType1 conf
 
-testWorker :: (Conf -> [UnitMod]) -> IO ()
+removeGhcTmpDir :: Conf -> IO ()
+removeGhcTmpDir conf = do
+  dirs <- liftIO (listDirectory (conf.tmp </> "tmp"))
+  for_ dirs \ ghcTmpRel -> do
+    let ghcTmp = conf.tmp </> "tmp" </> ghcTmpRel
+    liftIO $ removeDirectoryRecursive ghcTmp
+
+testWorker :: (Conf -> NonEmpty UnitMod) -> IO ()
 testWorker mkTargets =
-  withProject (pure . mkTargets) \ conf units targets -> do
-    evalStateT (traverse_ (makeModule conf units) targets) Set.empty
+  withProject (pure . mkTargets) \ conf units targets ->
+    flip evalStateT Set.empty do
+      traverse_ (makeModule conf units) targets
+      -- Simulate the case of Buck deleting the temp dir and recompiling a module, which goes unnoticed by GHC because
+      -- it tracks all created temp dirs in an @IORef@ that the worker shares across sessions.
+      -- When initializing a new module session, all dirs already present in the state are assumed to exist on disk and
+      -- not recreated.
+      -- As a consequence, it will try to write the assembly files @ghc_1.s@ to a nonexistent directory, so we have to
+      -- ensure that each session gets its own @TmpFs@.
+      liftIO (removeGhcTmpDir conf)
+      makeModule conf units (NonEmpty.last targets)
 
 -- | A very simple test consisting of two home units, using a transitive TH dependency across unit boundaries.
 test_compileHpt :: IO ()
-test_compileHpt = testWorker targets1
+test_compileHpt =
+  testWorker targets1

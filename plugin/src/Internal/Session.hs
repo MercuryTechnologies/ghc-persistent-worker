@@ -20,7 +20,7 @@ import GHC (
   prettyPrintGhcErrors,
   pushLogHookM,
   setSessionDynFlags,
-  withSignalHandlers,
+  withSignalHandlers, gopt, GeneralFlag (Opt_KeepTmpFiles),
   )
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
@@ -33,13 +33,14 @@ import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
-import GHC.Utils.TmpFs (TempDir (..))
+import GHC.Utils.TmpFs (TempDir (..), initTmpFs, cleanTempFiles, cleanTempDirs)
 import Internal.Args (Args (..))
 import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Target (..), withCache)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log (..), logToState)
 import Prelude hiding (log)
 import System.Environment (setEnv)
+import Control.Exception (finally)
 
 -- | Worker state.
 data Env =
@@ -119,27 +120,46 @@ withGhcInSession env prog argv = do
 -- | Create a base session and store it in the cache.
 -- On subsequent calls, return the cached session, unless the cache is disabled or @reuse@ is true.
 -- This will at some point be replaced by more deliberate methods.
+--
+-- When reusing the base session, create a new @TmpFs@ to avoid keeping old entries around after Buck deletes the
+-- directories.
 ensureSession :: Bool -> MVar Cache -> Args -> IO HscEnv
 ensureSession reuse cacheVar args =
   modifyMVar cacheVar \ cache -> do
     if cache.features.enable && reuse
     then do
-      newEnv <- maybe (initHscEnv args.topdir) pure cache.baseSession
+      newEnv <- maybe (initHscEnv args.topdir) prepReused cache.baseSession
       pure (cache {baseSession = Just newEnv}, newEnv)
     else do
       newEnv <- initHscEnv args.topdir
       pure (cache, newEnv)
+  where
+    prepReused hsc_env = do
+      hsc_tmpfs <- initTmpFs
+      pure hsc_env {hsc_tmpfs}
 
 -- | Run a @Ghc@ program to completion with a fresh clone of the base session.
 -- See 'ensureSession' for @reuse@.
+--
+-- Delete all temporary files on completion.
 runSession :: Bool -> Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
 runSession reuse Env {log, args, cache} prog = do
   modifyMVar_ cache (setupPath args)
   hsc_env <- ensureSession reuse cache args
   session <- Session <$> newIORef hsc_env
-  flip unGhc session $ withSignalHandlers do
-    traverse_ (modifySession . setTempDir) args.tempDir
-    handleExceptions log Nothing (prog (map dummyLocation args.ghcOptions))
+  finally (run session) (cleanup hsc_env)
+  where
+    run session =
+      flip unGhc session $ withSignalHandlers do
+        traverse_ (modifySession . setTempDir) args.tempDir
+        handleExceptions log Nothing (prog (map dummyLocation args.ghcOptions))
+
+    cleanup hsc_env =
+      unless (gopt Opt_KeepTmpFiles (hsc_dflags hsc_env)) do
+        let tmpfs = hsc_tmpfs hsc_env
+            logger = hsc_logger hsc_env
+        cleanTempFiles logger tmpfs
+        cleanTempDirs logger tmpfs
 
 -- | When compiling a module, the leftover arguments from parsing @DynFlags@ should be a single source file path.
 -- Wrap it in 'Target' or terminate.
