@@ -109,19 +109,6 @@
       package-set.compiler = "mwb-ipe";
     };
 
-    commands.dev-prof = {
-      expose = true;
-      env = "dev";
-      command = "${build.packages.dev.buck-worker.executables.profile.app.program} $@";
-    };
-
-    commands.prof = {
-      expose = true;
-      env = "profiled";
-      command = "${build.packages.profiled.buck-worker.executables.profile.app.program} +RTS -RTS $@";
-    };
-
-
     envs.hls-db = {};
 
     commands.hls.env = "hls-db";
@@ -185,6 +172,16 @@
           source-dirs = "test";
           dependOnLibrary = false;
         };
+      };
+
+      debug = {
+        src = ./debug;
+        cabal.dependencies = ["ghc-debug-client" "ghc-debug-common" "ghc-debug-stub" "containers"];
+        executable.enable = true;
+        executables.snapshot = {
+          dependencies = ["directory" "filepath"];
+        };
+        executables.gen-case = {};
       };
 
       buck-proxy = {
