@@ -1,6 +1,7 @@
 module Internal.Session where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_)
+import Control.Exception (finally)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (toList, traverse_)
@@ -11,16 +12,18 @@ import Data.Maybe (maybeToList)
 import qualified Data.Set as Set
 import GHC (
   DynFlags (..),
+  GeneralFlag (Opt_KeepTmpFiles),
   Ghc,
   GhcLink (LinkBinary),
   Phase,
   getSessionDynFlags,
+  gopt,
   parseDynamicFlags,
   parseTargetFiles,
   prettyPrintGhcErrors,
   pushLogHookM,
   setSessionDynFlags,
-  withSignalHandlers, gopt, GeneralFlag (Opt_KeepTmpFiles),
+  withSignalHandlers,
   )
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
@@ -33,14 +36,13 @@ import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
-import GHC.Utils.TmpFs (TempDir (..), initTmpFs, cleanTempFiles, cleanTempDirs)
+import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Args (Args (..))
 import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Target (..), withCache)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log (..), logToState)
 import Prelude hiding (log)
 import System.Environment (setEnv)
-import Control.Exception (finally)
 
 -- | Worker state.
 data Env =

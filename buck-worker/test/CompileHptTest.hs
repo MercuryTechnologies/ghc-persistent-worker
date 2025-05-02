@@ -1,92 +1,56 @@
+{-# language OverloadedLists #-}
+
 module CompileHptTest where
 
-import Control.Concurrent (readMVar)
-import Control.Monad (when)
-import Control.Monad.IO.Class (liftIO)
+import Control.Concurrent (readMVar, threadDelay)
+import Control.Monad (unless, when)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, state)
 import Data.Char (toUpper)
+import qualified Data.Foldable as Foldable
 import Data.Foldable (for_, traverse_)
 import Data.Functor (void, (<&>))
 import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NonEmpty
+import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Set as Set
 import Data.Set (Set)
-import GHC (
-  DynFlags (..),
-  Ghc,
-  GhcException (..),
-  GhcMode (..),
-  ModSummary (..),
-  ModuleGraph,
-  getSession,
-  guessTarget,
-  mgModSummaries,
-  mkModuleGraph,
-  ms_mod_name,
-  setTargets,
-  unLoc,
-  )
-import GHC.Driver.Env (HscEnv (..), hscUpdateFlags, hsc_home_unit)
-import GHC.Driver.Make (downsweep)
-import GHC.Driver.Monad (modifySession, modifySessionM, withTempSession)
-import GHC.Runtime.Loader (initializeSessionPlugins)
-import GHC.Types.Error (unionManyMessages)
-import GHC.Unit (homeUnitId, moduleUnitId)
-import GHC.Unit.Env (UnitEnv (..), unitEnv_union)
-import GHC.Unit.Finder (addHomeModuleToFinder)
-import GHC.Utils.Outputable (ppr, text, (<+>))
+import GHC (DynFlags (..), Ghc, GhcException (..), GhcMode (..), unLoc)
+import GHC.Debug.Stub (withGhcDebug)
+import GHC.Driver.Env (hscUpdateFlags)
+import GHC.Driver.Monad (modifySession)
+import GHC.Profiling.Eras (incrementUserEra)
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.Args (Args (..))
-import Internal.Cache (Cache (..), Target (..), mergeHugs, newFinderCache, updateModuleGraph)
+import Internal.Cache (Cache (..), Target (..))
 import Internal.CompileHpt (adaptHp, compileModuleWithDepsInHpt, initUnit)
-import Internal.Debug (showHugShort, showModGraph)
-import Internal.Log (dbg, dbgp, dbgs, newLog)
+import Internal.Log (dbg, dbgs, newLog)
+import Internal.Metadata (computeMetadataInSession)
 import Internal.Session (Env (..), dummyLocation, withGhcInSession, withGhcMhu, withUnitSpecificOptions)
 import Prelude hiding (log)
-import System.Directory (listDirectory, removeDirectoryRecursive, createDirectoryIfMissing)
-import System.FilePath (dropExtension, takeDirectory, takeExtension, takeFileName, (</>), takeBaseName)
+import System.Directory (createDirectoryIfMissing, listDirectory, removeDirectoryRecursive)
+import System.FilePath (dropExtension, takeBaseName, takeDirectory, takeExtension, takeFileName, (</>))
 import TestSetup (Conf (..), UnitConf (..), UnitMod (..), withProject)
-import Data.List.NonEmpty (NonEmpty)
 
 debugState :: Bool
 debugState = False
 
+incEra :: MonadIO m => m ()
+incEra =
+  when enable do
+    void $ liftIO $ incrementUserEra 1
+  where
+    enable = False
+
 -- | Approximate synthetic reproduction of what happens when the metadata step is performed by the worker.
-loadModuleGraph :: Env -> UnitMod -> [String] -> Ghc ModuleGraph
+loadModuleGraph :: Env -> UnitMod -> [String] -> Ghc (Maybe Bool)
 loadModuleGraph env UnitMod {src} specific = do
-  cache <- liftIO $ readMVar env.cache
-  (_, module_graph) <- withTempSession (maybe id restoreHug cache.hug . maybe id restoreModuleGraph cache.moduleGraph) do
-    modifySessionM \ hsc_env -> do
-      hsc_FC <- liftIO $ newFinderCache env.cache cache (Target "metadata")
-      pure hsc_env {hsc_FC}
-    dbg (unwords specific)
-    initUnit specific
-    when debugState do
-      mg <- hsc_mod_graph <$> getSession
-      dbgp ("existing graph:" <+> showModGraph mg)
-      dbg "hug:"
-      dbgp . showHugShort . ue_home_unit_graph . hsc_unit_env =<< getSession
-    names <- liftIO $ listDirectory dir
-    let srcs = [dir </> name | name <- names, takeExtension name == ".hs"]
-    targets <- mapM (\s -> guessTarget s Nothing Nothing) srcs
-    setTargets targets
-    hsc_env1 <- getSession
-    (errs, graph_nodes) <- liftIO $ downsweep hsc_env1 [] [] True
-    let
-      mod_graph = mkModuleGraph graph_nodes
-    pure (unionManyMessages errs, mod_graph)
-  when debugState do
-    dbgp (text "unit module graph:" <+> showModGraph module_graph)
-  liftIO $ updateModuleGraph env.cache module_graph
-  pure module_graph
+  names <- liftIO $ listDirectory dir
+  let srcs = [dir </> name | name <- names, takeExtension name == ".hs"]
+  computeMetadataInSession (initUnit specific) env srcs
   where
     dir = takeDirectory src
-
-    restoreModuleGraph mg e = e {hsc_mod_graph = mg}
-
-    restoreHug hug e =
-      e {hsc_unit_env = e.hsc_unit_env {ue_home_unit_graph = unitEnv_union mergeHugs hug e.hsc_unit_env.ue_home_unit_graph}}
 
 -- | Compile a single module using 'compileHpt' roughly like it happens when Buck requests it.
 -- If the module's home unit has not been encountered before, simulate the metadata step by doctoring the session,
@@ -102,6 +66,7 @@ makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
     then (False, seen)
     else (True, Set.insert unit seen)
   when firstTime do
+    incEra
     success <- fmap (fromMaybe Nothing) $ liftIO $ withUnitSpecificOptions False env \ env1 specific argv -> do
       (_, withPackageId) <- liftIO $ readMVar cache <&> \case
         Cache {hug}
@@ -112,31 +77,10 @@ makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
       flip (withGhcInSession env1) (withPackageId ++ fmap dummyLocation dbsM) \ _ -> do
         dbg ""
         dbg (">>> metadata for " ++ unit)
-        modifySession $ hscUpdateFlags \ d -> d {ghcMode = MkDepend}
-        initializeSessionPlugins
-        graph <- loadModuleGraph env1 umod specific
-        pure (Just (Just graph))
-    when debugState do
-      liftIO $ readMVar cache >>= \ Cache {..} -> for_ moduleGraph \ mg ->
-        dbgp (text "updated module graph:" <+> showModGraph mg)
-    void $ case success of
-      Just module_graph ->
-        liftIO $ withGhcMhu envC \ specific _ -> do
-          -- TODO while this makes the modules discoverable in @depanal@, it also causes @compileModuleWithDepsInHpt@ to break,
-          -- when it looks up @unit-main:Err@ for some reason.
-          when False do
-            dbg ""
-            dbg (">>> updating Finder")
-            modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
-            initUnit specific
-            hsc_env <- getSession
-            liftIO $ for_ (mgModSummaries module_graph) \ m -> do
-              when (homeUnitId (hsc_home_unit hsc_env) == moduleUnitId (ms_mod m)) do
-                dbgp ("add module:" <+> ppr (homeUnitId (hsc_home_unit hsc_env)) <+> ppr (ms_mod_name m))
-                void $ addHomeModuleToFinder (hsc_FC hsc_env) (hsc_home_unit hsc_env) (ms_mod_name m) (ms_location m)
-          pure (Just ())
-      Nothing ->
-        liftIO $ throwGhcExceptionIO (ProgramError "Metadata failed")
+        Just <$> loadModuleGraph env1 umod specific
+    unless (success == Just True) do
+      liftIO $ throwGhcExceptionIO (ProgramError "Metadata failed")
+  incEra
   result <- liftIO $ withGhcMhu envC \ specific target -> do
     dbg ""
     dbg (">>> compiling " ++ takeFileName target.get)
@@ -144,6 +88,7 @@ makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
     compileModuleWithDepsInHpt specific target
   when (isNothing result) do
       liftIO $ throwGhcExceptionIO (ProgramError "Compile failed")
+  -- liftIO $ threadDelay 2_000_000
   dbgs result
   where
     args =
@@ -277,7 +222,7 @@ modType1 conf pdeps unitTag n deps =
 
 sumTh :: [String] -> String
 sumTh =
-  foldl' (\ z a -> z ++ " + $(" ++ a ++ ")") "0"
+  Foldable.foldl' (\ z a -> z ++ " + $(" ++ a ++ ")") "0"
 
 modType2 :: Conf -> [String] -> Char -> Int -> [String] -> [String] -> UnitMod
 modType2 conf pdeps unitTag n deps thDeps =
@@ -346,7 +291,7 @@ removeGhcTmpDir conf = do
 
 testWorker :: (Conf -> NonEmpty UnitMod) -> IO ()
 testWorker mkTargets =
-  withProject (pure . mkTargets) \ conf units targets ->
+  withProject (pure . mkTargets) \ conf units targets -> do
     flip evalStateT Set.empty do
       traverse_ (makeModule conf units) targets
       -- Simulate the case of Buck deleting the temp dir and recompiling a module, which goes unnoticed by GHC because
@@ -357,8 +302,12 @@ testWorker mkTargets =
       -- ensure that each session gets its own @TmpFs@.
       liftIO (removeGhcTmpDir conf)
       makeModule conf units (NonEmpty.last targets)
+    dbgs =<< listDirectory (conf.tmp </> "out")
 
 -- | A very simple test consisting of two home units, using a transitive TH dependency across unit boundaries.
 test_compileHpt :: IO ()
-test_compileHpt =
-  testWorker targets1
+test_compileHpt = do
+  withGhcDebug do
+    testWorker targets1
+    when True do
+      liftIO $ threadDelay 5_000_000

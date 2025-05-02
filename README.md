@@ -30,3 +30,14 @@ $ cabal run ghc-persistent-worker-server -- --ghc ~/repo/srcc/ghcHEAD/_build/sta
 $ GHC_PERSISTENT_WORKER_SOCKET=/tmp/ghc_server.ipc cabal run ghc-persistent-worker-client -- test/A.hs
 ```
 (optionally, one can set `--package-db (pkg_db_path)`. One can have multiple `--package-db`.)
+
+ghc-debug
+=========
+
+The flake defines apps for running the test with a GHC with IPE enabled, and for running `ghc-debug-brick`.
+
+In one terminal, execute `nix run .#ghc-debug-brick`.
+
+In another, execute `nix run .#prof`.
+
+The test sleeps for 10 seconds after each module compilation to allow you to press `pause` in ghc-debug.
