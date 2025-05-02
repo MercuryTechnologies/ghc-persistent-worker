@@ -1,30 +1,48 @@
 {
   "nodes": {
+    "ghc-debug": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1715671587,
+        "narHash": "sha256-XzJmJ95YHssczoNezPYYzNmQxY4nJQhsMbfUy4hR6z4=",
+        "ref": "refs/heads/master",
+        "rev": "2541e77d2687b8b3b0c1a52bb4790a602ce17d7d",
+        "revCount": 603,
+        "type": "git",
+        "url": "https://gitlab.haskell.org/ghc/ghc-debug"
+      },
+      "original": {
+        "rev": "2541e77d2687b8b3b0c1a52bb4790a602ce17d7d",
+        "type": "git",
+        "url": "https://gitlab.haskell.org/ghc/ghc-debug"
+      }
+    },
     "hix": {
       "inputs": {
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1745280867,
-        "narHash": "sha256-t0dfg4O+cJbK+0/mtXXl7PlYgZZqPGN6NLHjluvpNLE=",
+        "lastModified": 1746129855,
+        "narHash": "sha256-YD5Phbj4a1YcRgRoRuAF9ahENGN43S4hBRGTRJmLL38=",
         "owner": "tek",
         "repo": "hix",
-        "rev": "3e22d44ba7a0a79fa5546ac79ad650dbd69bd770",
+        "rev": "684bfba0b7e70dbba7b6d9232a229787eb356a34",
         "type": "github"
       },
       "original": {
         "owner": "tek",
         "repo": "hix",
+        "rev": "684bfba0b7e70dbba7b6d9232a229787eb356a34",
         "type": "github"
       }
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1745377448,
-        "narHash": "sha256-jhZDfXVKdD7TSEGgzFJQvEEZ2K65UMiqW5YJ2aIqxMA=",
+        "lastModified": 1739138025,
+        "narHash": "sha256-M4ilIfGxzbBZuURokv24aqJTbdjPA9K+DtKUzrJaES4=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "507b63021ada5fee621b6ca371c4fca9ca46f52c",
+        "rev": "b2243f41e860ac85c0b446eadc6930359b294e79",
         "type": "github"
       },
       "original": {
@@ -36,6 +54,7 @@
     },
     "root": {
       "inputs": {
+        "ghc-debug": "ghc-debug",
         "hix": "hix"
       }
     }

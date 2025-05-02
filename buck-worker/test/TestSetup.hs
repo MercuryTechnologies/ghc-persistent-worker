@@ -10,7 +10,7 @@ import Internal.Args (Args (..))
 import Internal.Cache (Cache (..), CacheFeatures (..), emptyCacheWith)
 import Internal.Log (dbg)
 import Prelude hiding (log)
-import System.Directory (createDirectoryIfMissing, listDirectory)
+import System.Directory (createDirectoryIfMissing, listDirectory, withCurrentDirectory)
 import System.Environment (getEnv)
 import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -150,26 +150,27 @@ withProject ::
   IO a
 withProject mkTargets use =
   withSystemTempDirectory "buck-worker-test" \ tmp -> do
-    for_ @[] ["src", "tmp", "out"] \ dir ->
-      createDirectoryIfMissing False (tmp </> dir)
-    cache <- emptyCacheWith CacheFeatures {
-      hpt = True,
-      loader = False,
-      enable = True,
-      names = False,
-      finder = True,
-      eps = False
-    }
-    ghcDir <- getEnv "ghc_dir"
-    libPath <- listDirectory (ghcDir </> "lib") <&> \case
-      [d] -> "lib" </> d </> "lib"
-      ds -> error ("weird GHC lib dir contains /= 1 entries: " ++ show ds)
-    let topdir = ghcDir </> libPath
-        conf = Conf {tmp, cache, args0 = baseArgs topdir tmp, ..}
-    targets <- mkTargets conf
-    for_ targets \ UnitMod {src, content} -> do
-      createDirectoryIfMissing False (takeDirectory src)
-      writeFile src content
-    let unitMods = NonEmpty.groupAllWith (.unit) (toList targets)
-    units <- traverse (createDbUnitMod conf) unitMods
-    use conf units targets
+    withCurrentDirectory tmp do
+      for_ @[] ["src", "tmp", "out"] \ dir ->
+        createDirectoryIfMissing False (tmp </> dir)
+      cache <- emptyCacheWith CacheFeatures {
+        hpt = True,
+        loader = False,
+        enable = True,
+        names = False,
+        finder = True,
+        eps = False
+      }
+      ghcDir <- getEnv "ghc_dir"
+      libPath <- listDirectory (ghcDir </> "lib") <&> \case
+        [d] -> "lib" </> d </> "lib"
+        ds -> error ("weird GHC lib dir contains /= 1 entries: " ++ show ds)
+      let topdir = ghcDir </> libPath
+          conf = Conf {tmp, cache, args0 = baseArgs topdir tmp, ..}
+      targets <- mkTargets conf
+      for_ targets \ UnitMod {src, content} -> do
+        createDirectoryIfMissing False (takeDirectory src)
+        writeFile src content
+      let unitMods = NonEmpty.groupAllWith (.unit) (toList targets)
+      units <- traverse (createDbUnitMod conf) unitMods
+      use conf units targets

@@ -1,9 +1,15 @@
+{-# language OverloadedLists #-}
+
 module CompileHptTest where
 
+import Control.Concurrent (threadDelay)
 import Control.Monad (unless, when)
+import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, state)
 import Data.Char (toUpper)
+import qualified Data.Foldable as Foldable
 import Data.Foldable (fold, for_, traverse_)
+import Data.Functor (void)
 import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.List.NonEmpty (NonEmpty)
@@ -12,12 +18,14 @@ import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import GHC (DynFlags (..), Ghc, GhcException (..), GhcMode (..), GhcMonad (..), mkGeneralLocated, setUnitDynFlags)
+import GHC.Debug.Stub (withGhcDebug)
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateFlags)
 import GHC.Driver.Errors (printOrThrowDiagnostics)
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Monad (modifySession)
 import GHC.Driver.Session (parseDynamicFlagsCmdLine)
+import GHC.Profiling.Eras (incrementUserEra)
 import GHC.Unit (UnitId, UnitState (..), stringToUnitId, unitIdString)
 import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), UnitEnvGraph (..), unitEnv_lookup_maybe)
 import GHC.Utils.Monad (MonadIO (..))
@@ -86,6 +94,13 @@ initUnit specific = do
   setUnitDynFlags current dflags
   modifySession (hscSetActiveUnitId current)
 
+incEra :: MonadIO m => m ()
+incEra =
+  when enable do
+    void $ liftIO $ incrementUserEra 1
+  where
+    enable = False
+
 -- | Approximate synthetic reproduction of what happens when the metadata step is performed by the worker.
 loadModuleGraph :: Env -> UnitMod -> [String] -> Ghc (Maybe Bool)
 loadModuleGraph env UnitMod {src} specific = do
@@ -109,6 +124,7 @@ makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
     then (False, seen)
     else (True, Set.insert unit seen)
   when firstTime do
+    incEra
     success <- fmap (fromMaybe Nothing) $ liftIO $ withUnitSpecificOptions False envM \ env1 specific argv -> do
       flip (withGhcInSession env1) (argv ++ fmap buckLocation dbsM) \ _ -> do
         dbg ""
@@ -116,6 +132,7 @@ makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
         Just <$> loadModuleGraph env1 umod specific
     unless (success == Just True) do
       liftIO $ throwGhcExceptionIO (ProgramError "Metadata failed")
+  incEra
   result <- liftIO $ withGhcMhu env \ _ target -> do
     dbg ""
     dbg (">>> compiling " ++ takeFileName target.get)
@@ -123,6 +140,7 @@ makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
     compileModuleWithDepsInHpt target
   when (isNothing result) do
       liftIO $ throwGhcExceptionIO (ProgramError "Compile failed")
+  -- liftIO $ threadDelay 2_000_000
   dbgs result
   where
     args =
@@ -262,7 +280,7 @@ modType1 conf pdeps unitTag n deps =
 
 sumTh :: [String] -> String
 sumTh =
-  foldl' (\ z a -> z ++ " + $(" ++ a ++ ")") "0"
+  Foldable.foldl' (\ z a -> z ++ " + $(" ++ a ++ ")") "0"
 
 modType2 :: Conf -> [String] -> Char -> Int -> [String] -> [String] -> UnitMod
 modType2 conf pdeps unitTag n deps thDeps =
@@ -331,7 +349,7 @@ removeGhcTmpDir conf = do
 
 testWorker :: (Conf -> NonEmpty UnitMod) -> IO ()
 testWorker mkTargets =
-  withProject (pure . mkTargets) \ conf units targets ->
+  withProject (pure . mkTargets) \ conf units targets -> do
     flip evalStateT Set.empty do
       traverse_ (makeModule conf units) targets
       -- Simulate the case of Buck deleting the temp dir and recompiling a module, which goes unnoticed by GHC because
@@ -342,8 +360,12 @@ testWorker mkTargets =
       -- ensure that each session gets its own @TmpFs@.
       liftIO (removeGhcTmpDir conf)
       makeModule conf units (NonEmpty.last targets)
+    dbgs =<< listDirectory (conf.tmp </> "out")
 
 -- | A very simple test consisting of two home units, using a transitive TH dependency across unit boundaries.
 test_compileHpt :: IO ()
-test_compileHpt =
-  testWorker targets1
+test_compileHpt = do
+  withGhcDebug do
+    testWorker targets1
+    when True do
+      liftIO $ threadDelay 5_000_000
