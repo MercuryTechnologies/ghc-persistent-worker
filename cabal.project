@@ -5,6 +5,7 @@ packages: ./buck-proxy
           ./internal
           ./proto
           ./types
+          ./debug
 
 -- For MWB-customized GHC, turn this on.
 -- flags: +mwb

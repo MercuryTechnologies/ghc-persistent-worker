@@ -48,6 +48,7 @@ library
     exceptions,
     filepath,
     ghc,
+    ghc-debug-stub,
     grapesy ^>=1.0.1,
     process,
     stm,
@@ -78,6 +79,8 @@ test-suite worker-test
     directory,
     filepath,
     ghc,
+    ghc-debug-stub,
+    ghc-experimental,
     temporary,
     transformers,
     typed-process

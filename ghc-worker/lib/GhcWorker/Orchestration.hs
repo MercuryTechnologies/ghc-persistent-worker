@@ -11,6 +11,7 @@ import Control.Monad (void, when)
 import Data.List (dropWhileEnd)
 import Data.Maybe (isJust)
 import Data.Traversable (for)
+import GHC.Debug.Stub (withGhcDebug)
 import GHC.IO.Handle.Lock (LockMode (..), hLock, hUnlock)
 import Internal.Log (dbg)
 import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
@@ -64,7 +65,8 @@ runLocalGhc CreateMethods {..} socket minstr = do
     _instrThread <- async $ runServerWithHandlers def (grpcServerConfig instrumentSocket.path) (fromMethods methods)
     pure resource
   methods <- createGhc instrResource
-  runServerWithHandlers def (grpcServerConfig socket.path) (fromMethods methods)
+  withGhcDebug do
+    runServerWithHandlers def (grpcServerConfig socket.path) (fromMethods methods)
 
 -- | Start a gRPC server that runs GHC for client proxies, deleting the discovery file on shutdown.
 runCentralGhc ::
