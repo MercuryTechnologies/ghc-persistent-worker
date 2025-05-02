@@ -110,19 +110,6 @@
       package-set.compiler = "mwb-ipe";
     };
 
-    commands.dev-prof = {
-      expose = true;
-      env = "dev";
-      command = "${build.packages.dev.buck-worker.executables.profile.app.program} $@";
-    };
-
-    commands.prof = {
-      expose = true;
-      env = "profiled";
-      command = "${build.packages.profiled.buck-worker.executables.profile.app.program} +RTS -RTS $@";
-    };
-
-
     envs.hls-db = {};
 
     commands.hls.env = "hls-db";
@@ -175,27 +162,6 @@
           ];
           source-dirs = "app/ghc-worker";
         };
-        executables.profile = {
-          dependencies = [
-            "containers"
-            "directory"
-            "filepath"
-            "ghc"
-            "ghc-debug-stub"
-            "ghc-experimental"
-            "ghc-persistent-worker-plugin"
-            "temporary"
-            "transformers"
-            "typed-process"
-          ];
-          default-extensions = ["OverloadedLists"];
-          ghc-options-exe = [
-            "-threaded"
-            "-rtsopts"
-            ''"-with-rtsopts=-K512M -H -I5 -T -N"''
-          ];
-          source-dirs = "test";
-        };
         test = {
           enable = true;
           dependencies = [
@@ -219,6 +185,16 @@
           ];
           source-dirs = "test";
         };
+      };
+
+      debug = {
+        src = ./debug;
+        cabal.dependencies = ["ghc-debug-client" "ghc-debug-common" "ghc-debug-stub" "containers"];
+        executable.enable = true;
+        executables.snapshot = {
+          dependencies = ["directory" "filepath"];
+        };
+        executables.gen-case = {};
       };
 
       buck-proxy = {
