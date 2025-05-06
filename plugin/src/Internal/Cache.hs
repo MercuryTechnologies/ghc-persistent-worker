@@ -252,7 +252,13 @@ data Cache =
     eps :: ExternalUnitCache,
     hug :: Maybe HomeUnitGraph,
     moduleGraph :: Maybe ModuleGraph,
-    baseSession :: Maybe HscEnv
+    baseSession :: Maybe HscEnv,
+    options :: Options
+  }
+
+data Options =
+  Options {
+    extraGhcOptions :: String
   }
 
 emptyCacheWith :: CacheFeatures -> IO (MVar Cache)
@@ -273,12 +279,19 @@ emptyCacheWith features = do
     eps,
     hug = Nothing,
     moduleGraph = Nothing,
-    baseSession = Nothing
+    baseSession = Nothing,
+    options = defaultOptions
   }
 
 emptyCache :: Bool -> IO (MVar Cache)
 emptyCache enable = do
   emptyCacheWith newCacheFeatures {enable}
+
+defaultOptions :: Options
+defaultOptions =
+  Options {
+    extraGhcOptions = ""
+  }
 
 basicLinkerStats :: LinkerEnv -> LinkerEnv -> LinkerStats
 basicLinkerStats base update =

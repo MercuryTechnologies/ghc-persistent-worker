@@ -42,7 +42,7 @@ import Internal.Cache (Cache (..), Target (..), mergeHugs, newFinderCache, updat
 import Internal.CompileHpt (adaptHp, compileModuleWithDepsInHpt, initUnit)
 import Internal.Debug (showHugShort, showModGraph)
 import Internal.Log (dbg, dbgp, dbgs, newLog)
-import Internal.Session (Env (..), dummyLocation, withGhcInSession, withGhcMhu, withUnitSpecificOptions)
+import Internal.Session (Env (..), buckLocation, withGhcInSession, withGhcMhu, withUnitSpecificOptions)
 import Prelude hiding (log)
 import System.Directory (listDirectory, removeDirectoryRecursive, createDirectoryIfMissing)
 import System.FilePath (dropExtension, takeDirectory, takeExtension, takeFileName, (</>), takeBaseName)
@@ -106,10 +106,10 @@ makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
       (_, withPackageId) <- liftIO $ readMVar cache <&> \case
         Cache {hug}
           | Just h <- hug
-          -> fmap dummyLocation <$> adaptHp h (unLoc <$> argv)
+          -> fmap buckLocation <$> adaptHp h (unLoc <$> argv)
           | otherwise
           -> (mempty, argv)
-      flip (withGhcInSession env1) (withPackageId ++ fmap dummyLocation dbsM) \ _ -> do
+      flip (withGhcInSession env1) (withPackageId ++ fmap buckLocation dbsM) \ _ -> do
         dbg ""
         dbg (">>> metadata for " ++ unit)
         modifySession $ hscUpdateFlags \ d -> d {ghcMode = MkDepend}

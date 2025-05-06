@@ -6,7 +6,7 @@
 module Proto.Instrument (
         Instrument(..), CompileEnd(), CompileStart(), Empty(), Event(),
         Event'Event(..), _Event'Halt, _Event'CompileStart,
-        _Event'CompileEnd, _Event'Stats, Stats()
+        _Event'CompileEnd, _Event'Stats, Options(), Stats()
     ) where
 import qualified Control.DeepSeq
 import qualified Data.ProtoLens.Prism
@@ -749,6 +749,122 @@ _Event'Stats
               _otherwise -> Prelude.Nothing)
 {- | Fields :
      
+         * 'Proto.Instrument_Fields.extraGhcOptions' @:: Lens' Options Data.Text.Text@ -}
+data Options
+  = Options'_constructor {_Options'extraGhcOptions :: !Data.Text.Text,
+                          _Options'_unknownFields :: !Data.ProtoLens.FieldSet}
+  deriving stock (Prelude.Eq, Prelude.Ord)
+instance Prelude.Show Options where
+  showsPrec _ __x __s
+    = Prelude.showChar
+        '{'
+        (Prelude.showString
+           (Data.ProtoLens.showMessageShort __x) (Prelude.showChar '}' __s))
+instance Data.ProtoLens.Field.HasField Options "extraGhcOptions" Data.Text.Text where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _Options'extraGhcOptions
+           (\ x__ y__ -> x__ {_Options'extraGhcOptions = y__}))
+        Prelude.id
+instance Data.ProtoLens.Message Options where
+  messageName _ = Data.Text.pack "instrument.Options"
+  packedMessageDescriptor _
+    = "\n\
+      \\aOptions\DC2*\n\
+      \\DC1extra_ghc_options\CAN\SOH \SOH(\tR\SIextraGhcOptions"
+  packedFileDescriptor _ = packedFileDescriptor
+  fieldsByTag
+    = let
+        extraGhcOptions__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "extra_ghc_options"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.StringField ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Text.Text)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional
+                 (Data.ProtoLens.Field.field @"extraGhcOptions")) ::
+              Data.ProtoLens.FieldDescriptor Options
+      in
+        Data.Map.fromList
+          [(Data.ProtoLens.Tag 1, extraGhcOptions__field_descriptor)]
+  unknownFields
+    = Lens.Family2.Unchecked.lens
+        _Options'_unknownFields
+        (\ x__ y__ -> x__ {_Options'_unknownFields = y__})
+  defMessage
+    = Options'_constructor
+        {_Options'extraGhcOptions = Data.ProtoLens.fieldDefault,
+         _Options'_unknownFields = []}
+  parseMessage
+    = let
+        loop :: Options -> Data.ProtoLens.Encoding.Bytes.Parser Options
+        loop x
+          = do end <- Data.ProtoLens.Encoding.Bytes.atEnd
+               if end then
+                   do (let missing = []
+                       in
+                         if Prelude.null missing then
+                             Prelude.return ()
+                         else
+                             Prelude.fail
+                               ((Prelude.++)
+                                  "Missing required fields: "
+                                  (Prelude.show (missing :: [Prelude.String]))))
+                      Prelude.return
+                        (Lens.Family2.over
+                           Data.ProtoLens.unknownFields (\ !t -> Prelude.reverse t) x)
+               else
+                   do tag <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                      case tag of
+                        10
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getText
+                                             (Prelude.fromIntegral len))
+                                       "extra_ghc_options"
+                                loop
+                                  (Lens.Family2.set
+                                     (Data.ProtoLens.Field.field @"extraGhcOptions") y x)
+                        wire
+                          -> do !y <- Data.ProtoLens.Encoding.Wire.parseTaggedValueFromWire
+                                        wire
+                                loop
+                                  (Lens.Family2.over
+                                     Data.ProtoLens.unknownFields (\ !t -> (:) y t) x)
+      in
+        (Data.ProtoLens.Encoding.Bytes.<?>)
+          (do loop Data.ProtoLens.defMessage) "Options"
+  buildMessage
+    = \ _x
+        -> (Data.Monoid.<>)
+             (let
+                _v
+                  = Lens.Family2.view
+                      (Data.ProtoLens.Field.field @"extraGhcOptions") _x
+              in
+                if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                    Data.Monoid.mempty
+                else
+                    (Data.Monoid.<>)
+                      (Data.ProtoLens.Encoding.Bytes.putVarInt 10)
+                      ((Prelude..)
+                         (\ bs
+                            -> (Data.Monoid.<>)
+                                 (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                    (Prelude.fromIntegral (Data.ByteString.length bs)))
+                                 (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                         Data.Text.Encoding.encodeUtf8 _v))
+             (Data.ProtoLens.Encoding.Wire.buildFieldSet
+                (Lens.Family2.view Data.ProtoLens.unknownFields _x))
+instance Control.DeepSeq.NFData Options where
+  rnf
+    = \ x__
+        -> Control.DeepSeq.deepseq
+             (_Options'_unknownFields x__)
+             (Control.DeepSeq.deepseq (_Options'extraGhcOptions x__) ())
+{- | Fields :
+     
          * 'Proto.Instrument_Fields.memory' @:: Lens' Stats Data.Int.Int64@
          * 'Proto.Instrument_Fields.gcCpuNs' @:: Lens' Stats Data.Int.Int64@
          * 'Proto.Instrument_Fields.cpuNs' @:: Lens' Stats Data.Int.Int64@ -}
@@ -933,17 +1049,24 @@ data Instrument = Instrument {}
 instance Data.ProtoLens.Service.Types.Service Instrument where
   type ServiceName Instrument = "Instrument"
   type ServicePackage Instrument = "instrument"
-  type ServiceMethods Instrument = '["notifyMe"]
+  type ServiceMethods Instrument = '["notifyMe", "setOptions"]
   packedServiceDescriptor _
     = "\n\
       \\n\
       \Instrument\DC24\n\
-      \\bNotifyMe\DC2\DC1.instrument.Empty\SUB\DC1.instrument.Event\"\NUL0\SOH"
+      \\bNotifyMe\DC2\DC1.instrument.Empty\SUB\DC1.instrument.Event\"\NUL0\SOH\DC26\n\
+      \\n\
+      \SetOptions\DC2\DC3.instrument.Options\SUB\DC1.instrument.Empty\"\NUL"
 instance Data.ProtoLens.Service.Types.HasMethodImpl Instrument "notifyMe" where
   type MethodName Instrument "notifyMe" = "NotifyMe"
   type MethodInput Instrument "notifyMe" = Empty
   type MethodOutput Instrument "notifyMe" = Event
   type MethodStreamingType Instrument "notifyMe" = 'Data.ProtoLens.Service.Types.ServerStreaming
+instance Data.ProtoLens.Service.Types.HasMethodImpl Instrument "setOptions" where
+  type MethodName Instrument "setOptions" = "SetOptions"
+  type MethodInput Instrument "setOptions" = Options
+  type MethodOutput Instrument "setOptions" = Empty
+  type MethodStreamingType Instrument "setOptions" = 'Data.ProtoLens.Service.Types.NonStreaming
 packedFileDescriptor :: Data.ByteString.ByteString
 packedFileDescriptor
   = "\n\
@@ -968,11 +1091,15 @@ packedFileDescriptor
     \compileEnd\CAN\ETX \SOH(\v2\SYN.instrument.CompileEndH\NULR\n\
     \compileEnd\DC2)\n\
     \\ENQstats\CAN\EOT \SOH(\v2\DC1.instrument.StatsH\NULR\ENQstatsB\a\n\
-    \\ENQevent2B\n\
+    \\ENQevent\"5\n\
+    \\aOptions\DC2*\n\
+    \\DC1extra_ghc_options\CAN\SOH \SOH(\tR\SIextraGhcOptions2z\n\
     \\n\
     \Instrument\DC24\n\
-    \\bNotifyMe\DC2\DC1.instrument.Empty\SUB\DC1.instrument.Event\"\NUL0\SOHJ\233\ACK\n\
-    \\ACK\DC2\EOT\NUL\NUL!\SOH\n\
+    \\bNotifyMe\DC2\DC1.instrument.Empty\SUB\DC1.instrument.Event\"\NUL0\SOH\DC26\n\
+    \\n\
+    \SetOptions\DC2\DC3.instrument.Options\SUB\DC1.instrument.Empty\"\NULJ\239\a\n\
+    \\ACK\DC2\EOT\NUL\NUL&\SOH\n\
     \\b\n\
     \\SOH\f\DC2\ETX\NUL\NUL\DC2\n\
     \\b\n\
@@ -1104,17 +1231,39 @@ packedFileDescriptor
     \\ENQ\EOT\EOT\STX\ETX\ETX\DC2\ETX\ESC\DC2\DC3\n\
     \\n\
     \\n\
-    \\STX\ACK\NUL\DC2\EOT\US\NUL!\SOH\n\
+    \\STX\EOT\ENQ\DC2\EOT\US\NUL!\SOH\n\
     \\n\
     \\n\
-    \\ETX\ACK\NUL\SOH\DC2\ETX\US\b\DC2\n\
+    \\ETX\EOT\ENQ\SOH\DC2\ETX\US\b\SI\n\
     \\v\n\
-    \\EOT\ACK\NUL\STX\NUL\DC2\ETX \STX/\n\
+    \\EOT\EOT\ENQ\STX\NUL\DC2\ETX \STX\US\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\NUL\SOH\DC2\ETX \ACK\SO\n\
+    \\ENQ\EOT\ENQ\STX\NUL\ENQ\DC2\ETX \STX\b\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\NUL\STX\DC2\ETX \SI\DC4\n\
+    \\ENQ\EOT\ENQ\STX\NUL\SOH\DC2\ETX \t\SUB\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\NUL\ACK\DC2\ETX \US%\n\
+    \\ENQ\EOT\ENQ\STX\NUL\ETX\DC2\ETX \GS\RS\n\
+    \\n\
+    \\n\
+    \\STX\ACK\NUL\DC2\EOT#\NUL&\SOH\n\
+    \\n\
+    \\n\
+    \\ETX\ACK\NUL\SOH\DC2\ETX#\b\DC2\n\
+    \\v\n\
+    \\EOT\ACK\NUL\STX\NUL\DC2\ETX$\STX/\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\NUL\ETX\DC2\ETX &+b\ACKproto3"
+    \\ENQ\ACK\NUL\STX\NUL\SOH\DC2\ETX$\ACK\SO\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\NUL\STX\DC2\ETX$\SI\DC4\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\NUL\ACK\DC2\ETX$\US%\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\NUL\ETX\DC2\ETX$&+\n\
+    \\v\n\
+    \\EOT\ACK\NUL\STX\SOH\DC2\ETX%\STX,\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\SOH\SOH\DC2\ETX%\ACK\DLE\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\SOH\STX\DC2\ETX%\DC1\CAN\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\SOH\ETX\DC2\ETX%#(b\ACKproto3"
