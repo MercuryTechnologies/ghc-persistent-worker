@@ -28,12 +28,20 @@ import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import GHC.Types.Name.Cache (NameCache (..), OrigNameCache)
 import GHC.Types.Unique.DFM (plusUDFM)
 import GHC.Types.Unique.FM (UniqFM, minusUFM, nonDetEltsUFM, sizeUFM)
-import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), unitEnv_union)
+import GHC.Unit.Env (
+  HomeUnitEnv (..),
+  HomeUnitGraph,
+  UnitEnv (..),
+  unitEnv_insert,
+  unitEnv_lookup,
+  unitEnv_singleton,
+  unitEnv_union,
+  )
 import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
 import GHC.Unit.Finder (InstalledFindResult (..))
 import GHC.Unit.Finder.Types (FinderCache (..))
 import GHC.Unit.Module.Env (InstalledModuleEnv, emptyModuleEnv, moduleEnvKeys, plusModuleEnv)
-import GHC.Unit.Module.Graph (ModuleGraph, unionMG)
+import GHC.Unit.Module.Graph (ModuleGraph)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
 import Internal.Log (Log, logd)
@@ -45,12 +53,7 @@ import Data.IORef (IORef, newIORef)
 import qualified Data.Map.Lazy as LazyMap
 import GHC.Fingerprint (Fingerprint, getFileHash)
 import GHC.IORef (atomicModifyIORef')
-import GHC.Unit
-  ( InstalledModule,
-    emptyInstalledModuleEnv,
-    extendInstalledModuleEnv,
-    lookupInstalledModuleEnv,
-  )
+import GHC.Unit (InstalledModule, emptyInstalledModuleEnv, extendInstalledModuleEnv, lookupInstalledModuleEnv)
 import GHC.Unit.Finder (FinderCache (..), InstalledFindResult (..))
 import GHC.Utils.Panic (panic)
 
@@ -63,6 +66,10 @@ import GHC.Unit.Finder (initFinderCache)
 #if defined(MWB)
 
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries', mkModuleGraph, mkNodeKey)
+
+#else
+
+import GHC.Unit.Module.Graph (unionMG)
 
 #endif
 
@@ -633,7 +640,7 @@ setTarget cacheVar cache hsc_env target = do
         then hsc_env1 {hsc_unit_env = hsc_env1.hsc_unit_env {ue_eps = cache.eps}}
         else hsc_env1
       hsc_env3 =
-        maybe hsc_env2 (\ hug -> hsc_env2 {hsc_unit_env = hsc_env2.hsc_unit_env {ue_home_unit_graph = unitEnv_union mergeHugs hug hsc_env.hsc_unit_env.ue_home_unit_graph}}) cache.hug
+        maybe hsc_env2 (\ hug -> hsc_env2 {hsc_unit_env = hsc_env2.hsc_unit_env {ue_home_unit_graph = hug}}) cache.hug
       hsc_env4 =
         maybe id restoreModuleGraph cache.moduleGraph hsc_env3
   pure hsc_env4
@@ -691,6 +698,15 @@ storeHug hsc_env cache = do
   pure cache {hug = Just merged}
   where
     merged = maybe id (unitEnv_union mergeHugs) cache.hug hsc_env.hsc_unit_env.ue_home_unit_graph
+
+insertUnitEnv :: HscEnv -> Cache -> Cache
+insertUnitEnv hsc_env cache =
+  cache {hug = Just (maybe fresh update cache.hug)}
+  where
+    fresh = unitEnv_singleton current ue
+    ue = unitEnv_lookup current hsc_env.hsc_unit_env.ue_home_unit_graph
+    current = hsc_env.hsc_unit_env.ue_current_unit
+    update = unitEnv_insert current ue
 
 finalizeCache ::
   MVar Log ->

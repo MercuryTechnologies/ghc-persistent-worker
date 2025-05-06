@@ -211,14 +211,15 @@ specificPrefixSwitches =
 specificSwitches :: [String]
 specificSwitches =
   [
-    "-o",
-    "-dyno",
-    "-ohi",
-    "-dynohi",
+    -- "-o",
+    -- "-dyno",
+    -- "-ohi",
+    -- "-dynohi",
     "-this-unit-id",
     "-package",
-    "-package-id",
-    "-stubdir"
+    "-package-id"
+    -- ,
+    -- "-stubdir"
   ]
 
 -- | Indicate whether the CLI arg starts with any of the values in 'specificPrefixSwitches'.
