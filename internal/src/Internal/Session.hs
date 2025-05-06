@@ -102,7 +102,7 @@ initGhc ::
 initGhc dflags0 logger fileish_args dynamicFlagWarnings = do
   liftIO $ printOrThrowDiagnostics logger (initPrintConfig dflags0) (initDiagOpts dflags0) flagWarnings'
   let (dflags1, srcs, objs) = parseTargetFiles dflags0 (map unLoc fileish_args)
-  unless (null objs) $ throwGhcException (UsageError "Targets contain object files")
+  unless (null objs) $ throwGhcException (UsageError ("Targets contain object files: " ++ show objs))
   setSessionDynFlags dflags1
   pure srcs
   where
@@ -211,23 +211,24 @@ specificPrefixSwitches =
     "-i"
   ]
 
+specificPrefixExcludes :: [String]
+specificPrefixExcludes =
+  [
+    "-include-pkg-deps"
+  ]
+
 -- | Command line args that have to be stored in the current home unit env.
 specificSwitches :: [String]
 specificSwitches =
   [
-    "-o",
-    "-dyno",
-    "-ohi",
-    "-dynohi",
-    "-this-unit-id",
     "-package",
-    "-package-id",
-    "-stubdir"
+    "-package-id"
   ]
 
 -- | Indicate whether the CLI arg starts with any of the values in 'specificPrefixSwitches'.
 isSpecificPrefix :: String -> Bool
 isSpecificPrefix arg =
+  not (any (`isPrefixOf` arg) specificPrefixExcludes) &&
   any (`isPrefixOf` arg) specificPrefixSwitches
 
 -- | Indicate whether the CLI arg is in 'specificSwitches'.
