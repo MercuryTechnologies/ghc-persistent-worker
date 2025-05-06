@@ -28,12 +28,20 @@ import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import GHC.Types.Name.Cache (NameCache (..), OrigNameCache)
 import GHC.Types.Unique.DFM (plusUDFM)
 import GHC.Types.Unique.FM (UniqFM, minusUFM, nonDetEltsUFM, sizeUFM)
-import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), unitEnv_union)
+import GHC.Unit.Env (
+  HomeUnitEnv (..),
+  HomeUnitGraph,
+  UnitEnv (..),
+  unitEnv_insert,
+  unitEnv_lookup,
+  unitEnv_singleton,
+  unitEnv_union,
+  )
 import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
 import GHC.Unit.Finder (InstalledFindResult (..))
 import GHC.Unit.Finder.Types (FinderCache (..))
 import GHC.Unit.Module.Env (InstalledModuleEnv, emptyModuleEnv, moduleEnvKeys, plusModuleEnv)
-import GHC.Unit.Module.Graph (ModuleGraph, unionMG)
+import GHC.Unit.Module.Graph (ModuleGraph)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
 import Internal.Log (Log, logd)
@@ -45,12 +53,7 @@ import Data.IORef (IORef, newIORef)
 import qualified Data.Map.Lazy as LazyMap
 import GHC.Fingerprint (Fingerprint, getFileHash)
 import GHC.IORef (atomicModifyIORef')
-import GHC.Unit
-  ( InstalledModule,
-    emptyInstalledModuleEnv,
-    extendInstalledModuleEnv,
-    lookupInstalledModuleEnv,
-  )
+import GHC.Unit (InstalledModule, emptyInstalledModuleEnv, extendInstalledModuleEnv, lookupInstalledModuleEnv)
 import GHC.Unit.Finder (FinderCache (..), InstalledFindResult (..))
 import GHC.Utils.Panic (panic)
 
@@ -63,6 +66,10 @@ import GHC.Unit.Finder (initFinderCache)
 #if defined(MWB)
 
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries', mkModuleGraph, mkNodeKey)
+
+#else
+
+import GHC.Unit.Module.Graph (unionMG)
 
 #endif
 
@@ -633,26 +640,51 @@ mergeHugs ::
 mergeHugs old new =
   new {homeUnitEnv_hpt = plusUDFM old.homeUnitEnv_hpt new.homeUnitEnv_hpt}
 
-setTarget :: MVar Cache -> Cache -> HscEnv -> Target -> IO HscEnv
-setTarget cacheVar cache hsc_env target = do
-  hsc_env1 <-
-    if cache.features.finder
-    then do
+-- | Restore cache parts that depend on the 'Target'.
+setTarget :: MVar Cache -> Cache -> Target -> HscEnv -> IO HscEnv
+setTarget cacheVar cache target hsc_env = do
+  -- The Finder cache is already shared by the base session, but with this, we can additionally inject the target file
+  -- for stats collection.
+  -- Only has an effect if the patch that abstracts the 'FinderCache' interface is in GHC, so >= 9.12.
+  if cache.features.finder
+  then restoreFinderCache hsc_env
+  else pure hsc_env
+  where
+    restoreFinderCache e = do
       hsc_FC <- newFinderCache cacheVar cache target
-      pure hsc_env {hsc_FC}
-    else pure hsc_env
-  let hsc_env2 =
-        if cache.features.eps
-        then hsc_env1 {hsc_unit_env = hsc_env1.hsc_unit_env {ue_eps = cache.eps}}
-        else hsc_env1
-      hsc_env3 =
-        maybe hsc_env2 (\ hug -> hsc_env2 {hsc_unit_env = hsc_env2.hsc_unit_env {ue_home_unit_graph = unitEnv_union mergeHugs hug hsc_env.hsc_unit_env.ue_home_unit_graph}}) cache.hug
-      hsc_env4 =
-        maybe id restoreModuleGraph cache.moduleGraph hsc_env3
-  pure hsc_env4
+      pure e {hsc_FC}
+
+-- | Restore cache parts related to make mode.
+restoreHptCache :: Cache -> HscEnv -> IO HscEnv
+restoreHptCache cache hsc_env = do
+  let
+    -- If the cache contains a module graph stored by @compileModuleWithDepsInHpt@, restore it
+    hsc_env1 = maybe id restoreHug cache.hug hsc_env
+
+    -- If the cache contains a module graph stored by @computeMetadata@, restore it
+    hsc_env2 = maybe id restoreModuleGraph cache.moduleGraph hsc_env1
+  pure hsc_env2
   where
     restoreModuleGraph mg e = e {hsc_mod_graph = mg}
 
+    restoreHug hug e = e {hsc_unit_env = e.hsc_unit_env {ue_home_unit_graph = hug}}
+
+-- | Restore cache parts related to oneshot mode.
+restoreOneshotCache :: Cache -> HscEnv -> IO HscEnv
+restoreOneshotCache cache hsc_env = do
+  -- If the feature is enabled, restore the EPS.
+  -- This is only relevant for the oneshot worker, but even there the base session should already be sharing the EPS
+  -- across modules.
+  -- Might be removed soon.
+  pure
+    if cache.features.eps
+    then restoreCachedEps hsc_env
+    else hsc_env
+  where
+    restoreCachedEps e = e {hsc_unit_env = e.hsc_unit_env {ue_eps = cache.eps}}
+
+-- | Merge the given module graph into the cached graph, or initialize it it doesn't exist yet.
+-- This is used by the make mode worker after the metadata step has computed the module graph.
 updateModuleGraph :: MVar Cache -> ModuleGraph -> IO ()
 updateModuleGraph cacheVar new =
   modifyMVar_ cacheVar \ cache -> do
@@ -680,7 +712,7 @@ prepareCache cacheVar target hsc_env0 cache0 = do
   result <-
     if cache0.features.enable
     then do
-      hsc_env1 <- setTarget cacheVar cache0 hsc_env0 target
+      hsc_env1 <- restoreOneshotCache cache0 =<< restoreHptCache cache0 =<< setTarget cacheVar cache0 target hsc_env0
       if cache0.features.loader
       then do
         withHscState hsc_env1 \ nsNames loaderStateVar symbolCacheVar -> do
@@ -704,6 +736,17 @@ storeHug hsc_env cache = do
   pure cache {hug = Just merged}
   where
     merged = maybe id (unitEnv_union mergeHugs) cache.hug hsc_env.hsc_unit_env.ue_home_unit_graph
+
+-- | Extract the unit env of the currently active unit and store it in the cache.
+-- This is used by the make mode worker after the metadata step has initialized the new unit.
+insertUnitEnv :: HscEnv -> Cache -> Cache
+insertUnitEnv hsc_env cache =
+  cache {hug = Just (maybe fresh update cache.hug)}
+  where
+    fresh = unitEnv_singleton current ue
+    ue = unitEnv_lookup current hsc_env.hsc_unit_env.ue_home_unit_graph
+    current = hsc_env.hsc_unit_env.ue_current_unit
+    update = unitEnv_insert current ue
 
 finalizeCache ::
   MVar Log ->
