@@ -1,6 +1,6 @@
 module Internal.Session where
 
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, readMVar)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (toList, traverse_)
@@ -35,7 +35,7 @@ import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
 import GHC.Utils.TmpFs (TempDir (..), initTmpFs, cleanTempFiles, cleanTempDirs)
 import Internal.Args (Args (..))
-import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Target (..), withCache)
+import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Options (..), Target (..), withCache)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log (..), logToState)
 import Prelude hiding (log)
@@ -74,8 +74,11 @@ setupPath args old = do
 setTempDir :: String -> HscEnv -> HscEnv
 setTempDir dir = hscUpdateFlags \ dflags -> dflags {tmpDir = TempDir dir}
 
-dummyLocation :: a -> Located a
-dummyLocation = mkGeneralLocated "by Buck2"
+buckLocation :: a -> Located a
+buckLocation = mkGeneralLocated "by Buck2"
+
+instrumentLocation :: a -> Located a
+instrumentLocation = mkGeneralLocated "by instrument"
 
 -- | Parse command line flags into @DynFlags@ and set up the logger. Extracted from GHC.
 -- Returns the subset of args that have not been recognized as options.
@@ -112,7 +115,8 @@ initGhc dflags0 logger fileish_args dynamicFlagWarnings = do
 withGhcInSession :: Env -> ([(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
 withGhcInSession env prog argv = do
   pushLogHookM (const (logToState env.log))
-  (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags argv
+  cache <- liftIO $ readMVar env.cache
+  (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags (argv ++ map instrumentLocation (words cache.options.extraGhcOptions))
   prettyPrintGhcErrors logger do
     srcs <- initGhc dflags0 logger fileish_args dynamicFlagWarnings
     prog srcs
@@ -152,7 +156,7 @@ runSession reuse Env {log, args, cache} prog = do
     run session =
       flip unGhc session $ withSignalHandlers do
         traverse_ (modifySession . setTempDir) args.tempDir
-        handleExceptions log Nothing (prog (map dummyLocation args.ghcOptions))
+        handleExceptions log Nothing (prog (map buckLocation args.ghcOptions))
 
     cleanup hsc_env =
       unless (gopt Opt_KeepTmpFiles (hsc_dflags hsc_env)) do

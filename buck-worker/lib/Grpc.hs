@@ -2,6 +2,7 @@ module Grpc where
 
 import BuckWorker (ExecuteCommand, ExecuteResponse)
 import Control.Concurrent.Chan (Chan, dupChan, readChan)
+import Control.Concurrent.MVar (MVar, modifyMVar_)
 import Control.Exception (SomeException (..), try)
 import Control.Monad (forever, when)
 import Data.Int (Int32)
@@ -10,6 +11,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
 import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
+import Internal.Cache (Cache (..), Options (..))
 import Network.GRPC.Common (NextElem (..))
 import Network.GRPC.Common.Protobuf (Proto, defMessage, (&), (.~))
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
@@ -125,10 +127,26 @@ notifyMe chan callback = do
     msg <- readChan myChan
     callback $ NextElem msg
 
+-- | Set the options for the server.
+setOptions ::
+  MVar Cache ->
+  Proto  Instr.Options ->
+  IO (Proto Instr.Empty)
+setOptions cacheVar opts = do
+  modifyMVar_ cacheVar $ \cache ->
+    pure cache {
+      options = Options {
+        extraGhcOptions = Text.unpack opts.extraGhcOptions
+      }
+    }
+  pure defMessage
+
 -- | A grapesy server that streams instrumentation data from the provided channel.
 instrumentMethods ::
   Chan (Proto Instr.Event) ->
+  MVar Cache ->
   Methods IO (ProtobufMethodsOf Instrument)
-instrumentMethods chan =
+instrumentMethods chan optsVar =
   simpleMethods
     (mkServerStreaming (const (notifyMe chan)))
+    (mkNonStreaming (setOptions optsVar))

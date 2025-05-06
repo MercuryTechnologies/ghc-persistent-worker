@@ -50,6 +50,12 @@ exitCode ::
    Data.ProtoLens.Field.HasField s "exitCode" a) =>
   Lens.Family2.LensLike' f s a
 exitCode = Data.ProtoLens.Field.field @"exitCode"
+extraGhcOptions ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "extraGhcOptions" a) =>
+  Lens.Family2.LensLike' f s a
+extraGhcOptions = Data.ProtoLens.Field.field @"extraGhcOptions"
 gcCpuNs ::
   forall f s a.
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "gcCpuNs" a) =>

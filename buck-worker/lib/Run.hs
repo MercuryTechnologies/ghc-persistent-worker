@@ -69,10 +69,10 @@ parseOptions =
 -- events to a client.
 --
 -- Returns the channel so that a GHC server can use it to send events.
-createInstrumentMethods :: IO (Chan (Proto Instr.Event), Methods IO (ProtobufMethodsOf Instrument))
-createInstrumentMethods = do
+createInstrumentMethods :: MVar Cache -> IO (Chan (Proto Instr.Event), Methods IO (ProtobufMethodsOf Instrument))
+createInstrumentMethods cacheVar = do
   instrChan <- newChan
-  pure (instrChan, instrumentMethods instrChan)
+  pure (instrChan, instrumentMethods instrChan cacheVar)
 
 -- | Construct a gRPC server handler for the main part of the persistent worker.
 createGhcMethods ::
@@ -102,7 +102,7 @@ runWorker socket CliOptions {orchestration, workerMode, workerExe, serve} = do
   status <- newMVar WorkerStatus {active = 0}
   let
     methods = CreateMethods {
-      createInstrumentation = createInstrumentMethods,
+      createInstrumentation = createInstrumentMethods cache,
       createGhc = createGhcMethods cache workerMode status
     }
     runSpawn = do

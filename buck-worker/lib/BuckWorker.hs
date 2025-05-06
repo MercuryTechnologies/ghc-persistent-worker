@@ -23,3 +23,7 @@ type instance ResponseTrailingMetadata (Protobuf Worker "execute") = NoMetadata
 type instance RequestMetadata (Protobuf Instrument "notifyMe") = NoMetadata
 type instance ResponseInitialMetadata (Protobuf Instrument "notifyMe") = NoMetadata
 type instance ResponseTrailingMetadata (Protobuf Instrument "notifyMe") = NoMetadata
+
+type instance RequestMetadata (Protobuf Instrument "setOptions") = NoMetadata
+type instance ResponseInitialMetadata (Protobuf Instrument "setOptions") = NoMetadata
+type instance ResponseTrailingMetadata (Protobuf Instrument "setOptions") = NoMetadata

@@ -29,6 +29,11 @@ message Event {
   }
 }
 
+message Options {
+  string extra_ghc_options = 1;
+}
+
 service Instrument {
   rpc NotifyMe(Empty) returns (stream Event) {};
+  rpc SetOptions(Options) returns (Empty) {};
 }
