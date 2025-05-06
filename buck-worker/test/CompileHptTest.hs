@@ -1,92 +1,42 @@
 module CompileHptTest where
 
-import Control.Concurrent (readMVar)
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, state)
 import Data.Char (toUpper)
 import Data.Foldable (for_, traverse_)
-import Data.Functor (void, (<&>))
 import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NonEmpty
+import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Set as Set
 import Data.Set (Set)
-import GHC (
-  DynFlags (..),
-  Ghc,
-  GhcException (..),
-  GhcMode (..),
-  ModSummary (..),
-  ModuleGraph,
-  getSession,
-  guessTarget,
-  mgModSummaries,
-  mkModuleGraph,
-  ms_mod_name,
-  setTargets,
-  unLoc,
-  )
-import GHC.Driver.Env (HscEnv (..), hscUpdateFlags, hsc_home_unit)
-import GHC.Driver.Make (downsweep)
-import GHC.Driver.Monad (modifySession, modifySessionM, withTempSession)
-import GHC.Runtime.Loader (initializeSessionPlugins)
-import GHC.Types.Error (unionManyMessages)
-import GHC.Unit (homeUnitId, moduleUnitId)
-import GHC.Unit.Env (UnitEnv (..), unitEnv_union)
-import GHC.Unit.Finder (addHomeModuleToFinder)
-import GHC.Utils.Outputable (ppr, text, (<+>))
+import GHC (DynFlags (..), Ghc, GhcException (..), GhcMode (..))
+import GHC.Driver.Env (hscUpdateFlags)
+import GHC.Driver.Monad (modifySession)
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.Args (Args (..))
-import Internal.Cache (Cache (..), Target (..), mergeHugs, newFinderCache, updateModuleGraph)
-import Internal.CompileHpt (adaptHp, compileModuleWithDepsInHpt, initUnit)
-import Internal.Debug (showHugShort, showModGraph)
-import Internal.Log (dbg, dbgp, dbgs, newLog)
+import Internal.Cache (Target (..))
+import Internal.CompileHpt (compileModuleWithDepsInHpt, initUnit)
+import Internal.Log (dbg, dbgs, newLog)
+import Internal.Metadata (computeMetadataInSession)
 import Internal.Session (Env (..), buckLocation, withGhcInSession, withGhcMhu, withUnitSpecificOptions)
 import Prelude hiding (log)
-import System.Directory (listDirectory, removeDirectoryRecursive, createDirectoryIfMissing)
-import System.FilePath (dropExtension, takeDirectory, takeExtension, takeFileName, (</>), takeBaseName)
+import System.Directory (createDirectoryIfMissing, listDirectory, removeDirectoryRecursive)
+import System.FilePath (dropExtension, takeBaseName, takeDirectory, takeExtension, takeFileName, (</>))
 import TestSetup (Conf (..), UnitConf (..), UnitMod (..), withProject)
-import Data.List.NonEmpty (NonEmpty)
 
 debugState :: Bool
 debugState = False
 
 -- | Approximate synthetic reproduction of what happens when the metadata step is performed by the worker.
-loadModuleGraph :: Env -> UnitMod -> [String] -> Ghc ModuleGraph
+loadModuleGraph :: Env -> UnitMod -> [String] -> Ghc (Maybe Bool)
 loadModuleGraph env UnitMod {src} specific = do
-  cache <- liftIO $ readMVar env.cache
-  (_, module_graph) <- withTempSession (maybe id restoreHug cache.hug . maybe id restoreModuleGraph cache.moduleGraph) do
-    modifySessionM \ hsc_env -> do
-      hsc_FC <- liftIO $ newFinderCache env.cache cache (Target "metadata")
-      pure hsc_env {hsc_FC}
-    dbg (unwords specific)
-    initUnit specific
-    when debugState do
-      mg <- hsc_mod_graph <$> getSession
-      dbgp ("existing graph:" <+> showModGraph mg)
-      dbg "hug:"
-      dbgp . showHugShort . ue_home_unit_graph . hsc_unit_env =<< getSession
-    names <- liftIO $ listDirectory dir
-    let srcs = [dir </> name | name <- names, takeExtension name == ".hs"]
-    targets <- mapM (\s -> guessTarget s Nothing Nothing) srcs
-    setTargets targets
-    hsc_env1 <- getSession
-    (errs, graph_nodes) <- liftIO $ downsweep hsc_env1 [] [] True
-    let
-      mod_graph = mkModuleGraph graph_nodes
-    pure (unionManyMessages errs, mod_graph)
-  when debugState do
-    dbgp (text "unit module graph:" <+> showModGraph module_graph)
-  liftIO $ updateModuleGraph env.cache module_graph
-  pure module_graph
+  names <- liftIO $ listDirectory dir
+  let srcs = [dir </> name | name <- names, takeExtension name == ".hs"]
+  computeMetadataInSession (initUnit specific) env srcs
   where
     dir = takeDirectory src
-
-    restoreModuleGraph mg e = e {hsc_mod_graph = mg}
-
-    restoreHug hug e =
-      e {hsc_unit_env = e.hsc_unit_env {ue_home_unit_graph = unitEnv_union mergeHugs hug e.hsc_unit_env.ue_home_unit_graph}}
 
 -- | Compile a single module using 'compileHpt' roughly like it happens when Buck requests it.
 -- If the module's home unit has not been encountered before, simulate the metadata step by doctoring the session,
@@ -96,52 +46,24 @@ makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
   log <- newLog True
   liftIO $ createDirectoryIfMissing False sessionTmpDir
   let env = Env {log, cache, args}
-      envC = env {args = env.args {ghcOptions = env.args.ghcOptions}}
+      envM = env {args = env.args {ghcOptions = mkDependArgs ++ env.args.ghcOptions}}
   firstTime <- state \ seen ->
     if Set.member unit seen
     then (False, seen)
     else (True, Set.insert unit seen)
   when firstTime do
-    success <- fmap (fromMaybe Nothing) $ liftIO $ withUnitSpecificOptions False env \ env1 specific argv -> do
-      (_, withPackageId) <- liftIO $ readMVar cache <&> \case
-        Cache {hug}
-          | Just h <- hug
-          -> fmap buckLocation <$> adaptHp h (unLoc <$> argv)
-          | otherwise
-          -> (mempty, argv)
-      flip (withGhcInSession env1) (withPackageId ++ fmap buckLocation dbsM) \ _ -> do
+    success <- fmap (fromMaybe Nothing) $ liftIO $ withUnitSpecificOptions False envM \ env1 specific argv -> do
+      flip (withGhcInSession env1) (argv ++ fmap buckLocation dbsM) \ _ -> do
         dbg ""
         dbg (">>> metadata for " ++ unit)
-        modifySession $ hscUpdateFlags \ d -> d {ghcMode = MkDepend}
-        initializeSessionPlugins
-        graph <- loadModuleGraph env1 umod specific
-        pure (Just (Just graph))
-    when debugState do
-      liftIO $ readMVar cache >>= \ Cache {..} -> for_ moduleGraph \ mg ->
-        dbgp (text "updated module graph:" <+> showModGraph mg)
-    void $ case success of
-      Just module_graph ->
-        liftIO $ withGhcMhu envC \ specific _ -> do
-          -- TODO while this makes the modules discoverable in @depanal@, it also causes @compileModuleWithDepsInHpt@ to break,
-          -- when it looks up @unit-main:Err@ for some reason.
-          when False do
-            dbg ""
-            dbg (">>> updating Finder")
-            modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
-            initUnit specific
-            hsc_env <- getSession
-            liftIO $ for_ (mgModSummaries module_graph) \ m -> do
-              when (homeUnitId (hsc_home_unit hsc_env) == moduleUnitId (ms_mod m)) do
-                dbgp ("add module:" <+> ppr (homeUnitId (hsc_home_unit hsc_env)) <+> ppr (ms_mod_name m))
-                void $ addHomeModuleToFinder (hsc_FC hsc_env) (hsc_home_unit hsc_env) (ms_mod_name m) (ms_location m)
-          pure (Just ())
-      Nothing ->
-        liftIO $ throwGhcExceptionIO (ProgramError "Metadata failed")
-  result <- liftIO $ withGhcMhu envC \ specific target -> do
+        Just <$> loadModuleGraph env1 umod specific
+    unless (success == Just True) do
+      liftIO $ throwGhcExceptionIO (ProgramError "Metadata failed")
+  result <- liftIO $ withGhcMhu env \ _ target -> do
     dbg ""
     dbg (">>> compiling " ++ takeFileName target.get)
     modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
-    compileModuleWithDepsInHpt specific target
+    compileModuleWithDepsInHpt target
   when (isNothing result) do
       liftIO $ throwGhcExceptionIO (ProgramError "Compile failed")
   dbgs result
@@ -152,6 +74,12 @@ makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
         -- Ensure that each module gets a separate temp directory, to resemble circumstances in a Buck build
         tempDir = Just sessionTmpDir
       }
+
+    mkDependArgs = [
+      "-dep-json=" ++ (sessionTmpDir </> "dep.json"),
+      "-dep-makefile=" ++ (sessionTmpDir </> "dep.make"),
+      "-include-pkg-deps"
+      ]
 
     sessionTmpDir = tmp </> "tmp" </> takeBaseName src
 

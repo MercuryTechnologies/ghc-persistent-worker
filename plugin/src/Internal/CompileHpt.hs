@@ -125,12 +125,10 @@ cleanCurrentModuleTempFilesMaybe logger tmpfs dflags =
 -- - Call the module compilation function @compileOne@
 -- - Store the resulting @HomeModInfo@ in the current unit's home package table.
 compileModuleWithDepsInHpt ::
-  [String] ->
   Target ->
   Ghc (Maybe ModuleArtifacts)
-compileModuleWithDepsInHpt specific (Target src) = do
+compileModuleWithDepsInHpt (Target src) = do
   initializeSessionPlugins
-  initUnit specific
   hsc_env <- getSession
   hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
     summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
