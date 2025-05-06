@@ -129,7 +129,7 @@ main = do
   status <- newMVar WorkerStatus {active = 0}
   let
     methods = CreateMethods {
-      createInstrumentation = createInstrumentMethods,
+      createInstrumentation = createInstrumentMethods cache,
       createGhc = createGhcMethods poolRef status cache
     }
   runLocalGhc methods socket Nothing
