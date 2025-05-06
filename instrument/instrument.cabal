@@ -27,6 +27,9 @@ executable instrument
     StrictData,
     TypeFamilies
   build-depends:
+    buck-worker,
+    ghc-persistent-worker-plugin,
+
     async,
     base ==4.*,
     brick,
@@ -34,11 +37,7 @@ executable instrument
     directory,
     fsnotify,
     grapesy,
-    microlens,
-    microlens-ghc,
-    microlens-mtl,
-    microlens-th,
+    microlens-platform,
     text,
     time,
-    buck-worker,
     vty

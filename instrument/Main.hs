@@ -2,41 +2,56 @@ module Main where
 
 import Brick.BChan (BChan, newBChan, writeBChan)
 import Control.Concurrent (forkIO)
-import Control.Exception (catch, SomeException)
-import Control.Monad (void, filterM)
+import Control.Exception (SomeException, catch)
+import Control.Monad (filterM, void)
 import Data.List (dropWhileEnd, isSuffixOf)
 import Data.Maybe (fromMaybe)
 import Data.Time (getCurrentTime)
 import Graphics.Vty (Vty (shutdown))
 import Network.GRPC.Client (Server (ServerUnix), rpc, withConnection)
-import Network.GRPC.Client.StreamType.IO (serverStreaming)
+import Network.GRPC.Client.StreamType.IO (nonStreaming, serverStreaming)
 import Network.GRPC.Common (def)
 import Network.GRPC.Common.NextElem (whileNext_)
-import Network.GRPC.Common.Protobuf (Protobuf, defMessage)
-import System.Directory (doesFileExist, listDirectory, getModificationTime)
+import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (&), (.~))
+import System.Directory (doesFileExist, getModificationTime, listDirectory)
 import System.Environment (lookupEnv)
-import System.FSNotify (Event (..), watchTree, withManager)
+import System.FSNotify (Event(..), watchTree, withManager)
 
 import BuckWorker (Instrument)
 
-import UI
+import Data.Text qualified as Text
+import Internal.Cache (Options (..))
+import Proto.Instrument qualified as Instr
+import Proto.Instrument_Fields qualified as Fields
+import UI qualified
 
-newtype WorkerPath =
-  WorkerPath { path :: FilePath }
+newtype WorkerPath
+  = WorkerPath {path :: FilePath}
   deriving stock (Eq, Show)
 
 envWorkerPath :: IO WorkerPath
-envWorkerPath = WorkerPath . (++ "/") . fromMaybe "/tmp/buck2_worker" <$> lookupEnv "WORKER_PATH"
+envWorkerPath = WorkerPath . (++ "/") . fromMaybe "/tmp/ghc-persistent-worker" <$> lookupEnv "WORKER_PATH"
 
-listen :: BChan (SessionId, CustomEvent) -> FilePath -> IO ()
+listen :: BChan UI.Event -> FilePath -> IO ()
 listen eventChan instrPath = do
   void $ forkIO $ withConnection def (ServerUnix instrPath) $ \conn -> do
+    let sendOptions options =
+          void $
+            nonStreaming conn (rpc @(Protobuf Instrument "setOptions")) $
+              mkOptions options
     catch @SomeException
-      (serverStreaming conn (rpc @(Protobuf Instrument "notifyMe")) defMessage $ \recv -> do
-        time <- getModificationTime instrPath
-        writeBChan eventChan $ (instrPath, StartSession time)
-        whileNext_ recv $ writeBChan eventChan . (,) instrPath . InstrEvent)
-      (const $ getCurrentTime >>= writeBChan eventChan . (,) instrPath . EndSession)
+      ( serverStreaming conn (rpc @(Protobuf Instrument "notifyMe")) defMessage $ \recv -> do
+          time <- getModificationTime instrPath
+          writeBChan eventChan $ UI.SessionEvent instrPath $ UI.StartSession time sendOptions
+          whileNext_ recv $ writeBChan eventChan . UI.SessionEvent instrPath . UI.InstrEvent
+      )
+      (const $ getCurrentTime >>= writeBChan eventChan . UI.SessionEvent instrPath . UI.EndSession)
+ where
+  mkOptions :: Options -> Proto Instr.Options
+  mkOptions Options{..} =
+    defMessage
+      & Fields.extraGhcOptions
+      .~ Text.pack extraGhcOptions
 
 main :: IO ()
 main = do
@@ -56,5 +71,5 @@ main = do
         listen eventChan $ dropWhileEnd (/= '/') file ++ "instrument"
       _ -> pure ()
 
-    (_, vty) <- customMainWithDefaultVty (Just eventChan) app initialState
+    (_, vty) <- UI.customMainWithDefaultVty (Just eventChan) UI.app UI.initialState
     vty.shutdown
