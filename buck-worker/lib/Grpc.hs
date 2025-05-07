@@ -107,7 +107,9 @@ mkStats = do
   s <- getRTSStats
   pure $
     defMessage
-      & Instr.memory .~ fromIntegral s.gc.gcdetails_mem_in_use_bytes
+      & Instr.memory .~ Map.fromList [
+          ("Total", fromIntegral s.gc.gcdetails_mem_in_use_bytes)
+        ]
       & Instr.gcCpuNs .~ s.gc_cpu_ns
       & Instr.cpuNs .~ s.cpu_ns
 

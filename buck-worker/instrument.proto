@@ -15,7 +15,7 @@ message CompileEnd {
 }
 
 message Stats {
-  int64 memory = 1;
+  map<string, int64> memory = 1;
   int64 gc_cpu_ns = 2;
   int64 cpu_ns = 3;
 }
