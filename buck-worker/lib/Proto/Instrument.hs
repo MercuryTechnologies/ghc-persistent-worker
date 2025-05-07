@@ -6,7 +6,8 @@
 module Proto.Instrument (
         Instrument(..), CompileEnd(), CompileStart(), Empty(), Event(),
         Event'Event(..), _Event'Halt, _Event'CompileStart,
-        _Event'CompileEnd, _Event'Stats, Options(), Stats()
+        _Event'CompileEnd, _Event'Stats, Options(), Stats(),
+        Stats'MemoryEntry()
     ) where
 import qualified Control.DeepSeq
 import qualified Data.ProtoLens.Prism
@@ -865,11 +866,11 @@ instance Control.DeepSeq.NFData Options where
              (Control.DeepSeq.deepseq (_Options'extraGhcOptions x__) ())
 {- | Fields :
      
-         * 'Proto.Instrument_Fields.memory' @:: Lens' Stats Data.Int.Int64@
+         * 'Proto.Instrument_Fields.memory' @:: Lens' Stats (Data.Map.Map Data.Text.Text Data.Int.Int64)@
          * 'Proto.Instrument_Fields.gcCpuNs' @:: Lens' Stats Data.Int.Int64@
          * 'Proto.Instrument_Fields.cpuNs' @:: Lens' Stats Data.Int.Int64@ -}
 data Stats
-  = Stats'_constructor {_Stats'memory :: !Data.Int.Int64,
+  = Stats'_constructor {_Stats'memory :: !(Data.Map.Map Data.Text.Text Data.Int.Int64),
                         _Stats'gcCpuNs :: !Data.Int.Int64,
                         _Stats'cpuNs :: !Data.Int.Int64,
                         _Stats'_unknownFields :: !Data.ProtoLens.FieldSet}
@@ -880,7 +881,7 @@ instance Prelude.Show Stats where
         '{'
         (Prelude.showString
            (Data.ProtoLens.showMessageShort __x) (Prelude.showChar '}' __s))
-instance Data.ProtoLens.Field.HasField Stats "memory" Data.Int.Int64 where
+instance Data.ProtoLens.Field.HasField Stats "memory" (Data.Map.Map Data.Text.Text Data.Int.Int64) where
   fieldOf _
     = (Prelude..)
         (Lens.Family2.Unchecked.lens
@@ -902,20 +903,25 @@ instance Data.ProtoLens.Message Stats where
   messageName _ = Data.Text.pack "instrument.Stats"
   packedMessageDescriptor _
     = "\n\
-      \\ENQStats\DC2\SYN\n\
-      \\ACKmemory\CAN\SOH \SOH(\ETXR\ACKmemory\DC2\SUB\n\
+      \\ENQStats\DC25\n\
+      \\ACKmemory\CAN\SOH \ETX(\v2\GS.instrument.Stats.MemoryEntryR\ACKmemory\DC2\SUB\n\
       \\tgc_cpu_ns\CAN\STX \SOH(\ETXR\agcCpuNs\DC2\NAK\n\
-      \\ACKcpu_ns\CAN\ETX \SOH(\ETXR\ENQcpuNs"
+      \\ACKcpu_ns\CAN\ETX \SOH(\ETXR\ENQcpuNs\SUB9\n\
+      \\vMemoryEntry\DC2\DLE\n\
+      \\ETXkey\CAN\SOH \SOH(\tR\ETXkey\DC2\DC4\n\
+      \\ENQvalue\CAN\STX \SOH(\ETXR\ENQvalue:\STX8\SOH"
   packedFileDescriptor _ = packedFileDescriptor
   fieldsByTag
     = let
         memory__field_descriptor
           = Data.ProtoLens.FieldDescriptor
               "memory"
-              (Data.ProtoLens.ScalarField Data.ProtoLens.Int64Field ::
-                 Data.ProtoLens.FieldTypeDescriptor Data.Int.Int64)
-              (Data.ProtoLens.PlainField
-                 Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"memory")) ::
+              (Data.ProtoLens.MessageField Data.ProtoLens.MessageType ::
+                 Data.ProtoLens.FieldTypeDescriptor Stats'MemoryEntry)
+              (Data.ProtoLens.MapField
+                 (Data.ProtoLens.Field.field @"key")
+                 (Data.ProtoLens.Field.field @"value")
+                 (Data.ProtoLens.Field.field @"memory")) ::
               Data.ProtoLens.FieldDescriptor Stats
         gcCpuNs__field_descriptor
           = Data.ProtoLens.FieldDescriptor
@@ -944,7 +950,7 @@ instance Data.ProtoLens.Message Stats where
         (\ x__ y__ -> x__ {_Stats'_unknownFields = y__})
   defMessage
     = Stats'_constructor
-        {_Stats'memory = Data.ProtoLens.fieldDefault,
+        {_Stats'memory = Data.Map.empty,
          _Stats'gcCpuNs = Data.ProtoLens.fieldDefault,
          _Stats'cpuNs = Data.ProtoLens.fieldDefault,
          _Stats'_unknownFields = []}
@@ -969,12 +975,22 @@ instance Data.ProtoLens.Message Stats where
                else
                    do tag <- Data.ProtoLens.Encoding.Bytes.getVarInt
                       case tag of
-                        8 -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
-                                       (Prelude.fmap
-                                          Prelude.fromIntegral
-                                          Data.ProtoLens.Encoding.Bytes.getVarInt)
-                                       "memory"
-                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"memory") y x)
+                        10
+                          -> do !(entry :: Stats'MemoryEntry) <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                                                   (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                                                       Data.ProtoLens.Encoding.Bytes.isolate
+                                                                         (Prelude.fromIntegral len)
+                                                                         Data.ProtoLens.parseMessage)
+                                                                   "memory"
+                                (let
+                                   key = Lens.Family2.view (Data.ProtoLens.Field.field @"key") entry
+                                   value
+                                     = Lens.Family2.view (Data.ProtoLens.Field.field @"value") entry
+                                 in
+                                   loop
+                                     (Lens.Family2.over
+                                        (Data.ProtoLens.Field.field @"memory")
+                                        (\ !t -> Data.Map.insert key value t) x))
                         16
                           -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
                                        (Prelude.fmap
@@ -1001,16 +1017,25 @@ instance Data.ProtoLens.Message Stats where
   buildMessage
     = \ _x
         -> (Data.Monoid.<>)
-             (let
-                _v = Lens.Family2.view (Data.ProtoLens.Field.field @"memory") _x
-              in
-                if (Prelude.==) _v Data.ProtoLens.fieldDefault then
-                    Data.Monoid.mempty
-                else
-                    (Data.Monoid.<>)
-                      (Data.ProtoLens.Encoding.Bytes.putVarInt 8)
-                      ((Prelude..)
-                         Data.ProtoLens.Encoding.Bytes.putVarInt Prelude.fromIntegral _v))
+             (Data.Monoid.mconcat
+                (Prelude.map
+                   (\ _v
+                      -> (Data.Monoid.<>)
+                           (Data.ProtoLens.Encoding.Bytes.putVarInt 10)
+                           ((Prelude..)
+                              (\ bs
+                                 -> (Data.Monoid.<>)
+                                      (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                         (Prelude.fromIntegral (Data.ByteString.length bs)))
+                                      (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                              Data.ProtoLens.encodeMessage
+                              (Lens.Family2.set
+                                 (Data.ProtoLens.Field.field @"key") (Prelude.fst _v)
+                                 (Lens.Family2.set
+                                    (Data.ProtoLens.Field.field @"value") (Prelude.snd _v)
+                                    (Data.ProtoLens.defMessage :: Stats'MemoryEntry)))))
+                   (Data.Map.toList
+                      (Lens.Family2.view (Data.ProtoLens.Field.field @"memory") _x))))
              ((Data.Monoid.<>)
                 (let
                    _v = Lens.Family2.view (Data.ProtoLens.Field.field @"gcCpuNs") _x
@@ -1045,6 +1070,158 @@ instance Control.DeepSeq.NFData Stats where
                 (Control.DeepSeq.deepseq
                    (_Stats'gcCpuNs x__)
                    (Control.DeepSeq.deepseq (_Stats'cpuNs x__) ())))
+{- | Fields :
+     
+         * 'Proto.Instrument_Fields.key' @:: Lens' Stats'MemoryEntry Data.Text.Text@
+         * 'Proto.Instrument_Fields.value' @:: Lens' Stats'MemoryEntry Data.Int.Int64@ -}
+data Stats'MemoryEntry
+  = Stats'MemoryEntry'_constructor {_Stats'MemoryEntry'key :: !Data.Text.Text,
+                                    _Stats'MemoryEntry'value :: !Data.Int.Int64,
+                                    _Stats'MemoryEntry'_unknownFields :: !Data.ProtoLens.FieldSet}
+  deriving stock (Prelude.Eq, Prelude.Ord)
+instance Prelude.Show Stats'MemoryEntry where
+  showsPrec _ __x __s
+    = Prelude.showChar
+        '{'
+        (Prelude.showString
+           (Data.ProtoLens.showMessageShort __x) (Prelude.showChar '}' __s))
+instance Data.ProtoLens.Field.HasField Stats'MemoryEntry "key" Data.Text.Text where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _Stats'MemoryEntry'key
+           (\ x__ y__ -> x__ {_Stats'MemoryEntry'key = y__}))
+        Prelude.id
+instance Data.ProtoLens.Field.HasField Stats'MemoryEntry "value" Data.Int.Int64 where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _Stats'MemoryEntry'value
+           (\ x__ y__ -> x__ {_Stats'MemoryEntry'value = y__}))
+        Prelude.id
+instance Data.ProtoLens.Message Stats'MemoryEntry where
+  messageName _ = Data.Text.pack "instrument.Stats.MemoryEntry"
+  packedMessageDescriptor _
+    = "\n\
+      \\vMemoryEntry\DC2\DLE\n\
+      \\ETXkey\CAN\SOH \SOH(\tR\ETXkey\DC2\DC4\n\
+      \\ENQvalue\CAN\STX \SOH(\ETXR\ENQvalue:\STX8\SOH"
+  packedFileDescriptor _ = packedFileDescriptor
+  fieldsByTag
+    = let
+        key__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "key"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.StringField ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Text.Text)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"key")) ::
+              Data.ProtoLens.FieldDescriptor Stats'MemoryEntry
+        value__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "value"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.Int64Field ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Int.Int64)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"value")) ::
+              Data.ProtoLens.FieldDescriptor Stats'MemoryEntry
+      in
+        Data.Map.fromList
+          [(Data.ProtoLens.Tag 1, key__field_descriptor),
+           (Data.ProtoLens.Tag 2, value__field_descriptor)]
+  unknownFields
+    = Lens.Family2.Unchecked.lens
+        _Stats'MemoryEntry'_unknownFields
+        (\ x__ y__ -> x__ {_Stats'MemoryEntry'_unknownFields = y__})
+  defMessage
+    = Stats'MemoryEntry'_constructor
+        {_Stats'MemoryEntry'key = Data.ProtoLens.fieldDefault,
+         _Stats'MemoryEntry'value = Data.ProtoLens.fieldDefault,
+         _Stats'MemoryEntry'_unknownFields = []}
+  parseMessage
+    = let
+        loop ::
+          Stats'MemoryEntry
+          -> Data.ProtoLens.Encoding.Bytes.Parser Stats'MemoryEntry
+        loop x
+          = do end <- Data.ProtoLens.Encoding.Bytes.atEnd
+               if end then
+                   do (let missing = []
+                       in
+                         if Prelude.null missing then
+                             Prelude.return ()
+                         else
+                             Prelude.fail
+                               ((Prelude.++)
+                                  "Missing required fields: "
+                                  (Prelude.show (missing :: [Prelude.String]))))
+                      Prelude.return
+                        (Lens.Family2.over
+                           Data.ProtoLens.unknownFields (\ !t -> Prelude.reverse t) x)
+               else
+                   do tag <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                      case tag of
+                        10
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getText
+                                             (Prelude.fromIntegral len))
+                                       "key"
+                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"key") y x)
+                        16
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (Prelude.fmap
+                                          Prelude.fromIntegral
+                                          Data.ProtoLens.Encoding.Bytes.getVarInt)
+                                       "value"
+                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"value") y x)
+                        wire
+                          -> do !y <- Data.ProtoLens.Encoding.Wire.parseTaggedValueFromWire
+                                        wire
+                                loop
+                                  (Lens.Family2.over
+                                     Data.ProtoLens.unknownFields (\ !t -> (:) y t) x)
+      in
+        (Data.ProtoLens.Encoding.Bytes.<?>)
+          (do loop Data.ProtoLens.defMessage) "MemoryEntry"
+  buildMessage
+    = \ _x
+        -> (Data.Monoid.<>)
+             (let _v = Lens.Family2.view (Data.ProtoLens.Field.field @"key") _x
+              in
+                if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                    Data.Monoid.mempty
+                else
+                    (Data.Monoid.<>)
+                      (Data.ProtoLens.Encoding.Bytes.putVarInt 10)
+                      ((Prelude..)
+                         (\ bs
+                            -> (Data.Monoid.<>)
+                                 (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                    (Prelude.fromIntegral (Data.ByteString.length bs)))
+                                 (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                         Data.Text.Encoding.encodeUtf8 _v))
+             ((Data.Monoid.<>)
+                (let
+                   _v = Lens.Family2.view (Data.ProtoLens.Field.field @"value") _x
+                 in
+                   if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                       Data.Monoid.mempty
+                   else
+                       (Data.Monoid.<>)
+                         (Data.ProtoLens.Encoding.Bytes.putVarInt 16)
+                         ((Prelude..)
+                            Data.ProtoLens.Encoding.Bytes.putVarInt Prelude.fromIntegral _v))
+                (Data.ProtoLens.Encoding.Wire.buildFieldSet
+                   (Lens.Family2.view Data.ProtoLens.unknownFields _x)))
+instance Control.DeepSeq.NFData Stats'MemoryEntry where
+  rnf
+    = \ x__
+        -> Control.DeepSeq.deepseq
+             (_Stats'MemoryEntry'_unknownFields x__)
+             (Control.DeepSeq.deepseq
+                (_Stats'MemoryEntry'key x__)
+                (Control.DeepSeq.deepseq (_Stats'MemoryEntry'value x__) ()))
 data Instrument = Instrument {}
 instance Data.ProtoLens.Service.Types.Service Instrument where
   type ServiceName Instrument = "Instrument"
@@ -1079,11 +1256,14 @@ packedFileDescriptor
     \CompileEnd\DC2\SYN\n\
     \\ACKtarget\CAN\SOH \SOH(\tR\ACKtarget\DC2\ESC\n\
     \\texit_code\CAN\STX \SOH(\ENQR\bexitCode\DC2\SYN\n\
-    \\ACKstderr\CAN\ETX \SOH(\tR\ACKstderr\"R\n\
-    \\ENQStats\DC2\SYN\n\
-    \\ACKmemory\CAN\SOH \SOH(\ETXR\ACKmemory\DC2\SUB\n\
+    \\ACKstderr\CAN\ETX \SOH(\tR\ACKstderr\"\172\SOH\n\
+    \\ENQStats\DC25\n\
+    \\ACKmemory\CAN\SOH \ETX(\v2\GS.instrument.Stats.MemoryEntryR\ACKmemory\DC2\SUB\n\
     \\tgc_cpu_ns\CAN\STX \SOH(\ETXR\agcCpuNs\DC2\NAK\n\
-    \\ACKcpu_ns\CAN\ETX \SOH(\ETXR\ENQcpuNs\"\222\SOH\n\
+    \\ACKcpu_ns\CAN\ETX \SOH(\ETXR\ENQcpuNs\SUB9\n\
+    \\vMemoryEntry\DC2\DLE\n\
+    \\ETXkey\CAN\SOH \SOH(\tR\ETXkey\DC2\DC4\n\
+    \\ENQvalue\CAN\STX \SOH(\ETXR\ENQvalue:\STX8\SOH\"\222\SOH\n\
     \\ENQEvent\DC2'\n\
     \\EOThalt\CAN\SOH \SOH(\v2\DC1.instrument.EmptyH\NULR\EOThalt\DC2>\n\
     \\fcompileStart\CAN\STX \SOH(\v2\CAN.instrument.CompileStartH\NULR\fcompileStart\DC28\n\
@@ -1162,13 +1342,13 @@ packedFileDescriptor
     \\n\
     \\ETX\EOT\ETX\SOH\DC2\ETX\DLE\b\r\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\NUL\DC2\ETX\DC1\STX\DC3\n\
+    \\EOT\EOT\ETX\STX\NUL\DC2\ETX\DC1\STX \n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\NUL\ENQ\DC2\ETX\DC1\STX\a\n\
+    \\ENQ\EOT\ETX\STX\NUL\ACK\DC2\ETX\DC1\STX\DC4\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\NUL\SOH\DC2\ETX\DC1\b\SO\n\
+    \\ENQ\EOT\ETX\STX\NUL\SOH\DC2\ETX\DC1\NAK\ESC\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\NUL\ETX\DC2\ETX\DC1\DC1\DC2\n\
+    \\ENQ\EOT\ETX\STX\NUL\ETX\DC2\ETX\DC1\RS\US\n\
     \\v\n\
     \\EOT\EOT\ETX\STX\SOH\DC2\ETX\DC2\STX\SYN\n\
     \\f\n\

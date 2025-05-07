@@ -66,6 +66,11 @@ halt ::
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "halt" a) =>
   Lens.Family2.LensLike' f s a
 halt = Data.ProtoLens.Field.field @"halt"
+key ::
+  forall f s a.
+  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "key" a) =>
+  Lens.Family2.LensLike' f s a
+key = Data.ProtoLens.Field.field @"key"
 maybe'compileEnd ::
   forall f s a.
   (Prelude.Functor f,
@@ -117,3 +122,8 @@ target ::
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "target" a) =>
   Lens.Family2.LensLike' f s a
 target = Data.ProtoLens.Field.field @"target"
+value ::
+  forall f s a.
+  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "value" a) =>
+  Lens.Family2.LensLike' f s a
+value = Data.ProtoLens.Field.field @"value"
