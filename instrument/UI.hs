@@ -34,6 +34,7 @@ import Brick.Widgets.List (GenericList, handleListEvent, list, listElementsL, li
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
+import Data.Map qualified as Map
 import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
 import Data.Time (UTCTime)
@@ -83,12 +84,12 @@ mkSession _title _startTime _sendOptions =
     , _content = ""
     , _startTime
     , _endTime = Nothing
-    , _stats = Stats 0 0 0 0
+    , _stats = Stats mempty 0 0 0
     , _sendOptions
     }
 
 data Stats = Stats
-  { _memory :: Int -- in bytes
+  { _memory :: Map.Map Text.Text Int -- in bytes
   , _gc_cpu_ns :: Int
   , _cpu_ns :: Int
   , _activeJobs :: Int
@@ -175,15 +176,24 @@ drawSession Session{..} =
 
 drawStats :: Stats -> Widget Name
 drawStats Stats{..} =
-  str $
-    "Memory: "
-      ++ show (_memory `div` 1_000_000)
-      ++ "Mb"
-      ++ " | CPU Time: "
-      ++ formatNs _cpu_ns
-      ++ " | GC Time: "
-      ++ formatNs _gc_cpu_ns
-      ++ (if _activeJobs > 0 then " | Active jobs: " ++ show _activeJobs else "")
+  vBox
+    [ str $ "Memory:"
+            ++ concatMap (\(k, v) -> " " ++ Text.unpack k ++ "=" ++ formatBytes v)
+                (Map.toList _memory)
+    , str $ " CPU Time: "
+          ++ formatNs _cpu_ns
+          ++ " | GC Time: "
+          ++ formatNs _gc_cpu_ns
+          ++ (if _activeJobs > 0 then " | Active jobs: " ++ show _activeJobs else "")
+    ]
+
+formatBytes :: Int -> String
+formatBytes = go ["b", "Kb", "Mb", "Gb", "Tb", "Pb"]
+  where
+    go :: [String] -> Int -> String
+    go (unit:units) n
+      | n >= 10_000 = go units (n `div` 1_000)
+      | otherwise = show n ++ unit
 
 formatNs :: Int -> String
 formatNs ns =
@@ -211,7 +221,7 @@ handleCustomEvent (InstrEvent evt) =
         Just msg -> do
           modifying stats \st ->
             st
-              { _memory = fromIntegral $ msg ^. Instr.memory
+              { _memory = fromIntegral <$> msg ^. Instr.memory
               , _gc_cpu_ns = fromIntegral $ msg ^. Instr.gcCpuNs
               , _cpu_ns = fromIntegral $ msg ^. Instr.cpuNs
               }
