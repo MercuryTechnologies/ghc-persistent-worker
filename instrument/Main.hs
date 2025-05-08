@@ -1,7 +1,7 @@
 module Main where
 
 import Brick.BChan (BChan, newBChan, writeBChan)
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Exception (SomeException, catch)
 import Control.Monad (filterM, void)
 import Data.List (dropWhileEnd, isSuffixOf)
@@ -34,19 +34,23 @@ envWorkerPath = WorkerPath . (++ "/") . fromMaybe "/tmp/ghc-persistent-worker" <
 
 listen :: BChan UI.Event -> FilePath -> IO ()
 listen eventChan instrPath = do
-  void $ forkIO $ withConnection def (ServerUnix instrPath) $ \conn -> do
-    let sendOptions options =
-          void $
-            nonStreaming conn (rpc @(Protobuf Instrument "setOptions")) $
-              mkOptions options
-    catch @SomeException
-      ( serverStreaming conn (rpc @(Protobuf Instrument "notifyMe")) defMessage $ \recv -> do
-          time <- getModificationTime instrPath
-          writeBChan eventChan $ UI.SessionEvent instrPath $ UI.StartSession time sendOptions
-          whileNext_ recv $ writeBChan eventChan . UI.SessionEvent instrPath . UI.InstrEvent
-      )
-      (const $ getCurrentTime >>= writeBChan eventChan . UI.SessionEvent instrPath . UI.EndSession)
+  void $ forkIO $ go 5
  where
+  go :: Int -> IO ()
+  go 0 = getCurrentTime >>= writeBChan eventChan . UI.SessionEvent instrPath . UI.EndSession
+  go n =
+    catch @SomeException
+      ( withConnection def (ServerUnix instrPath) $ \conn -> do
+          let sendOptions options =
+                void $
+                  nonStreaming conn (rpc @(Protobuf Instrument "setOptions")) $
+                    mkOptions options
+          serverStreaming conn (rpc @(Protobuf Instrument "notifyMe")) defMessage $ \recv -> do
+            time <- getModificationTime instrPath
+            writeBChan eventChan $ UI.SessionEvent instrPath $ UI.StartSession time sendOptions
+            whileNext_ recv $ writeBChan eventChan . UI.SessionEvent instrPath . UI.InstrEvent
+      )
+      (const $ threadDelay 100_000 >> go (n - 1))
   mkOptions :: Options -> Proto Instr.Options
   mkOptions Options{..} =
     defMessage
@@ -67,6 +71,8 @@ main = do
   -- Detect new workers
   withManager $ \mgr -> do
     void $ watchTree mgr workers.path (const True) $ \case
+      Added file _ _ | "/primary" `isSuffixOf` file -> do
+        listen eventChan $ dropWhileEnd (/= '/') file ++ "instrument"
       Modified file _ _ | "/primary" `isSuffixOf` file -> do
         listen eventChan $ dropWhileEnd (/= '/') file ++ "instrument"
       _ -> pure ()
