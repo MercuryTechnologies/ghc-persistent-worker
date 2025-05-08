@@ -110,7 +110,7 @@ createGhcMethods ::
   Maybe (Chan (Proto Instr.Event)) ->
   IO (Methods IO (ProtobufMethodsOf Worker))
 createGhcMethods pool status cache instrChan =
-  pure (ghcServerMethods (toGrpcHandler (ghcHandler pool cache) status instrChan))
+  pure (ghcServerMethods (toGrpcHandler (ghcHandler pool cache) status cache instrChan))
 
 main :: IO ()
 main = do

@@ -1,13 +1,13 @@
 module Instrumentation where
 
-import Control.Concurrent (MVar, modifyMVar_, writeChan)
-import Control.Concurrent.Chan (Chan)
+import Control.Concurrent (MVar, modifyMVar_, readMVar)
+import Control.Concurrent.Chan (Chan, writeChan)
 import Control.Exception (bracket_)
 import Data.Foldable (traverse_)
 import Data.Int (Int32)
 import Data.Text qualified as Text
 import Grpc (GrpcHandler (..), mkStats)
-import Internal.Cache (Target (..))
+import Internal.Cache (Cache, Target (..))
 import Internal.Log (dbg)
 import Network.GRPC.Common.Protobuf (Proto, defMessage, (&), (.~))
 import Prelude hiding (log)
@@ -88,13 +88,15 @@ messageCompileEnd target exitCode err =
 withInstrumentation ::
   Chan (Proto Instr.Event) ->
   MVar WorkerStatus ->
+  MVar Cache ->
   InstrumentedHandler ->
   GrpcHandler
-withInstrumentation instrChan status handler =
-  GrpcHandler \ commandEnv argv ->
+withInstrumentation instrChan status cacheVar handler =
+  GrpcHandler \ commandEnv argv -> do
+    cache <- readMVar cacheVar
     bracket_ (startJob status) (finishJob status) do
       result <- (handler.create hooks).run commandEnv argv
-      stats <- mkStats
+      stats <- mkStats cache
       writeChan instrChan (defMessage & Instr.stats .~ stats)
       pure result
   where
@@ -123,8 +125,9 @@ withInstrumentation instrChan status handler =
 toGrpcHandler ::
   InstrumentedHandler ->
   MVar WorkerStatus ->
+  MVar Cache ->
   Maybe (Chan (Proto Instr.Event)) ->
   GrpcHandler
-toGrpcHandler createHandler status = \case
+toGrpcHandler createHandler status cacheVar = \case
   Nothing -> createHandler.create hooksNoop
-  Just instrChan -> withInstrumentation instrChan status createHandler
+  Just instrChan -> withInstrumentation instrChan status cacheVar createHandler
