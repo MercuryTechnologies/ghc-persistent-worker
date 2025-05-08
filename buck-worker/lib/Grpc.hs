@@ -2,7 +2,7 @@ module Grpc where
 
 import BuckWorker (ExecuteCommand, ExecuteResponse)
 import Control.Concurrent.Chan (Chan, dupChan, readChan)
-import Control.Concurrent.MVar (MVar, modifyMVar_)
+import Control.Concurrent.MVar (MVar, modifyMVar_, readMVar)
 import Control.Exception (SomeException (..), try)
 import Control.Monad (forever, when)
 import Data.Int (Int32)
@@ -102,26 +102,28 @@ ghcServerMethods handler =
     (mkNonStreaming (execute handler))
 
 -- | Fetch statistics about the current state of the RTS for instrumentation.
-mkStats :: IO (Proto Instr.Stats)
-mkStats = do
+mkStats :: Cache -> IO (Proto Instr.Stats)
+mkStats _ = do
   s <- getRTSStats
   pure $
     defMessage
-      & Instr.memory .~ Map.fromList [
-          ("Total", fromIntegral s.gc.gcdetails_mem_in_use_bytes)
-        ]
+      & Instr.memory .~ Map.fromList
+          [ ("Total", fromIntegral s.gc.gcdetails_mem_in_use_bytes)
+          ]
       & Instr.gcCpuNs .~ s.gc_cpu_ns
       & Instr.cpuNs .~ s.cpu_ns
 
 -- | Implementation of a streaming grapesy handler that sends instrumentation statistics pulled from the provided
 -- channel to the client.
 notifyMe ::
+  MVar Cache ->
   Chan (Proto Instr.Event) ->
   (NextElem (Proto Instr.Event) -> IO ()) ->
   IO ()
-notifyMe chan callback = do
+notifyMe cacheVar chan callback = do
+  cache <- readMVar cacheVar
   myChan <- dupChan chan
-  stats <- mkStats
+  stats <- mkStats cache
   callback $ NextElem $
     defMessage
       & Instr.stats .~ stats
@@ -148,7 +150,7 @@ instrumentMethods ::
   Chan (Proto Instr.Event) ->
   MVar Cache ->
   Methods IO (ProtobufMethodsOf Instrument)
-instrumentMethods chan optsVar =
+instrumentMethods chan cacheVar =
   simpleMethods
-    (mkServerStreaming (const (notifyMe chan)))
-    (mkNonStreaming (setOptions optsVar))
+    (mkServerStreaming (const (notifyMe cacheVar chan)))
+    (mkNonStreaming (setOptions cacheVar))
