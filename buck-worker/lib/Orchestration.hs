@@ -13,6 +13,7 @@ import Data.Hashable (hash)
 import Data.List (dropWhileEnd)
 import Data.Maybe (isJust)
 import Data.Traversable (for)
+import GHC.Debug.Stub (withGhcDebug)
 import GHC.IO.Handle.Lock (LockMode (..), hLock, hUnlock)
 import Grpc (streamingNotImplemented)
 import Internal.Log (dbg)
@@ -127,7 +128,8 @@ runLocalGhc CreateMethods {..} socket minstr = do
     _instrThread <- async $ runServerWithHandlers def (grpcServerConfig instr.path) (fromMethods methods)
     pure resource
   methods <- createGhc instrResource
-  runServerWithHandlers def (grpcServerConfig socket.path) (fromMethods methods)
+  withGhcDebug do
+    runServerWithHandlers def (grpcServerConfig socket.path) (fromMethods methods)
 
 -- | Start a gRPC server that runs GHC for client proxies, deleting the discovery file on shutdown.
 runCentralGhc ::

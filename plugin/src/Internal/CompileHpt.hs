@@ -56,7 +56,7 @@ compileModuleWithDepsInHpt (Target src) = do
   hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
     summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
     summary <- setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
-    result <- compileOne hsc_env summary 1 100000 Nothing (HomeModLinkable Nothing Nothing)
+    result <- compileOne hsc_env summary 1 1 Nothing (HomeModLinkable Nothing Nothing)
     -- This deletes assembly files too early
     when False do
       cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts

@@ -22,7 +22,7 @@
       };
     };
 
-    ghc.build = {
+    ghcBuild = {
       enable = true;
       version = "9.10.1";
       url = "https://github.com/mercurytechnologies/ghc";
@@ -44,7 +44,7 @@
 
     envs.dev = args: workerEnv args // {
       # hls.enable = lib.mkForce false;
-      # inherit ghc;
+      # ghc.build = ghcBuild // { flavour = "release+split_sections"; };
     };
 
     envs.profiled = args: let
@@ -56,7 +56,7 @@
         ghc-persistent-worker-plugin = opts;
         buck-worker = opts;
       }) general.overrides];
-      inherit ghc;
+      ghc.build = ghcBuild;
     };
 
     commands.dev-prof = {
@@ -170,7 +170,7 @@
 
       debug = {
         src = ./debug;
-        cabal.dependencies = ["ghc-debug-client"];
+        cabal.dependencies = ["ghc-debug-client" "ghc-debug-common"];
         executable.enable = true;
         executables.snapshot = {};
       };

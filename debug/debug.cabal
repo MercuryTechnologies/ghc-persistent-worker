@@ -1,0 +1,65 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.36.1.
+--
+-- see: https://github.com/sol/hpack
+
+name:           debug
+version:        0.1.0.0
+description:    See https://hackage.haskell.org/package/debug/docs/Debug.html
+author:         Ian-Woo Kim
+maintainer:     ianwookim@gmail.com
+copyright:      2025 Ian-Woo Kim
+license:        MIT
+license-file:   LICENSE
+build-type:     Simple
+
+executable debug
+  main-is: Main.hs
+  other-modules:
+      Paths_debug
+  hs-source-dirs:
+      app
+  default-extensions:
+      BlockArguments
+      DerivingStrategies
+      DuplicateRecordFields
+      LambdaCase
+      NamedFieldPuns
+      OverloadedRecordDot
+      OverloadedStrings
+      RecordWildCards
+      StrictData
+      TypeFamilies
+      DataKinds
+  ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base ==4.*
+    , ghc-debug-client
+    , ghc-debug-common
+  default-language: GHC2021
+
+executable snapshot
+  main-is: Main.hs
+  other-modules:
+      Paths_debug
+  hs-source-dirs:
+      snapshot
+  default-extensions:
+      BlockArguments
+      DerivingStrategies
+      DuplicateRecordFields
+      LambdaCase
+      NamedFieldPuns
+      OverloadedRecordDot
+      OverloadedStrings
+      RecordWildCards
+      StrictData
+      TypeFamilies
+      DataKinds
+  ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base ==4.*
+    , ghc-debug-client
+    , ghc-debug-common
+  default-language: GHC2021

@@ -2,6 +2,7 @@ packages: ./plugin
           ./instrument
           ./buck-worker
           ./buck-multiplex-worker
+          ./debug
 
 -- For MWB-customized GHC, turn this on.
 -- flags: +mwb
