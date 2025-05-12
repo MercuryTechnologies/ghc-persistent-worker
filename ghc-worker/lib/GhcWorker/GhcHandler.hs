@@ -1,6 +1,5 @@
-module GhcHandler where
+module GhcWorker.GhcHandler where
 
-import BuckArgs (CompileResult (..), writeResult)
 import Control.Concurrent (MVar)
 import Control.Exception (throwIO)
 import Control.Monad.Catch (onException)
@@ -11,8 +10,9 @@ import GHC (DynFlags (..), Ghc, getSession)
 import GHC.Driver.DynFlags (GhcMode (..))
 import GHC.Driver.Env (hscUpdateFlags)
 import GHC.Driver.Monad (modifySession)
-import Grpc (GrpcHandler (..))
-import Instrumentation (Hooks (..), InstrumentedHandler (..))
+import GhcWorker.BuckArgs (CompileResult (..), writeResult)
+import GhcWorker.Grpc (GrpcHandler (..))
+import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Cache (Cache (..), ModuleArtifacts (..), Target (..))
 import Internal.Compile (compileModuleWithDepsInEps)
@@ -23,13 +23,7 @@ import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Prelude hiding (log)
 import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
-
--- | Selects the worker implementation.
-data WorkerMode =
-  WorkerMakeMode
-  |
-  WorkerOneshotMode
-  deriving stock (Eq, Show)
+import Types.GhcHandler (WorkerMode (..))
 
 -- | Compile a single module.
 -- Depending on @mode@ this will either use the old EPS-based oneshot-style compilation logic or the HPT-based

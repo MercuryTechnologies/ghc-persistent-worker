@@ -1,5 +1,6 @@
-packages: ./buck-worker
-          ./buck-multiplex-worker
+packages: ./buck-multiplex-worker
+          ./buck-proxy
+          ./ghc-worker
           ./instrument
           ./internal
           ./proto
@@ -8,7 +9,7 @@ packages: ./buck-worker
 -- For MWB-customized GHC, turn this on.
 -- flags: +mwb
 
-package buck-worker
+package ghc-worker
   executable-dynamic: true
 
 package buck-multiplex-worker
