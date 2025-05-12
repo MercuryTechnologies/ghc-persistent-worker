@@ -59,9 +59,9 @@ library
     text,
     vector
 
-executable worker
+executable ghc-worker
   import: all
-  main-is: Main.hs
+  main-is: app/ghc-worker/Main.hs
   hs-source-dirs: .
   ghc-options: -O2 -threaded "-with-rtsopts=-N -T"
 
