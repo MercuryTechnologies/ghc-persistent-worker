@@ -1,4 +1,4 @@
-module Grpc where
+module GhcWorker.Grpc where
 
 import BuckWorker (ExecuteCommand, ExecuteResponse)
 import Control.Concurrent.Chan (Chan, dupChan, readChan)

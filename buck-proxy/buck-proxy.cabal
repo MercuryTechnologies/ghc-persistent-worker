@@ -1,0 +1,52 @@
+cabal-version: 2.2
+name: buck-proxy
+version: 0.1
+synopsis: Buck2 GHC persistent worker
+license: MIT
+license-file: LICENSE
+build-type: Simple
+
+common all
+  ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages
+  default-language: GHC2021
+  default-extensions:
+    BlockArguments,
+    DataKinds,
+    DerivingStrategies,
+    DuplicateRecordFields,
+    LambdaCase,
+    NamedFieldPuns,
+    OverloadedLists,
+    OverloadedRecordDot,
+    OverloadedStrings,
+    RecordWildCards,
+    StrictData,
+    TypeFamilies
+  build-depends:
+    base ==4.*
+
+library
+  import: all
+  ghc-options: -O2
+  hs-source-dirs: lib
+  exposed-modules:
+    BuckProxy.Orchestration
+    BuckProxy.Run
+  build-depends:
+    buck-worker-proto,
+    buck-worker-types,
+    deepseq,
+    directory,
+    grapesy ^>=1.0.1,
+    process
+
+executable buck-proxy
+  import: all
+  ghc-options: -O2 -threaded "-with-rtsopts=-N -T"
+  main-is: Main.hs
+  hs-source-dirs: app/buck-proxy
+  ghc-options: -O2 -threaded "-with-rtsopts=-N -T"
+  build-depends:
+    base ==4.*,
+    buck-proxy,
+    buck-worker-types

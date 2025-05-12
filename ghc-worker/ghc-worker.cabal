@@ -1,5 +1,5 @@
 cabal-version: 2.2
-name: buck-worker
+name: ghc-worker
 version: 0.1
 synopsis: Buck2 GHC persistent worker
 license: MIT
@@ -30,12 +30,12 @@ library
   ghc-options: -O2
   hs-source-dirs: lib
   exposed-modules:
-    BuckArgs,
-    GhcHandler,
-    Grpc,
-    Instrumentation,
-    Orchestration,
-    Run
+    GhcWorker.BuckArgs
+    GhcWorker.GhcHandler
+    GhcWorker.Grpc
+    GhcWorker.Instrumentation
+    GhcWorker.Orchestration
+    GhcWorker.Run
   build-depends:
     async,
     buck-worker-internal,
@@ -49,17 +49,15 @@ library
     ghc,
     grapesy ^>=1.0.1,
     process,
-    split,
     text
 
 executable ghc-worker
   import: all
-  main-is: app/ghc-worker/Main.hs
-  hs-source-dirs: .
+  main-is: Main.hs
+  hs-source-dirs: app/ghc-worker
   ghc-options: -O2 -threaded "-with-rtsopts=-N -T"
   build-depends:
-    buck-worker,
-    buck-worker-internal
+    ghc-worker
 
 test-suite worker-test
   import: all

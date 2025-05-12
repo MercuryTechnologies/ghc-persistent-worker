@@ -19,7 +19,6 @@ executable multiplex-worker
   build-depends:
     base ==4.*,
     binary,
-    buck-worker,
     buck-worker-internal,
     buck-worker-proto,
     buck-worker-types,
@@ -28,6 +27,7 @@ executable multiplex-worker
     deepseq,
     extra,
     ghc,
+    ghc-worker,
     network,
     process,
     grapesy,
