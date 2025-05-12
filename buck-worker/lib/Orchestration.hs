@@ -9,7 +9,6 @@ import Control.Concurrent.Async (async, cancel, wait)
 import Control.DeepSeq (force)
 import Control.Exception (bracket_, finally, onException, throwIO, try)
 import Control.Monad (void, when)
-import Data.Hashable (hash)
 import Data.List (dropWhileEnd, intersperse)
 import Data.List.Split (splitOn)
 import Data.Maybe (isJust)
@@ -27,7 +26,7 @@ import Network.GRPC.Server.StreamType (Methods (..), fromMethods, mkClientStream
 import Proto.Instrument (Instrument (..))
 import Proto.Worker (Worker (..))
 import Proto.Worker_Fields qualified as Fields
-import System.Directory (createDirectoryIfMissing, getCurrentDirectory, removeFile)
+import System.Directory (createDirectoryIfMissing, removeFile)
 import System.Environment (getEnv)
 import System.Exit (exitFailure)
 import System.FilePath (splitDirectories, takeDirectory, (</>))
@@ -42,10 +41,6 @@ data Orchestration =
   -- | One worker process starts a GHC server, the others start a proxy server that forwards requests to the central
   -- GHC.
   Single
-  |
-  -- | One worker process spawns a new child process that runs the GHC server, and all workers then proxy this GHC.
-  -- GHC.
-  Spawn
   deriving stock (Eq, Show)
 
 -- | The file system path of the socket on which the worker running in this process is supposed to listen.
@@ -90,15 +85,17 @@ newtype SocketDirectory =
 
 -- | Derive the socket base dir from the socket path provided by Buck.
 spawnedSocketDirectory :: ServerSocketPath -> SocketDirectory
-spawnedSocketDirectory (ServerSocketPath path _ _) =
-  SocketDirectory (takeDirectory path)
+spawnedSocketDirectory server =
+  SocketDirectory (takeDirectory server.path)
 
--- | Use the current directory's hash to create a socket directory independent of Buck.
--- This is a hack that should eventually be replaced by a proper system.
-projectSocketDirectory :: IO SocketDirectory
-projectSocketDirectory = do
-  cwd <- getCurrentDirectory
-  pure (SocketDirectory ("/tmp/ghc-persistent-worker/" ++ show (hash cwd)))
+-- | For project socket, use the trace id extracted from server socket path.
+projectSocketDirectory :: Orchestration -> ServerSocketPath -> SocketDirectory
+projectSocketDirectory omode server =
+  case omode of
+    Multi -> SocketDirectory (root </> server.traceId ++ "-" ++ server.workerSpecId)
+    Single -> SocketDirectory (root </> server.traceId)
+  where
+    root = "/tmp/ghc-persistent-worker"
 
 -- | The file system path of the socket on which the primary worker running the GHC server is listening.
 newtype PrimarySocketPath =
@@ -336,10 +333,10 @@ serveOrProxyCentralGhc mode socket = do
 
 -- | Start a proxy gRPC server that forwards requests to the central GHC server.
 -- If that server isn't running, spawn a process and wait for it to boot up.
-spawnOrProxyCentralGhc :: WorkerExe -> WorkerMode -> ServerSocketPath -> IO ()
-spawnOrProxyCentralGhc exe mode socket = do
-  socketDir <- projectSocketDirectory
+spawnOrProxyCentralGhc :: WorkerExe -> Orchestration -> WorkerMode -> ServerSocketPath -> IO ()
+spawnOrProxyCentralGhc exe omode wmode socket = do
+  let socketDir = projectSocketDirectory omode socket
   primary <- runOrProxyCentralGhc socketDir \ _ -> do
-    primary <- forkCentralGhc exe mode socketDir
+    primary <- forkCentralGhc exe wmode socketDir
     pure (primary, ())
   proxyServer (either id fst primary) socket
