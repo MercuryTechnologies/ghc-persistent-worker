@@ -19,6 +19,7 @@ import Orchestration (
   runCentralGhcSpawned,
   runLocalGhc,
   serveOrProxyCentralGhc,
+  serverSocketFromPath,
   spawnOrProxyCentralGhc,
   )
 import qualified Proto.Instrument as Instr
@@ -62,7 +63,7 @@ parseOptions =
       "--spawn" : rest -> spin z {orchestration = Spawn} rest
       "--make" : rest -> spin z {workerMode = WorkerMakeMode} rest
       "--exe" : exe : rest -> spin z {workerExe = Just (WorkerExe exe)} rest
-      "--serve" : socket : rest -> spin z {serve = Just (ServerSocketPath socket)} rest
+      "--serve" : socket : rest -> spin z {serve = Just (serverSocketFromPath socket)} rest
       arg -> throwIO (userError ("Invalid worker CLI args: " ++ unwords arg))
 
 -- | Allocate a communication channel for instrumentation events and construct a gRPC server handler that streams said

@@ -10,7 +10,8 @@ import Control.DeepSeq (force)
 import Control.Exception (bracket_, finally, onException, throwIO, try)
 import Control.Monad (void, when)
 import Data.Hashable (hash)
-import Data.List (dropWhileEnd)
+import Data.List (dropWhileEnd, intersperse)
+import Data.List.Split (splitOn)
 import Data.Maybe (isJust)
 import Data.Traversable (for)
 import GHC.IO.Handle.Lock (LockMode (..), hLock, hUnlock)
@@ -29,7 +30,7 @@ import Proto.Worker_Fields qualified as Fields
 import System.Directory (createDirectoryIfMissing, getCurrentDirectory, removeFile)
 import System.Environment (getEnv)
 import System.Exit (exitFailure)
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath (splitDirectories, takeDirectory, (</>))
 import System.IO (IOMode (..), hGetLine, hPutStr, withFile)
 import System.Process (ProcessHandle, getProcessExitCode, spawnProcess)
 
@@ -48,13 +49,39 @@ data Orchestration =
   deriving stock (Eq, Show)
 
 -- | The file system path of the socket on which the worker running in this process is supposed to listen.
-newtype ServerSocketPath =
-  ServerSocketPath { path :: FilePath }
+data ServerSocketPath =
+  ServerSocketPath {
+    path :: FilePath,
+    traceId :: String,
+    workerSpecId :: String
+  }
   deriving stock (Eq, Show)
+
+-- | Extract trace_id and worker_spec_id out of the file path of WORKER_SOCKET.
+-- This is a rather hacky way to extract those information but there are no other information when the worker_init
+-- step is made.
+-- TODO: Make buck2 upstream change to pass this information properly to worker implementation.
+extractTraceIdAndWorkerSpecId :: FilePath -> (String, String)
+extractTraceIdAndWorkerSpecId sockPath =
+  let -- It is of the format: /tmp/buck2_worker/{uuid}-{number}/socket
+      ps = splitDirectories sockPath
+      str = ps !! 3
+      xs = splitOn "-" str
+      traceId = concat $ intersperse "-" $ init xs
+      workerSpecId = last xs
+   in (traceId, workerSpecId)
+
+-- | Given socket path, construct ServerSocketPath
+serverSocketFromPath :: FilePath -> ServerSocketPath
+serverSocketFromPath path =
+  let (traceId, workerSpecId) = extractTraceIdAndWorkerSpecId path
+   in ServerSocketPath {path, traceId, workerSpecId}
 
 -- | This environment variable is usually set by Buck before starting the worker process.
 envServerSocket :: IO ServerSocketPath
-envServerSocket = ServerSocketPath <$> getEnv "WORKER_SOCKET"
+envServerSocket = do
+  sockPath <- getEnv "WORKER_SOCKET"
+  pure (serverSocketFromPath sockPath)
 
 -- | The base dir for sockets, usually a dir in @/tmp@ created by Buck or ourselves.
 newtype SocketDirectory =
@@ -63,7 +90,7 @@ newtype SocketDirectory =
 
 -- | Derive the socket base dir from the socket path provided by Buck.
 spawnedSocketDirectory :: ServerSocketPath -> SocketDirectory
-spawnedSocketDirectory (ServerSocketPath path) =
+spawnedSocketDirectory (ServerSocketPath path _ _) =
   SocketDirectory (takeDirectory path)
 
 -- | Use the current directory's hash to create a socket directory independent of Buck.
