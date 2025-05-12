@@ -2,7 +2,6 @@
 
 module Main where
 
-import BuckArgs (CompileResult (..), writeResult)
 import BuckWorker (Worker (..))
 import Control.Concurrent (Chan, MVar, newMVar)
 import Control.Concurrent.STM (TVar, newTVarIO)
@@ -17,8 +16,11 @@ import Data.Int (Int32)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (maybeToList)
 import GHC (getSession)
-import Grpc (GrpcHandler (GrpcHandler), ghcServerMethods)
-import Instrumentation (Hooks (..), InstrumentedHandler (..), WorkerStatus (..), toGrpcHandler)
+import GhcWorker.BuckArgs (CompileResult (..), writeResult)
+import GhcWorker.Grpc (GrpcHandler (GrpcHandler), ghcServerMethods)
+import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..), WorkerStatus (..), toGrpcHandler)
+import GhcWorker.Orchestration (CreateMethods (..), runLocalGhc)
+import GhcWorker.Run (createInstrumentMethods)
 import Internal.AbiHash (readAbiHash)
 import Internal.Cache (Cache (..), ModuleArtifacts (..), emptyCache)
 import Internal.Log (newLog)
@@ -27,16 +29,15 @@ import Message (Request (..), Response (..), TargetId (..))
 import Network.GRPC.Common.Protobuf (Proto)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
 import Network.GRPC.Server.StreamType (Methods (..))
-import Orchestration (CreateMethods (..), envServerSocket, runLocalGhc)
 import Pool (Pool (..), dumpStatus, removeWorker)
 import Prelude hiding (log)
 import qualified Proto.Instrument as Instr
-import Run (createInstrumentMethods)
 import Server (assignLoop)
 import System.IO (BufferMode (..), hPutStrLn, hSetBuffering, stderr, stdout)
 import Types.Args (Args (..))
 import qualified Types.BuckArgs
 import Types.BuckArgs (BuckArgs, parseBuckArgs, toGhcArgs)
+import Types.Orchestration (envServerSocket)
 import Worker (work)
 
 -- | Write the compiled module's ABI hash to the Buck output file.
