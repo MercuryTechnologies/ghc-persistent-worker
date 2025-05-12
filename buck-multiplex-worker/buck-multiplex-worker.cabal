@@ -15,29 +15,25 @@ executable multiplex-worker
     Util
     Worker
   hs-source-dirs: .
-  ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages -threaded -rtsopts -with-rtsopts=-N -O2
   build-depends:
     base ==4.*,
     binary,
+    buck-worker,
     buck-worker-internal,
+    buck-worker-proto,
+    buck-worker-types,
     bytestring,
     containers,
     deepseq,
-    directory,
     extra,
-    filepath,
     ghc,
     network,
-    optparse-applicative,
     process,
     grapesy,
     stm,
-    text,
-    time,
     transformers,
-    unix,
-    vector,
-    buck-worker
+    unix
   default-language: GHC2021
   default-extensions:
     BlockArguments,

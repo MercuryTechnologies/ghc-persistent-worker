@@ -1,4 +1,4 @@
-module Internal.Args where
+module Types.Args where
 
 import Data.Map (Map)
 import Data.Map.Strict ((!?))

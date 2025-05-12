@@ -2,8 +2,7 @@
 
 module Main where
 
-import qualified BuckArgs as BuckArgs
-import BuckArgs (BuckArgs, CompileResult (..), parseBuckArgs, toGhcArgs, writeResult)
+import BuckArgs (CompileResult (..), writeResult)
 import BuckWorker (Worker (..))
 import Control.Concurrent (Chan, MVar, newMVar)
 import Control.Concurrent.STM (TVar, newTVarIO)
@@ -21,7 +20,6 @@ import GHC (getSession)
 import Grpc (GrpcHandler (GrpcHandler), ghcServerMethods)
 import Instrumentation (Hooks (..), InstrumentedHandler (..), WorkerStatus (..), toGrpcHandler)
 import Internal.AbiHash (readAbiHash)
-import Internal.Args (Args (..))
 import Internal.Cache (Cache (..), ModuleArtifacts (..), emptyCache)
 import Internal.Log (newLog)
 import Internal.Session (Env (..), withGhc)
@@ -36,6 +34,9 @@ import qualified Proto.Instrument as Instr
 import Run (createInstrumentMethods)
 import Server (assignLoop)
 import System.IO (BufferMode (..), hPutStrLn, hSetBuffering, stderr, stdout)
+import Types.Args (Args (..))
+import qualified Types.BuckArgs
+import Types.BuckArgs (BuckArgs, parseBuckArgs, toGhcArgs)
 import Worker (work)
 
 -- | Write the compiled module's ABI hash to the Buck output file.

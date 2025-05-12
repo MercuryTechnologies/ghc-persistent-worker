@@ -1,0 +1,42 @@
+cabal-version: 2.2
+name: buck-worker-proto
+version: 0.1
+synopsis: Buck2 GHC persistent worker protobuf types
+license: MIT
+license-file: LICENSE
+build-type: Simple
+
+library
+  ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages -O2
+  hs-source-dirs: src
+  default-language: GHC2021
+  default-extensions:
+    BlockArguments,
+    DataKinds,
+    DerivingStrategies,
+    DuplicateRecordFields,
+    LambdaCase,
+    NamedFieldPuns,
+    OverloadedLists,
+    OverloadedRecordDot,
+    OverloadedStrings,
+    RecordWildCards,
+    StrictData,
+    TypeFamilies
+
+  exposed-modules:
+    BuckWorker,
+    Proto.Worker,
+    Proto.Worker_Fields
+    Proto.Instrument,
+    Proto.Instrument_Fields
+  build-depends:
+    base ==4.*,
+    bytestring,
+    containers,
+    deepseq,
+    grapesy ^>=1.0.1,
+    lens-family,
+    proto-lens,
+    text,
+    vector
