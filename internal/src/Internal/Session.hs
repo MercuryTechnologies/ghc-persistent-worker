@@ -1,6 +1,7 @@
 module Internal.Session where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, readMVar)
+import Control.Exception (finally)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (toList, traverse_)
@@ -34,13 +35,12 @@ import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
 import GHC.Utils.TmpFs (TempDir (..), initTmpFs, cleanTempFiles, cleanTempDirs)
-import Internal.Args (Args (..))
 import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Options (..), Target (..), withCache)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log (..), logToState)
 import Prelude hiding (log)
 import System.Environment (setEnv)
-import Control.Exception (finally)
+import Types.Args (Args (..))
 
 -- | Worker state.
 data Env =

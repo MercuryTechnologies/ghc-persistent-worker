@@ -11,7 +11,7 @@ executable instrument
   other-modules: UI
   ghc-options:
     -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages
-    -threaded -rtsopts -with-rtsopts=-N
+    -threaded -rtsopts -with-rtsopts=-N -O2
   default-language: GHC2021
   default-extensions:
     BlockArguments,
@@ -27,11 +27,10 @@ executable instrument
     StrictData,
     TypeFamilies
   build-depends:
-    async,
     base ==4.*,
     brick,
-    buck-worker,
     buck-worker-internal,
+    buck-worker-proto,
     containers,
     directory,
     fsnotify,

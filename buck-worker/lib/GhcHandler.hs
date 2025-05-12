@@ -1,7 +1,6 @@
 module GhcHandler where
 
-import qualified BuckArgs as BuckArgs
-import BuckArgs (BuckArgs, CompileResult (..), Mode (..), parseBuckArgs, toGhcArgs, writeResult)
+import BuckArgs (CompileResult (..), writeResult)
 import Control.Concurrent (MVar)
 import Control.Exception (throwIO)
 import Control.Monad.Catch (onException)
@@ -22,6 +21,8 @@ import Internal.Log (logFlush, newLog)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Prelude hiding (log)
+import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
+import qualified Types.BuckArgs
 
 -- | Selects the worker implementation.
 data WorkerMode =

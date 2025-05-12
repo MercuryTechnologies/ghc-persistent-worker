@@ -31,20 +31,16 @@ library
   hs-source-dirs: lib
   exposed-modules:
     BuckArgs,
-    BuckWorker,
     GhcHandler,
     Grpc,
     Instrumentation,
     Orchestration,
-    Proto.Worker,
-    Proto.Worker_Fields
-    Proto.Instrument,
-    Proto.Instrument_Fields,
     Run
   build-depends:
     async,
     buck-worker-internal,
-    bytestring,
+    buck-worker-proto,
+    buck-worker-types,
     containers,
     deepseq,
     directory,
@@ -52,12 +48,9 @@ library
     filepath,
     ghc,
     grapesy ^>=1.0.1,
-    lens-family,
     process,
-    proto-lens,
     split,
-    text,
-    vector
+    text
 
 executable ghc-worker
   import: all
