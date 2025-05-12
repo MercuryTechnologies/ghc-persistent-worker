@@ -23,8 +23,7 @@ common all
     StrictData,
     TypeFamilies
   build-depends:
-    base ==4.*,
-    containers
+    base ==4.*
 
 library
   import: all
@@ -45,6 +44,7 @@ library
   build-depends:
     async,
     bytestring,
+    containers,
     deepseq,
     directory,
     exceptions,
@@ -52,7 +52,6 @@ library
     ghc,
     ghc-persistent-worker-plugin,
     grapesy ^>=1.0.1,
-    hashable,
     lens-family,
     process,
     proto-lens,
@@ -67,13 +66,7 @@ executable ghc-worker
   ghc-options: -O2 -threaded "-with-rtsopts=-N -T"
 
   build-depends:
-    async,
-    directory,
-    filepath,
-    grapesy,
-    ghc,
     ghc-persistent-worker-plugin,
-    text,
     buck-worker
 
 test-suite worker-test

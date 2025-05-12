@@ -17,8 +17,6 @@ import Orchestration (
   ServerSocketPath (..),
   WorkerExe (..),
   runCentralGhcSpawned,
-  runLocalGhc,
-  serveOrProxyCentralGhc,
   serverSocketFromPath,
   spawnOrProxyCentralGhc,
   )
@@ -60,7 +58,6 @@ parseOptions =
     spin z = \case
       [] -> pure z
       "--single" : rest -> spin z {orchestration = Single} rest
-      "--spawn" : rest -> spin z {orchestration = Spawn} rest
       "--make" : rest -> spin z {workerMode = WorkerMakeMode} rest
       "--exe" : exe : rest -> spin z {workerExe = Just (WorkerExe exe)} rest
       "--serve" : socket : rest -> spin z {serve = Just (serverSocketFromPath socket)} rest
@@ -110,11 +107,7 @@ runWorker socket CliOptions {orchestration, workerMode, workerExe, serve} = do
       exe <- case workerExe of
         Just exe -> pure exe
         Nothing -> throwIO (userError "Spawn mode requires specifying the worker executable with '--exe'")
-      spawnOrProxyCentralGhc exe workerMode socket
+      spawnOrProxyCentralGhc exe orchestration workerMode socket
   case serve of
     Just serverSocket -> runCentralGhcSpawned methods serverSocket
-    Nothing ->
-      case orchestration of
-        Single -> serveOrProxyCentralGhc methods socket
-        Multi -> runLocalGhc methods socket Nothing
-        Spawn -> runSpawn
+    Nothing -> runSpawn
