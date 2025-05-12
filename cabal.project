@@ -1,4 +1,4 @@
-packages: ./plugin
+packages: ./internal
           ./instrument
           ./buck-worker
           ./buck-multiplex-worker
