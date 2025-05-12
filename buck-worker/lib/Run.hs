@@ -109,7 +109,7 @@ runWorker socket CliOptions {orchestration, workerMode, workerExe, serve} = do
       exe <- case workerExe of
         Just exe -> pure exe
         Nothing -> throwIO (userError "Spawn mode requires specifying the worker executable with '--exe'")
-      spawnOrProxyCentralGhc exe socket
+      spawnOrProxyCentralGhc exe workerMode socket
   case serve of
     Just serverSocket -> runCentralGhcSpawned methods serverSocket
     Nothing ->
