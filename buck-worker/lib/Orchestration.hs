@@ -14,6 +14,7 @@ import Data.List (dropWhileEnd)
 import Data.Maybe (isJust)
 import Data.Traversable (for)
 import GHC.IO.Handle.Lock (LockMode (..), hLock, hUnlock)
+import GhcHandler (WorkerMode (..))
 import Grpc (streamingNotImplemented)
 import Internal.Log (dbg)
 import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
@@ -232,10 +233,13 @@ waitForCentralGhc proc socket = do
 -- | Spawn a child process executing the worker executable (which usually is the same as this process), for the purpose
 -- of running a GHC server to which all worker processes then forward their requests.
 -- Afterwards, wait for the server to be responsive.
-forkCentralGhc :: WorkerExe -> SocketDirectory -> IO PrimarySocketPath
-forkCentralGhc exe socketDir = do
+forkCentralGhc :: WorkerExe -> WorkerMode -> SocketDirectory -> IO PrimarySocketPath
+forkCentralGhc exe mode socketDir = do
   dbg ("Forking GHC server at " ++ primary.path)
-  proc <- spawnProcess exe.path ["--make", "--serve", primary.path]
+  let workerModeFlag = case mode of
+        WorkerOneshotMode -> []
+        WorkerMakeMode -> ["--make"]
+  proc <- spawnProcess exe.path (workerModeFlag ++ ["--serve", primary.path])
   waitForCentralGhc proc primary
   pure primary
   where
@@ -305,10 +309,10 @@ serveOrProxyCentralGhc mode socket = do
 
 -- | Start a proxy gRPC server that forwards requests to the central GHC server.
 -- If that server isn't running, spawn a process and wait for it to boot up.
-spawnOrProxyCentralGhc :: WorkerExe -> ServerSocketPath -> IO ()
-spawnOrProxyCentralGhc exe socket = do
+spawnOrProxyCentralGhc :: WorkerExe -> WorkerMode -> ServerSocketPath -> IO ()
+spawnOrProxyCentralGhc exe mode socket = do
   socketDir <- projectSocketDirectory
   primary <- runOrProxyCentralGhc socketDir \ _ -> do
-    primary <- forkCentralGhc exe socketDir
+    primary <- forkCentralGhc exe mode socketDir
     pure (primary, ())
   proxyServer (either id fst primary) socket
