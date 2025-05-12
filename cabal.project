@@ -1,7 +1,9 @@
-packages: ./internal
-          ./instrument
-          ./buck-worker
+packages: ./buck-worker
           ./buck-multiplex-worker
+          ./instrument
+          ./internal
+          ./proto
+          ./types
 
 -- For MWB-customized GHC, turn this on.
 -- flags: +mwb
