@@ -1,28 +1,26 @@
 module Main where
 
 import Brick.BChan (BChan, newBChan, writeBChan)
+import BuckWorker (Instrument)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Exception (SomeException, catch)
 import Control.Monad (filterM, void)
 import Data.List (dropWhileEnd, isSuffixOf)
 import Data.Maybe (fromMaybe)
+import Data.Text qualified as Text
 import Data.Time (getCurrentTime)
 import Graphics.Vty (Vty (shutdown))
+import Internal.Cache (Options (..))
 import Network.GRPC.Client (Server (ServerUnix), rpc, withConnection)
 import Network.GRPC.Client.StreamType.IO (nonStreaming, serverStreaming)
 import Network.GRPC.Common (def)
 import Network.GRPC.Common.NextElem (whileNext_)
 import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (&), (.~))
+import Proto.Instrument qualified as Instr
+import Proto.Instrument_Fields qualified as Fields
 import System.Directory (doesFileExist, getModificationTime, listDirectory)
 import System.Environment (lookupEnv)
 import System.FSNotify (Event(..), watchTree, withManager)
-
-import BuckWorker (Instrument)
-
-import Data.Text qualified as Text
-import Internal.Cache (Options (..))
-import Proto.Instrument qualified as Instr
-import Proto.Instrument_Fields qualified as Fields
 import UI qualified
 
 newtype WorkerPath
