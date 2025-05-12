@@ -55,6 +55,7 @@
       in {
         ghc-persistent-worker-plugin = opts;
         buck-worker = opts;
+        debug = opts;
       }) general.overrides];
       ghc.build = ghcBuild;
     };
@@ -170,9 +171,12 @@
 
       debug = {
         src = ./debug;
-        cabal.dependencies = ["ghc-debug-client" "ghc-debug-common"];
+        cabal.dependencies = ["ghc-debug-client" "ghc-debug-common" "ghc-debug-stub" "containers"];
         executable.enable = true;
         executables.snapshot = {};
+        executables.gen-case = {
+          ghc-options = ["-O0"];
+        };
       };
 
       ghc-persistent-worker-plugin = {

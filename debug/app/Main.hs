@@ -4,7 +4,7 @@
 module Main where
 
 import Control.Monad.IO.Class (liftIO)
-import Data.Foldable (for_, traverse_)
+import Data.Foldable (for_, traverse_, fold, toList)
 import Data.List (isPrefixOf, sortOn, uncons)
 import Data.List.NonEmpty (NonEmpty ((:|)), groupAllWith, nonEmpty)
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -13,6 +13,9 @@ import GHC.Debug.Client
 import GHC.Debug.Profile
 import GHC.Debug.Retainers
 import GHC.Debug.Types.Graph (heapGraphSize, ppClosure)
+import Data.Map.Strict ((!?))
+import GHC.Debug.Client.Monad (unsafeLiftIO)
+import Data.Functor ((<&>))
 
 findThunks :: [ClosurePtr] -> DebugM [[ClosurePtr]]
 findThunks roots =
@@ -58,7 +61,13 @@ sanitize (scp@(DCS _ clp), (Just si@SourceInformation {infoModule}))
   = Nothing
   | otherwise
   = case clp of
-    ConstrClosure {} -> Just frame
+    ConstrClosure {constrDesc}
+      | constrDesc.name == ":"
+      -> Nothing
+      | constrDesc.name == "[]"
+      -> Nothing
+      | otherwise
+      -> Just frame
     FunClosure {} -> Just frame
     TSOClosure {} -> Nothing
     MutVarClosure {} -> Nothing
@@ -78,8 +87,10 @@ showClosure = \case
 
 displayStack :: [(String, [(SizedClosureP, SourceInformation)])] -> IO ()
 displayStack =
-  traverse_ \ (_, stack) -> for_ stack \ (DCS size d, l) ->
-    putStrLn $ tdisplay d l ++ " | " ++ show (getSize size)
+  traverse_ \ (_, stack) -> do
+    putStrLn "---"
+    for_ stack \ (DCS size d, l) ->
+      putStrLn $ tdisplay d l ++ " | " ++ show (getSize size)
   where
     tdisplay d SourceInformation {..} = case d of
       FunClosure {} -> showClosure d ++ " " ++ infoName
@@ -88,19 +99,97 @@ displayStack =
       _ ->
         showClosure d ++  " <" ++ infoName ++ ":" ++ infoType ++ ":" ++ infoModule ++ ":" ++ infoPosition ++ "> "
 
-displayGrouped :: Grouped -> IO ()
-displayGrouped =
+displayGrouped :: Maybe Int -> Grouped -> IO ()
+displayGrouped limit =
   traverse_ \case
-    stacks@(stack@(_, (_, Just SourceInformation {infoType}) : _) :| _)
+    stacks@((_, (_, Just SourceInformation {infoType}) : _) :| _)
       | null infoType
       -> pure ()
       | otherwise
       -> do
         putStrLn "----------------------------------------"
         putStrLn ("Retainers of thunks of type '" ++ infoType ++ "' : " ++ show (length stacks))
-        displayStack [mapMaybe sanitize <$> stack]
+        displayStack (fmap (mapMaybe sanitize) <$> maybe id take limit (toList stacks))
     stacks ->
       putStrLn ("ERROR: No info for stack of size " ++ show (length stacks))
+
+addLocs ::
+  [[ClosurePtr]] ->
+  DebugM [(String, [(SizedClosureP, Maybe SourceInformation)])]
+addLocs =
+  traverse \ c -> (maybe "unknown" (show . fst) (uncons c),) <$> addLocationToStack c
+
+data FromTo =
+  FromTo {
+    mldf :: [(String, [(SizedClosureP, Maybe SourceInformation)])]
+  }
+  deriving stock (Eq, Show)
+
+displayFromTo :: Maybe Int -> FromTo -> IO ()
+displayFromTo limit (FromTo (nonEmpty -> Just stacks)) =
+  displayGrouped limit [stacks]
+displayFromTo _ _ =
+  putStrLn "No results."
+
+findFromTo :: String -> String -> [ClosurePtr] -> DebugM [[ClosurePtr]]
+findFromTo from to roots = do
+  fromResult <- closureCensusBy matchFrom roots
+  let froms = fold (fromResult !? ())
+  unsafeLiftIO $ putStrLn ("Found " ++ show (length froms) ++ " closures of " ++ from)
+  findRetainers (Just 100) matchTo froms
+  where
+    matchFrom ptr = \case
+      DCS _ c@ConstrClosure {} -> matchFromType ptr c
+      DCS _ c@ThunkClosure {} -> matchFromType ptr c
+      _ -> pure Nothing
+
+    matchFromType ptr closure = do
+      getSourceInfo (tableId (info closure)) <&> \ mi -> mi >>= \ SourceInformation {infoType} ->
+        if infoType == from
+        then Just ((), [ptr])
+        else Nothing
+
+    matchTo =
+      InfoSourceFilter \ SourceInformation {infoType, infoName} ->
+        infoType == to || infoName == to
+
+
+fromTo ::
+  Maybe Int ->
+  String ->
+  String ->
+  (
+    [ClosurePtr] ->
+    DebugM FromTo,
+    (FromTo -> IO ())
+  )
+fromTo showLimit from to =
+  (prep, process)
+  where
+    prep roots = do
+      rs <- findFromTo from to roots
+      rs' <- addLocs rs
+      pure (FromTo rs')
+
+    process = displayFromTo showLimit
+
+modLocationDynFlags ::
+  (
+    [ClosurePtr] ->
+    DebugM FromTo,
+    (FromTo -> IO ())
+  )
+modLocationDynFlags =
+  fromTo (Just 1) "ModLocation" "DynFlags"
+
+aToB ::
+  (
+    [ClosurePtr] ->
+    DebugM FromTo,
+    (FromTo -> IO ())
+  )
+aToB =
+  fromTo Nothing "TestA" "TestB"
 
 thunks ::
   (
@@ -113,13 +202,13 @@ thunks =
   where
     prep roots = do
       rs <- findThunks roots
-      rs' <- traverse (\c -> (maybe "unknown" (show . fst) (uncons c),) <$> addLocationToStack c) rs
-      pure (dropWhile (\ a -> length a < 5) (sortOn length (groupAllWith byName rs')))
+      rs' <- addLocs rs
+      pure (dropWhile (\ a -> length a < 0) (sortOn length (groupAllWith byName rs')))
 
     byName (_, (_, Just SourceInformation {infoType}) : _) = infoType
     byName _ = "unnamed"
 
-    process = displayGrouped
+    process = displayGrouped (Just 1)
 
 targets :: [ClosurePtr] -> DebugM [[ClosurePtr]]
 targets roots =
@@ -136,7 +225,7 @@ retainers =
   where
     prep roots = do
       rs <- targets roots
-      traverse (\c -> (maybe "unknown" (show . fst) (uncons c),) <$> (addLocationToStack c)) rs
+      addLocs rs
 
     process = displayRetainerStack
 
@@ -171,7 +260,7 @@ debug e = do
   process payload
   where
     (prep, process) = current
-    current = thunks
+    current = aToB
 
 main :: IO ()
-main = snapshotRun "snapshot-mwb-1" debug
+main = snapshotRun "snapshot-synth-1" debug

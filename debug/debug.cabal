@@ -35,8 +35,38 @@ executable debug
   ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base ==4.*
+    , containers
     , ghc-debug-client
     , ghc-debug-common
+    , ghc-debug-stub
+  default-language: GHC2021
+
+executable gen-case
+  main-is: Main.hs
+  other-modules:
+      Data
+      Paths_debug
+  hs-source-dirs:
+      gen-case
+  default-extensions:
+      BlockArguments
+      DerivingStrategies
+      DuplicateRecordFields
+      LambdaCase
+      NamedFieldPuns
+      OverloadedRecordDot
+      OverloadedStrings
+      RecordWildCards
+      StrictData
+      TypeFamilies
+      DataKinds
+  ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages -O0 -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base ==4.*
+    , containers
+    , ghc-debug-client
+    , ghc-debug-common
+    , ghc-debug-stub
   default-language: GHC2021
 
 executable snapshot
@@ -60,6 +90,8 @@ executable snapshot
   ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base ==4.*
+    , containers
     , ghc-debug-client
     , ghc-debug-common
+    , ghc-debug-stub
   default-language: GHC2021
