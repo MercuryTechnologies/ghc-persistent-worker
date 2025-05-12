@@ -6,7 +6,6 @@ import Control.Concurrent.MVar (MVar, modifyMVar_, readMVar)
 import Control.Exception (SomeException (..), try)
 import Control.Monad (forever, when)
 import Data.Int (Int32)
-import Data.Map (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
@@ -28,19 +27,11 @@ import Proto.Instrument_Fields qualified as Instr
 import Proto.Worker (ExecuteCommand'EnvironmentEntry, ExecuteEvent, Worker (..))
 import Proto.Worker_Fields qualified as Fields
 import System.IO (hPutStrLn, stderr)
+import Types.Grpc (CommandEnv (..), RequestArgs (..))
 
 debugRequestArgs :: Bool
 debugRequestArgs = False
 
--- | The environment variables sent by Buck.
-newtype CommandEnv =
-  CommandEnv (Map String String)
-  deriving stock (Eq, Show)
-
--- | The command line arguments sent by Buck.
-newtype RequestArgs =
-  RequestArgs [String]
-  deriving stock (Eq, Show)
 
 -- | A handler for gRPC requests takes a 'Map' of environment variables and a list of command line arguments and returns
 -- a list of output message lines and an exit code.
