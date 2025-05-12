@@ -43,6 +43,7 @@ library
     Run
   build-depends:
     async,
+    buck-worker-internal,
     bytestring,
     containers,
     deepseq,
@@ -50,7 +51,6 @@ library
     exceptions,
     filepath,
     ghc,
-    ghc-persistent-worker-plugin,
     grapesy ^>=1.0.1,
     lens-family,
     process,
@@ -64,10 +64,9 @@ executable ghc-worker
   main-is: app/ghc-worker/Main.hs
   hs-source-dirs: .
   ghc-options: -O2 -threaded "-with-rtsopts=-N -T"
-
   build-depends:
-    ghc-persistent-worker-plugin,
-    buck-worker
+    buck-worker,
+    buck-worker-internal
 
 test-suite worker-test
   import: all
@@ -79,10 +78,11 @@ test-suite worker-test
     TestSetup
   ghc-options: -threaded -rtsopts "-with-rtsopts=-N -T"
   build-depends:
+    buck-worker-internal,
+    containers,
     directory,
     filepath,
     ghc,
-    ghc-persistent-worker-plugin,
     temporary,
     transformers,
     typed-process
