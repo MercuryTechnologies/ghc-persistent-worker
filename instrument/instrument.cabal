@@ -27,12 +27,11 @@ executable instrument
     StrictData,
     TypeFamilies
   build-depends:
-    buck-worker,
-    ghc-persistent-worker-plugin,
-
     async,
     base ==4.*,
     brick,
+    buck-worker,
+    buck-worker-internal,
     containers,
     directory,
     fsnotify,

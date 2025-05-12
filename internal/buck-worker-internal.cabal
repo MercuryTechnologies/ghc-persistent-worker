@@ -1,5 +1,5 @@
 cabal-version:      3.4
-name:               ghc-persistent-worker-plugin
+name:               buck-worker-internal
 version:            0.1.0.0
 -- synopsis:
 -- description:
