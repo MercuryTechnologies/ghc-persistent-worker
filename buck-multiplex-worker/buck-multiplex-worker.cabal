@@ -19,6 +19,7 @@ executable multiplex-worker
   build-depends:
     base ==4.*,
     binary,
+    buck-worker-internal,
     bytestring,
     containers,
     deepseq,
@@ -26,7 +27,6 @@ executable multiplex-worker
     extra,
     filepath,
     ghc,
-    ghc-persistent-worker-plugin,
     network,
     optparse-applicative,
     process,
