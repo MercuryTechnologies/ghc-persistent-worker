@@ -17,10 +17,12 @@ import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Cache (Cache (..), ModuleArtifacts (..), Target (..))
 import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
-import Internal.Log (logFlush, newLog)
+import Internal.Log (dbg, logFlush, newLog)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Prelude hiding (log)
+import System.Exit (ExitCode (ExitSuccess), exitSuccess)
+import System.Posix.Process (exitImmediately)
 import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
 import Types.GhcHandler (WorkerMode (..))
@@ -65,6 +67,10 @@ dispatch workerMode hooks env args =
       computeMetadata env <&> \case
         True -> 0
         False -> 1
+    Just ModeClose -> do
+      dbg "in dispatch. Mode Close"
+      exitSuccess
+      -- exitImmediately ExitSuccess
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
   where

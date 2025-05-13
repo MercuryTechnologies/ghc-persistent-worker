@@ -19,6 +19,8 @@ data Mode =
   |
   ModeMetadata
   |
+  ModeClose
+  |
   ModeUnknown String
   deriving stock (Eq, Show)
 
@@ -27,6 +29,7 @@ parseMode = \case
   "compile" -> ModeCompile
   "link" -> ModeLink
   "metadata" -> ModeMetadata
+  "close" -> ModeClose
   mode -> ModeUnknown mode
 
 data BuckArgs =
