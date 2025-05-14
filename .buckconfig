@@ -1,0 +1,38 @@
+[cells]
+root = .
+prelude = prelude
+toolchains = toolchains
+# NOTE: update [project] ignore below
+# toolchains = ghcHEAD-toolchains
+nix = nix
+none = none
+ghc_persistent_worker = ghc_persistent_worker
+
+[cell_aliases]
+config = prelude
+ovr_config = prelude
+fbcode = none
+fbsource = none
+fbcode_macros = none
+buck = none
+
+[external_cells]
+prelude = git
+
+[external_cell_prelude]
+git_origin = https://github.com/MercuryTechnologies/buck2-prelude.git
+# branch: wavewave/spawn
+commit_hash = efc28fbe5b65e85c735120913fb4389f7fc5e695
+
+[parser]
+target_platform_detector_spec = target:root//...->prelude//platforms:default
+
+[project]
+ignore = .git, tmp, ghcHEAD-toolchains
+
+[buck2]
+materializations = deferred
+hash_all_commands = true
+
+[build]
+execution_platforms = root//platforms:host-persistent-worker

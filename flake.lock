@@ -1,20 +1,39 @@
 {
   "nodes": {
+    "fenix": {
+      "inputs": {
+        "nixpkgs": [
+          "hix",
+          "nixpkgs"
+        ],
+        "rust-analyzer-src": "rust-analyzer-src"
+      },
+      "locked": {
+        "lastModified": 1728801165,
+        "narHash": "sha256-nFfzi42MkHBrpK4EkxHJFZ1HzmnHVW4NjN1qEf9tA4U=",
+        "owner": "nix-community",
+        "repo": "fenix",
+        "rev": "9d17341a4f227fe15a0bca44655736b3808e6a03",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "fenix",
+        "rev": "9d17341a4f227fe15a0bca44655736b3808e6a03",
+        "type": "github"
+      }
+    },
     "ghc-debug": {
       "flake": false,
       "locked": {
-        "lastModified": 1715671587,
-        "narHash": "sha256-XzJmJ95YHssczoNezPYYzNmQxY4nJQhsMbfUy4hR6z4=",
-        "ref": "refs/heads/master",
-        "rev": "2541e77d2687b8b3b0c1a52bb4790a602ce17d7d",
-        "revCount": 603,
-        "type": "git",
-        "url": "https://gitlab.haskell.org/ghc/ghc-debug"
+        "lastModified": 1747308524,
+        "narHash": "sha256-6rScyeghSj2DsMsImADpo4AQaUxmRzhbc9hgFaZ/ohg=",
+        "path": "/data/mercury/code/haskell/ghc-debug",
+        "type": "path"
       },
       "original": {
-        "rev": "2541e77d2687b8b3b0c1a52bb4790a602ce17d7d",
-        "type": "git",
-        "url": "https://gitlab.haskell.org/ghc/ghc-debug"
+        "path": "/data/mercury/code/haskell/ghc-debug",
+        "type": "path"
       }
     },
     "hix": {
@@ -54,8 +73,26 @@
     },
     "root": {
       "inputs": {
+        "fenix": "fenix",
         "ghc-debug": "ghc-debug",
         "hix": "hix"
+      }
+    },
+    "rust-analyzer-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1728719115,
+        "narHash": "sha256-SLcHmKzkIuahBbSCWr2gzu6bXo6wF12JP4myDzH1CvQ=",
+        "owner": "rust-lang",
+        "repo": "rust-analyzer",
+        "rev": "d7628c0a8b95cadefe89d9a45f9be5ee4898c6b1",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rust-lang",
+        "ref": "nightly",
+        "repo": "rust-analyzer",
+        "type": "github"
       }
     }
   },

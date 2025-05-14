@@ -3,6 +3,7 @@ module Main where
 import GHC.Debug.Client
 import GHC.Debug.Snapshot
 import System.Directory (getCurrentDirectory)
+import System.FilePath ((</>))
 
 main :: IO ()
 main = do

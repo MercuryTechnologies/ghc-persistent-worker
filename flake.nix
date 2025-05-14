@@ -3,11 +3,16 @@
 
   inputs.hix.url = "github:tek/hix/684bfba0b7e70dbba7b6d9232a229787eb356a34";
   inputs.ghc-debug = {
-    url = "git+https://gitlab.haskell.org/ghc/ghc-debug?rev=2541e77d2687b8b3b0c1a52bb4790a602ce17d7d";
+    # url = "git+https://gitlab.haskell.org/ghc/ghc-debug?rev=2541e77d2687b8b3b0c1a52bb4790a602ce17d7d";
+    url = "path:/data/mercury/code/haskell/ghc-debug";
     flake = false;
   };
+  inputs.fenix = {
+    url = "github:nix-community/fenix/9d17341a4f227fe15a0bca44655736b3808e6a03";
+    inputs.nixpkgs.follows = "hix/nixpkgs";
+  };
 
-  outputs = {hix, ghc-debug, ...}: let
+  outputs = {hix, ghc-debug, fenix, ...}: let
 
     testEnv = config: {
       ghc_dir = "${config.ghc.vanillaGhc.ghc}";
@@ -17,24 +22,28 @@
 
     workerEnv = {config, ...}: {
       env = (testEnv config);
-      overrides = {overrideAttrs, modify, hsLibC, notest, ...}: {
-        buck-worker = notest (modify hsLibC.enableSharedExecutables (overrideAttrs (testEnv config)));
+      overrides = {overrideAttrs, notest, ghcOptions, modify, hsLibC, ...}: let
+        opts = ghcOptions ["-finfo-table-map" "-fdistinct-constructor-tables"];
+      in {
+        buck-worker = opts (modify hsLibC.enableSharedExecutables (notest (overrideAttrs (testEnv config))));
       };
     };
 
     ghcBuild = {
       enable = true;
       version = "9.10.1";
-      url = "https://github.com/mercurytechnologies/ghc";
+      url = "https://gitlab.haskell.org/ghc/ghc";
       rev = "2c4d9f6151898e1da7721d39e0ef30bdfb0b9e44";
       sha256 = "sha256-sTSEiKRRS9+n4M/mI9IbBvmcahGynVksoWlEH/OMzJQ=";
-      flavour = "release+split_sections+ipe";
+      flavour = "release+split_sections";
     };
 
-  in hix ({build, lib, ...}: {
+    ghcBuildIpe = ghcBuild // { flavour = "release+split_sections+ipe"; };
+
+  in hix ({config, build, lib, ...}: {
 
     compiler = "ghc910";
-    ghcVersions = ["ghc910"];
+    ghcVersions = [];
     main = "buck-worker";
     ghci.args =
       ["-package ghc"]
@@ -43,34 +52,70 @@
     hls.genCabal = false;
 
     envs.dev = args: workerEnv args // {
-      # hls.enable = lib.mkForce false;
-      # ghc.build = ghcBuild // { flavour = "release+split_sections"; };
+      hls.enable = lib.mkForce false;
+      ghc.build = ghcBuild;
     };
 
     envs.profiled = args: let
       general = workerEnv args;
     in general // {
-      overrides = [({ghcOptions, notest, ...}: let
-        opts = ghcOptions ["-finfo-table-map" "-fdistinct-constructor-tables"];
-      in {
-        ghc-persistent-worker-plugin = opts;
-        buck-worker = opts;
-        debug = opts;
-      }) general.overrides];
+      overrides = [
+        ({ghcOptions, ...}: let
+          opts = ghcOptions ["-finfo-table-map" "-fdistinct-constructor-tables"];
+        in {
+          ghc-persistent-worker-plugin = opts;
+          buck-worker = opts;
+          debug = opts;
+        })
+        general.overrides
+      ];
+      ghc.build = ghcBuildIpe;
+    };
+
+    # ------------------------------------------------------------------------------------------------------------------
+    # Buck
+
+    # The environment for the CLI tool `buck`, using the Buck overlay extracted from MWB.
+    # `fenix` is a dep of Buck.
+    envs.buck = {
+      expose.shell = true;
+      packages = [];
+      buildInputs = pkgs: [pkgs.buck2-source];
+
+      ghc.overlays = [
+        fenix.overlays.default
+        (import ./ops/buck/overlay.nix)
+      ];
+    };
+
+    # The environment for our Buck nixpkgs integration, from which GHC and the package set are taken when exposing them
+    # in `outputs.packages` below.
+    # Uses our custom GHC build and injects a hook into all Haskell derivations that creates `package.cache` in the
+    # store dir, which is needed because Buck supplies individual package DBs to GHC.
+    envs.buck-build = {
+      packages = [];
       ghc.build = ghcBuild;
+
+      overrides = {override, ...}: {
+        __all = override (drv: {
+          postInstall = (drv.postInstall or "") + ''
+            ghc-pkg recache --package-db $packageConfDir
+          '';
+        });
+      };
     };
 
-    commands.dev-prof = {
-      expose = true;
-      env = "dev";
-      command = "${build.packages.dev.buck-worker.executables.profile.app.program} $@";
-    };
+    # The interface that Buck expects when loading Nix packages in `toolchains/BUCK` using those `nix.rules.flake`
+    # rules.
+    # Exposes the toolchain Haskell packages listed in `./ops/ghc-toolchain-libraries.nix` in the attribute
+    # `haskellPackages.libs` as well as Python and the GHC compiler derivation.
+    outputs.packages = import ./ops/buck/packages.nix { inherit config lib; };
 
-    commands.prof = {
-      expose = true;
-      env = "profiled";
-      command = "${build.packages.profiled.buck-worker.executables.profile.app.program} +RTS -RTS $@";
-    };
+    # ------------------------------------------------------------------------------------------------------------------
+
+    envs.hls-db = {};
+
+    commands.hls.env = "hls-db";
 
     output.extraPackages = ["ghc-debug-brick" "eventlog2html" "hp2pretty"];
 
@@ -124,27 +169,6 @@
           ];
           source-dirs = ".";
         };
-        executables.profile = {
-          dependencies = [
-            "containers"
-            "directory"
-            "filepath"
-            "ghc"
-            "ghc-debug-stub"
-            "ghc-experimental"
-            "ghc-persistent-worker-plugin"
-            "temporary"
-            "transformers"
-            "typed-process"
-          ];
-          default-extensions = ["OverloadedLists"];
-          ghc-options-exe = [
-            "-threaded"
-            "-rtsopts"
-            ''"-with-rtsopts=-K512M -H -I5 -T -N"''
-          ];
-          source-dirs = "test";
-        };
         test = {
           enable = true;
           dependencies = [
@@ -186,6 +210,7 @@
           dependencies = [
             "bytestring"
             "containers"
+            "deepseq"
             "directory"
             "exceptions"
             "filepath"
