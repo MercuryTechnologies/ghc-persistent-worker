@@ -1,0 +1,38 @@
+#
+# Collect all toolchain libraries from all haskell_library and haskell_binary targets
+# and update `haskell/libs.bzl` and `nix/ghc-with-packages.nix`.
+#
+
+def _impl_toolchain_libs(ctx):
+    hs_targets = ctx.uquery().kind("haskell_library|haskell_binary", "root//...")
+
+    toolchain_libs = {
+        dep.name: None
+        for target in hs_targets
+        for dep in target.attrs.deps.value()
+        if str(dep.path) == "root//haskell"
+    }
+
+    generate_bzl = ctx.unconfigured_sub_targets("haskell:generate_toolchain_libs")
+
+    bxl_actions = ctx.bxl_actions(
+        exec_deps = [generate_bzl],
+        toolchains = [
+            "toolchains//:python_bootstrap",
+        ],
+    )
+
+    libs_json = bxl_actions.actions.write_json("libs.json", toolchain_libs.keys())
+
+    out = bxl_actions.actions.declare_output("output")
+    bxl_actions.actions.run(
+        cmd_args(bxl_actions.exec_deps[generate_bzl][RunInfo], "--input", libs_json, "--output", out.as_output()),
+        category = "generate_toolchains",
+        local_only = True,
+    )
+    ctx.output.ensure(out)
+
+libs = bxl_main(
+    impl = _impl_toolchain_libs,
+    cli_args = {},
+)

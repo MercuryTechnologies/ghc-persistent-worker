@@ -30,3 +30,12 @@ $ cabal run ghc-persistent-worker-server -- --ghc ~/repo/srcc/ghcHEAD/_build/sta
 $ GHC_PERSISTENT_WORKER_SOCKET=/tmp/ghc_server.ipc cabal run ghc-persistent-worker-client -- test/A.hs
 ```
 (optionally, one can set `--package-db (pkg_db_path)`. One can have multiple `--package-db`.)
+
+The flake provides a test environment for Buck with a locally Nix-built worker.
+
+In order for the toolchain to find the executables, you have to build them with:
+
+```
+$ nix build --out-link result-ghc-worker .#ghc-worker
+$ nix build --out-link result-buck-proxy .#buck-proxy
+```

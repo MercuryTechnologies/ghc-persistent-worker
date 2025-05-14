@@ -6,8 +6,12 @@
     url = "github:tek/ghc-debug/59198910da4573612bf5c6f9969c64fa620db396";
     flake = false;
   };
+  inputs.fenix = {
+    url = "github:nix-community/fenix/9d17341a4f227fe15a0bca44655736b3808e6a03";
+    inputs.nixpkgs.follows = "hix/nixpkgs";
+  };
 
-  outputs = {hix, ghc-debug, ...}: let
+  outputs = {hix, ghc-debug, fenix, ...}: let
 
     testEnv = config: {
       ghc_dir = "${config.toolchain.vanilla.ghc}";
@@ -34,7 +38,11 @@
       ghc-worker = notest;
     };
 
-  in hix ({config, build, lib, ...}: {
+  in hix ({config, build, lib, util, ...}: let
+
+    testDeps = import ./ops/test-deps.nix { inherit util; };
+
+  in {
 
     compiler = "ghc910";
     ghcVersions = [];
@@ -110,11 +118,63 @@
       package-set.compiler = "mwb-ipe";
     };
 
+    # ------------------------------------------------------------------------------------------------------------------
+    # Buck
+
+    # The environment for the CLI tool `buck`, using the Buck overlay extracted from MWB.
+    # `fenix` is a dep of Buck.
+    envs.buck = {
+      expose.shell = true;
+      packages = [];
+      buildInputs = pkgs: [pkgs.buck2-source];
+
+      package-set.compiler.nixpkgs.overlays = [
+        fenix.overlays.default
+        (import ./ops/buck/overlay.nix)
+      ];
+    };
+
+    # The environment for our Buck nixpkgs integration, from which GHC and the package set are taken when exposing them
+    # in `outputs.packages` below.
+    # Uses our custom GHC build and injects a hook into all Haskell derivations that creates `package.cache` in the
+    # store dir, which is needed because Buck supplies individual package DBs to GHC.
+    envs.buck-build = {
+      packages = [];
+      package-set.compiler = "mwb-ipe";
+
+      overrides = api@{override, ...}: testDeps.overrides api // {
+        __all = override (drv: {
+          postInstall = (drv.postInstall or "") + ''
+            ghc-pkg recache --package-db $packageConfDir
+          '';
+        });
+      };
+    };
+
+    # The interface that Buck expects when loading Nix packages in `toolchains/BUCK` using those `nix.rules.flake`
+    # rules.
+    # Exposes the toolchain Haskell packages listed in `./ops/ghc-toolchain-libraries.nix` in the attribute
+    # `haskellPackages.libs` as well as Python and the GHC compiler derivation.
+    outputs.packages =
+      import ./ops/buck/packages.nix { inherit config lib; };
+
+    # ------------------------------------------------------------------------------------------------------------------
+
     envs.hls-db = {};
 
     commands.hls.env = "hls-db";
 
     output.extraPackages = ["ghc-debug-brick" "eventlog2html" "hp2pretty" "ghc-events"];
+
+    outputs.apps.comparison-1 = {
+      type = "app";
+      program = "${import ./comparison1/run.nix { inherit config build; }}";
+    };
+
+    outputs.apps.comparison-2 = {
+      type = "app";
+      program = "${import ./comparison2/run.nix { inherit config build util; }}";
+    };
 
     packages = {
 
@@ -161,6 +221,47 @@
             ''"-with-rtsopts=-K512M -H -I5 -T -N"''
           ];
           source-dirs = "app/ghc-worker";
+        };
+        executables.batch-worker = {
+          dependencies = [
+            "buck-worker-internal"
+            "containers"
+            "text"
+            "vector"
+            "async"
+            "directory"
+            "filepath"
+            "ghc"
+            "grapesy"
+          ];
+          ghc-options-exe = [
+            "-O2"
+            "-threaded"
+            "-rtsopts"
+            ''"-with-rtsopts=-K512M -H -I5 -T -N"''
+          ];
+        };
+        executables.ghc-bin = {
+          dependencies = [
+            "bytestring"
+            "containers"
+            "deepseq"
+            "directory"
+            "exceptions"
+            "filepath"
+            "ghc"
+            "ghc-boot"
+            "text"
+            "time"
+            "transformers"
+            "unix"
+          ];
+          ghc-options-exe = [
+            "-O2"
+            "-threaded"
+            "-rtsopts"
+            ''"-with-rtsopts=-K512M -H -I5 -T -N"''
+          ];
         };
         test = {
           enable = true;

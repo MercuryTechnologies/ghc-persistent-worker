@@ -50,6 +50,7 @@ library
     ghc-debug-stub,
     grapesy ^>=1.0.1,
     process,
+    temporary,
     text
 
 executable ghc-worker
