@@ -1,0 +1,58 @@
+load(":defs.bzl", "build_mode", "local_execution_platform", "remote_execution_platform")
+load(":buildbuddy.bzl", "exec_platform", "exec_platforms")
+load(":nativelink.bzl", "nativelink_cache")
+
+host_cpu = "prelude//cpu:" + ("arm64" if host_info().arch.is_aarch64 else "x86_64")
+host_os = "prelude//os:" + ("macos" if host_info().os.is_macos else "linux")
+
+local_execution_platform(
+    name = "host-persistent-worker",
+    cpu_configuration = host_cpu,
+    os_configuration = host_os,
+)
+
+remote_execution_platform(
+    name = "host-bazel-remote-worker",
+    cpu_configuration = host_cpu,
+    os_configuration = host_os,
+)
+
+exec_platform(
+    name = "linux-x86_64",
+    local_enabled = host_info().os.is_linux and host_info().arch.is_x86_64,
+    os_configuration = "config//os:linux",
+    cpu_configuration = "config//cpu:x86_64",
+    remote_execution_properties = {
+        "OSFamily": "Linux",
+        "Arch": "amd64",
+        "recycle-runner": True,
+        "nonroot-workspace": True,
+    },
+)
+
+exec_platform(
+    name = "macos-arm64",
+    local_enabled = host_info().os.is_macos and host_info().arch.is_aarch64,
+    os_configuration = "config//os:macos",
+    cpu_configuration = "config//cpu:arm64",
+    remote_execution_properties = {
+        "OSFamily": "darwin",
+        "Arch": "arm64",
+    },
+)
+
+nativelink_cache(
+    name = "nativelink",
+    cpu_configuration = host_cpu,
+    os_configuration = host_os,
+)
+
+exec_platforms(
+    name = "buildbuddy",
+    platforms = [":linux-x86_64", ":macos-arm64"],
+)
+
+build_mode(
+    name = "build_mode",
+    visibility = ["PUBLIC"],
+)

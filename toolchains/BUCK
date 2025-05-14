@@ -1,0 +1,140 @@
+load("@prelude//haskell:persistent_worker.bzl", "persistent_worker")
+load("@prelude//toolchains:remote_test_execution.bzl", "remote_test_execution_toolchain")
+load(":nix_bash_toolchain.bzl", "nix_bash_genrule_toolchain")
+load(":nix_cxx_toolchain.bzl", "nix_cxx_toolchain")
+load(":nix_haskell_toolchain.bzl", "nix_haskell_toolchain", "config_worker_make")
+load(":nix_python_toolchain.bzl", "nix_python_bootstrap_toolchain")
+load(":ghci.bzl", "ghci")
+load("nix.bzl", "nix")
+
+load(":impure_worker.bzl", "impure_worker")
+
+remote_test_execution_toolchain(
+    name = "remote_test_execution",
+    visibility = ["PUBLIC"],
+    default_profile = read_root_config("test", "re_profile", "local"),
+    profiles = {
+        "local": {
+            "capabilities": {},
+            "listing_capabilities": {},
+            "use_case": "default-buck2",
+            "remote_cache_enabled": False,
+            "local_enabled": True,
+            "dependencies": [],
+        },
+    },
+)
+
+python_bootstrap_binary(
+    name = "nix_drv_json",
+    main = "nix_drv_json.py",
+)
+
+nix_cxx_toolchain(
+    name = "cxx",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "ghci_script_template",
+    src = "ghci_script.tpl",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "ghci_iserv_template",
+    src = "ghci_iserv.tpl",
+    visibility = ["PUBLIC"],
+)
+
+nix_python_bootstrap_toolchain(
+    name = "python_bootstrap",
+    visibility = ["PUBLIC"],
+)
+
+nix_bash_genrule_toolchain(
+    name = "genrule",
+    visibility = ["PUBLIC"],
+)
+
+################################################################################
+
+nix.rules.flake(
+    name = "bash",
+    binary = "bash",
+    flake = "@root//:nix_overlays",
+)
+
+nix.rules.flake(
+    name = "ghc",
+    binaries = [
+        "ghc-pkg",
+    ],
+    binary = "ghc",
+    flake = "@root//:nix_overlays",
+)
+
+nix.rules.flake(
+    name = "nix_cxx",
+    package = "cxx",
+    flake = "@root//:nix_overlays",
+    binaries = ["ar", "cc", "c++", "nm", "objcopy", "ranlib", "strip"],
+)
+
+nix.rules.flake(
+    name = "haddock",
+    flake = "@root//:nix_overlays",
+    binary = "haddock",
+)
+
+nix.rules.flake(
+    name = "python",
+    flake = "@root//:nix_overlays",
+    binary = "python",
+)
+
+nix.rules.flake(
+    name = "ghc-worker",
+    binary = "ghc-worker",
+    package = "ghc-worker-buck",
+    flake = "@root//:nix_overlays",
+)
+
+nix.rules.flake(
+    name = "buck-proxy",
+    binary = "buck-proxy",
+    package = "buck-proxy-buck",
+    flake = "@root//:nix_overlays",
+)
+
+persistent_worker(
+    name = "persistent_worker",
+    visibility = ["PUBLIC"],
+    worker = ":ghc-worker",
+    worker_proxy = ":buck-proxy",
+    make = config_worker_make,
+)
+
+# impure_worker(
+#    name = "impure_buck_proxy",
+#    binary_path = "result-ipe-buck-proxy/bin/buck-proxy",
+# )
+
+# impure_worker(
+#    name = "impure_ghc_worker",
+#    binary_path = "result-ipe-ghc-worker/bin/ghc-worker",
+# )
+
+nix_haskell_toolchain(
+    name = "haskell",
+    visibility = ["PUBLIC"],
+    compiler_flags = [
+        "-fwrite-ide-info",
+    ],
+    flake = "@root//:nix_overlays",
+)
+
+ghci(
+    name = "ghci",
+    visibility = ["PUBLIC"],
+)

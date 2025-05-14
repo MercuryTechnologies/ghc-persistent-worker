@@ -1,0 +1,26 @@
+name: Buck Tests
+
+on:
+  push:
+    branches:
+      - tek/debug
+  workflow_dispatch:
+
+jobs:
+
+  tests:
+    name: Run tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: cachix/cachix-action@v16
+        with:
+          name: tek
+      - run: nix run .#hybrid
+      - run: nix run .#three-layers

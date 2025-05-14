@@ -1,0 +1,577 @@
+From 8f07fe69c7a39fb2f598e0d2c2e1629540b4cf3b Mon Sep 17 00:00:00 2001
+From: Jade Lovelace <jadel@mercury.com>
+Date: Tue, 27 May 2025 18:15:34 -0700
+Subject: [PATCH] feat: support configuring the manifold URL
+
+I have a highly trivial Manifold implementation internally at Mercury
+(https://github.com/mercurytechnologies/locally-euclidean) for which I would like to set
+up for buck2 to receive rage and all that at. This allows for fully implementing the build logs
+feature mentioned in https://github.com/facebook/buck2/issues/441.
+
+There's still a buck2_core::facebook_only() or two that need inspected/removed and some more tidying.
+---
+ .../src/commands/debug/persist_event_logs.rs  |  23 +++-
+ .../src/commands/debug/upload_re_logs.rs      |   2 +-
+ app/buck2_client/src/commands/rage.rs         |   4 +-
+ app/buck2_client/src/commands/rage/dice.rs    |   6 +-
+ .../src/commands/rage/manifold.rs             |  26 +++-
+ app/buck2_client_ctx/src/client_ctx.rs        |   9 ++
+ app/buck2_common/src/init.rs                  |   5 +
+ app/buck2_common/src/manifold.rs              | 129 +++++++++++++++---
+ app/buck2_event_log/src/lib.rs                |   3 -
+ app/buck2_file_watcher/src/watchman/core.rs   |  10 +-
+ .../src/commands/install.rs                   |  24 +++-
+ app/buck2_server_commands/src/html.rs         |  12 +-
+ 12 files changed, 199 insertions(+), 54 deletions(-)
+
+diff --git a/app/buck2_client/src/commands/debug/persist_event_logs.rs b/app/buck2_client/src/commands/debug/persist_event_logs.rs
+index 57d8cc6fd1035..424b861c51bfb 100644
+--- a/app/buck2_client/src/commands/debug/persist_event_logs.rs
++++ b/app/buck2_client/src/commands/debug/persist_event_logs.rs
+@@ -14,6 +14,7 @@ use buck2_client_ctx::common::BuckArgMatches;
+ use buck2_client_ctx::exit_result::ExitResult;
+ use buck2_common::chunk_reader::ChunkReader;
+ use buck2_common::manifold;
++use buck2_common::manifold::BucketsConfig;
+ use buck2_common::manifold::ManifoldChunkedUploader;
+ use buck2_common::manifold::ManifoldClient;
+ use buck2_core::fs::paths::abs_path::AbsPathBuf;
+@@ -72,9 +73,12 @@ impl PersistEventLogsCommand {
+         buck2_core::facebook_only();
+         let sink = create_scribe_sink(&ctx)?;
+         let trace_id = self.trace_id.clone();
++        let buckets_config = ctx.buckets_config()?;
++
+         ctx.with_runtime(|mut ctx| async move {
+             let mut stdin = io::BufReader::new(ctx.stdin());
+-            let (local_result, remote_result) = self.write_and_upload(&mut stdin).await;
++            let (local_result, remote_result) =
++                self.write_and_upload(buckets_config, &mut stdin).await;
+ 
+             let (local_error_messages, local_error_category, local_success) =
+                 status_from_result(local_result);
+@@ -97,6 +101,7 @@ impl PersistEventLogsCommand {
+ 
+     async fn write_and_upload(
+         self,
++        buckets_config: Option<BucketsConfig>,
+         stdin: impl io::AsyncBufRead + Unpin,
+     ) -> (buck2_error::Result<()>, buck2_error::Result<()>) {
+         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+@@ -113,7 +118,13 @@ impl PersistEventLogsCommand {
+             }
+         };
+         let write = write_task(&file, tx, stdin);
+-        let upload = upload_task(&file, rx, self.manifold_name, self.no_upload);
++        let upload = upload_task(
++            &file,
++            rx,
++            buckets_config,
++            self.manifold_name,
++            self.no_upload,
++        );
+ 
+         // Wait for both tasks to finish. If the upload fails we want to keep writing to disk
+         let (write_result, upload_result) = tokio::join!(write, upload);
+@@ -165,6 +176,7 @@ async fn create_log_file(local_path: String) -> Result<tokio::fs::File, buck2_er
+ async fn upload_task(
+     file_mutex: &Mutex<File>,
+     mut rx: tokio::sync::mpsc::UnboundedReceiver<u64>,
++    buckets_config: Option<BucketsConfig>,
+     manifold_name: String,
+     no_upload: bool,
+ ) -> buck2_error::Result<()> {
+@@ -172,7 +184,12 @@ async fn upload_task(
+         return Ok(());
+     }
+ 
+-    let manifold_client = ManifoldClient::new().await?;
++    let manifold_client = ManifoldClient::new_with_config(buckets_config).await?;
++    // No need to do more work if we don't have an endpoint configured (default
++    // in OSS)
++    if !manifold_client.will_upload() {
++        return Ok(());
++    }
+     let manifold_path = format!("flat/{}", manifold_name);
+     let mut uploader = Uploader::new(file_mutex, &manifold_path, &manifold_client)?;
+ 
+diff --git a/app/buck2_client/src/commands/debug/upload_re_logs.rs b/app/buck2_client/src/commands/debug/upload_re_logs.rs
+index 19984209c1405..b55e5d855c6cb 100644
+--- a/app/buck2_client/src/commands/debug/upload_re_logs.rs
++++ b/app/buck2_client/src/commands/debug/upload_re_logs.rs
+@@ -31,7 +31,7 @@ impl UploadReLogsCommand {
+ 
+         // TODO: This should receive the path from the caller.
+         ctx.with_runtime(|ctx| async move {
+-            let manifold = ManifoldClient::new().await?;
++            let manifold = ManifoldClient::new_with_config(ctx.buckets_config()?).await?;
+             let re_logs_dir = ctx.paths()?.re_logs_dir();
+             upload_re_logs(
+                 &manifold,
+diff --git a/app/buck2_client/src/commands/rage.rs b/app/buck2_client/src/commands/rage.rs
+index e7e830ebcf0e3..178758f4311b1 100644
+--- a/app/buck2_client/src/commands/rage.rs
++++ b/app/buck2_client/src/commands/rage.rs
+@@ -128,7 +128,7 @@ impl RageCommand {
+         let client_ctx = ctx.empty_client_context("rage")?;
+ 
+         // Don't fail the rage if you can't figure out whether to do vpnless.
+-        let manifold = ManifoldClient::new().await?;
++        let manifold = ManifoldClient::new_with_config(ctx.buckets_config()?).await?;
+ 
+         let rage_id = TraceId::new();
+         let mut manifold_id = format!("{}", rage_id);
+@@ -544,7 +544,7 @@ async fn upload_re_logs_impl(
+     upload_re_logs::upload_re_logs(manifold, bucket, re_logs_dir, &re_session_id, &filename)
+         .await?;
+ 
+-    Ok(manifold_leads(&bucket, filename))
++    Ok(manifold_leads(manifold, &bucket, filename))
+ }
+ 
+ async fn dispatch_result_event(
+diff --git a/app/buck2_client/src/commands/rage/dice.rs b/app/buck2_client/src/commands/rage/dice.rs
+index d2f09751986c9..87844330ff761 100644
+--- a/app/buck2_client/src/commands/rage/dice.rs
++++ b/app/buck2_client/src/commands/rage/dice.rs
+@@ -46,7 +46,11 @@ pub async fn upload_dice_dump(
+         )
+         .await?;
+ 
+-    Ok(manifold_leads(&manifold_bucket, manifold_filename))
++    Ok(manifold_leads(
++        manifold,
++        &manifold_bucket,
++        manifold_filename,
++    ))
+ }
+ 
+ struct DiceDump {
+diff --git a/app/buck2_client/src/commands/rage/manifold.rs b/app/buck2_client/src/commands/rage/manifold.rs
+index 7f32004fda662..2f18995642b75 100644
+--- a/app/buck2_client/src/commands/rage/manifold.rs
++++ b/app/buck2_client/src/commands/rage/manifold.rs
+@@ -22,11 +22,23 @@ enum ManifoldError {
+     OpenFileError(String),
+ }
+ 
+-pub(crate) fn manifold_leads(bucket: &Bucket, filename: String) -> String {
+-    let full_path = format!("{}/{}", bucket.name, filename);
+-    let command = format!("manifold get {}", full_path);
+-    let url = format!("https://interncache-all.fbcdn.net/manifold/{}", full_path);
+-    format!("{}\n{}", command, url)
++pub(crate) fn manifold_leads(
++    manifold: &ManifoldClient,
++    bucket: &Bucket,
++    filename: String,
++) -> String {
++    let url = manifold.file_view_url(bucket, &filename);
++    let command = manifold.file_dump_command(bucket, &filename);
++    let mut out = String::new();
++    if let Some(url) = url {
++        out.push_str(&url);
++    }
++    if let Some(command) = command {
++        out.push('\n');
++        out.push_str(&command);
++    }
++
++    out
+ }
+ 
+ pub(crate) async fn file_to_manifold(
+@@ -45,7 +57,7 @@ pub(crate) async fn file_to_manifold(
+         .read_and_upload(bucket, &filename, Default::default(), &mut file)
+         .await?;
+ 
+-    Ok(manifold_leads(&bucket, filename))
++    Ok(manifold_leads(manifold, &bucket, filename))
+ }
+ 
+ pub(crate) async fn buf_to_manifold(
+@@ -60,5 +72,5 @@ pub(crate) async fn buf_to_manifold(
+         .read_and_upload(bucket, &filename, Default::default(), &mut cursor)
+         .await?;
+ 
+-    Ok(manifold_leads(&bucket, filename))
++    Ok(manifold_leads(manifold, &bucket, filename))
+ }
+diff --git a/app/buck2_client_ctx/src/client_ctx.rs b/app/buck2_client_ctx/src/client_ctx.rs
+index c2d54cd9da6e6..212b8a14100f9 100644
+--- a/app/buck2_client_ctx/src/client_ctx.rs
++++ b/app/buck2_client_ctx/src/client_ctx.rs
+@@ -25,6 +25,7 @@ use buck2_core::fs::working_dir::AbsWorkingDir;
+ use buck2_error::BuckErrorContext;
+ use buck2_event_observer::verbosity::Verbosity;
+ use buck2_wrapper_common::invocation_id::TraceId;
++use buck2_common::manifold::BucketsConfig;
+ use dupe::Dupe;
+ use tokio::runtime::Runtime;
+ use tokio::sync::Mutex;
+@@ -317,6 +318,14 @@ impl<'a> ClientCommandContext<'a> {
+             .log_download_method
+             .clone())
+     }
++
++    pub fn buckets_config(&self) -> buck2_error::Result<Option<BucketsConfig>> {
++        Ok(self
++            .immediate_config
++            .daemon_startup_config()?
++            .buckets_config
++            .clone())
++    }
+ }
+ 
+ /// Provides a common interface for buck subcommands that use event subscribers for logging.
+diff --git a/app/buck2_common/src/init.rs b/app/buck2_common/src/init.rs
+index 71bf9adfde4a9..58b6f2e9e7c7e 100644
+--- a/app/buck2_common/src/init.rs
++++ b/app/buck2_common/src/init.rs
+@@ -20,6 +20,7 @@ use serde::Serialize;
+ 
+ use crate::legacy_configs::configs::LegacyBuckConfig;
+ use crate::legacy_configs::key::BuckconfigKeyRef;
++use crate::manifold::BucketsConfig;
+ 
+ /// Helper enum to categorize the kind of timeout we get from the startup config.
+ #[derive(Clone, Debug)]
+@@ -383,6 +384,7 @@ pub struct DaemonStartupConfig {
+     pub http: HttpConfig,
+     pub resource_control: ResourceControlConfig,
+     pub log_download_method: LogDownloadMethod,
++    pub buckets_config: Option<BucketsConfig>,
+     pub health_check_config: HealthCheckConfig,
+ }
+ 
+@@ -451,6 +453,7 @@ impl DaemonStartupConfig {
+                 .map(ToOwned::to_owned),
+             http: HttpConfig::from_config(config)?,
+             resource_control: ResourceControlConfig::from_config(config)?,
++            buckets_config: BucketsConfig::from_config(config)?,
+             log_download_method,
+             health_check_config: HealthCheckConfig::from_config(config)?,
+         })
+@@ -478,6 +481,8 @@ impl DaemonStartupConfig {
+             } else {
+                 LogDownloadMethod::None
+             },
++            // TODO(jadel): is this a regression in test vs before?
++            buckets_config: None,
+             health_check_config: HealthCheckConfig::default(),
+         }
+     }
+diff --git a/app/buck2_common/src/manifold.rs b/app/buck2_common/src/manifold.rs
+index d885d024d6414..bef4a5634262e 100644
+--- a/app/buck2_common/src/manifold.rs
++++ b/app/buck2_common/src/manifold.rs
+@@ -6,12 +6,13 @@
+  * License, Version 2.0 found in the LICENSE-APACHE file in the root directory
+  * of this source tree.
+  */
+-
++//! Client to Manifold blob storage.
+ use std::io;
+ use std::time::Duration;
+ use std::time::SystemTime;
+ use std::time::UNIX_EPOCH;
+ 
++use allocative::Allocative;
+ use buck2_core::fs::paths::abs_path::AbsPath;
+ use buck2_http::HttpClient;
+ use buck2_http::HttpClientBuilder;
+@@ -24,10 +25,14 @@ use dupe::Dupe;
+ use futures::stream::BoxStream;
+ use futures::stream::StreamExt;
+ use hyper::Response;
++use serde::Deserialize;
++use serde::Serialize;
+ use tokio::fs::File;
+ use tokio::io::AsyncRead;
+ 
+ use crate::chunk_reader::ChunkReader;
++use crate::legacy_configs::configs::LegacyBuckConfig;
++use crate::legacy_configs::key::BuckconfigKeyRef;
+ 
+ #[derive(Copy, Clone, Dupe)]
+ pub struct Ttl {
+@@ -160,13 +165,69 @@ impl Bucket {
+     };
+ }
+ 
+-fn manifold_url(bucket: &Bucket, filename: String) -> String {
+-    let full_path = format!("{}/{}", bucket.name, filename);
+-    format!("https://www.internalfb.com/manifold/explorer/{}", full_path)
++/// Configuration for accessing a Manifold-like API for logs and other bucket-using features.
++#[derive(Allocative, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
++pub struct BucketsConfig {
++    /// Base URL for the uploads API. If not set, the uploads API is not used.
++    pub upload_url: String,
++    /// URL at which one can view a file `:bucketname/:filename` in a Web browser.
++    pub file_view_url: String,
++    /// Command that, when invoked, will retrieve a file from the given bucket,
++    /// for interactive use.
++    pub file_get_command: Option<String>,
++}
++
++impl BucketsConfig {
++    pub fn from_config(config: &LegacyBuckConfig) -> buck2_error::Result<Option<BucketsConfig>> {
++        let upload_url = config.parse(BuckconfigKeyRef {
++            section: "buckets",
++            property: "upload_url",
++        })?;
++
++        let file_view_url: Option<String> = config.parse(BuckconfigKeyRef {
++            section: "buckets",
++            property: "file_view_url",
++        })?;
++
++        let file_get_command = config.parse(BuckconfigKeyRef {
++            section: "buckets",
++            property: "file_get_command",
++        })?;
++
++        if upload_url.is_none() != file_view_url.is_none() {
++            return Err(buck2_error::buck2_error!(
++                buck2_error::ErrorTag::Input,
++                "Only one of buckets.upload_url and buckets.file_view_url is set"
++            ));
++        }
++
++        if let Some(upload_url) = upload_url
++            && let Some(file_view_url) = file_view_url
++        {
++            Ok(Some(BucketsConfig {
++                file_view_url,
++                upload_url,
++                file_get_command,
++            }))
++        } else {
++            Ok(None)
++        }
++    }
++
++    /// Infers an appropriate configuration at Meta.
++    fn infer_config(supports_vpnless: bool) -> Option<BucketsConfig> {
++        let upload_url = internal_upload_url(supports_vpnless)?;
++
++        Some(BucketsConfig {
++            upload_url: upload_url.to_owned(),
++            file_view_url: "https://interncache-all.fbcdn.net/manifold".to_owned(),
++            file_get_command: Some("manifold get".to_owned()),
++        })
++    }
+ }
+ 
+ /// Return the place to upload logs, or None to not upload logs at all
+-fn log_upload_url(use_vpnless: bool) -> Option<&'static str> {
++fn internal_upload_url(use_vpnless: bool) -> Option<&'static str> {
+     #[cfg(fbcode_build)]
+     if hostcaps::is_prod() {
+         Some("https://manifold.facebook.net")
+@@ -184,18 +245,24 @@ fn log_upload_url(use_vpnless: bool) -> Option<&'static str> {
+ 
+ pub struct ManifoldClient {
+     client: HttpClient,
+-    manifold_url: Option<String>,
++    config: Option<BucketsConfig>,
+ }
+ 
+ impl ManifoldClient {
+-    pub async fn new() -> buck2_error::Result<Self> {
++    pub async fn new_with_config(config: Option<BucketsConfig>) -> buck2_error::Result<Self> {
++        #[cfg(fbcode_build)]
+         let client = HttpClientBuilder::internal().await?.build();
+-        let manifold_url = log_upload_url(client.supports_vpnless()).map(|s| s.to_owned());
++        #[cfg(not(fbcode_build))]
++        let client = HttpClientBuilder::oss().await?.build();
+ 
+-        Ok(Self {
+-            client,
+-            manifold_url,
+-        })
++        let config = config.or_else(|| BucketsConfig::infer_config(client.supports_vpnless()));
++
++        Ok(Self { client, config })
++    }
++
++    /// Whether the Manifold client has an endpoint and can upload.
++    pub fn will_upload(&self) -> bool {
++        self.config.is_some()
+     }
+ 
+     pub async fn write(
+@@ -205,10 +272,11 @@ impl ManifoldClient {
+         buf: bytes::Bytes,
+         ttl: Ttl,
+     ) -> buck2_error::Result<()> {
+-        let manifold_url = match &self.manifold_url {
+-            None => return Ok(()),
+-            Some(x) => x,
++        let Some(ref config) = self.config else {
++            return Ok(());
+         };
++        let manifold_url = &config.upload_url;
++
+         let url = format!(
+             "{}/v0/write/{}?bucketName={}&apiKey={}&timeoutMsec=20000",
+             manifold_url, manifold_bucket_path, bucket.name, bucket.key
+@@ -249,10 +317,11 @@ impl ManifoldClient {
+         buf: bytes::Bytes,
+         offset: u64,
+     ) -> buck2_error::Result<()> {
+-        let manifold_url = match &self.manifold_url {
+-            None => return Ok(()),
+-            Some(x) => x,
++        let Some(ref config) = self.config else {
++            return Ok(());
+         };
++        let manifold_url = &config.upload_url;
++
+         let url = format!(
+             "{}/v0/append/{}?bucketName={}&apiKey={}&timeoutMsec=20000&writeOffset={}",
+             manifold_url, manifold_bucket_path, bucket.name, bucket.key, offset
+@@ -324,7 +393,29 @@ impl ManifoldClient {
+         self.read_and_upload(bucket, &filename, ttl, &mut file)
+             .await?;
+ 
+-        Ok(manifold_url(&bucket, filename))
++        Ok(self
++            .file_view_url(&bucket, &filename)
++            .unwrap_or_default())
++    }
++
++    /// Gets the URL for viewing an individual file.
++    pub fn file_view_url(&self, bucket: &Bucket, filename: &str) -> Option<String> {
++        self.config
++            .as_ref()
++            .map(|config| format!("{}/{}/{}", config.file_view_url, bucket.name, filename))
++    }
++
++    /// Gets the command for getting an individual file, for interactive use.
++    pub fn file_dump_command(&self, bucket: &Bucket, filename: &str) -> Option<String> {
++        // FIXME(jadel): This does overlap LogDownloadMethod::Curl, I am not
++        // sure what to do about that.
++        if let Some(ref config) = self.config
++            && let Some(ref command) = config.file_get_command
++        {
++            Some(format!("{} {}/{}", command, bucket.name, filename))
++        } else {
++            None
++        }
+     }
+ }
+ 
+diff --git a/app/buck2_event_log/src/lib.rs b/app/buck2_event_log/src/lib.rs
+index 1815440662357..44cca83a5e85e 100644
+--- a/app/buck2_event_log/src/lib.rs
++++ b/app/buck2_event_log/src/lib.rs
+@@ -30,9 +30,6 @@ pub mod write;
+ pub mod writer;
+ 
+ pub fn should_upload_log() -> buck2_error::Result<bool> {
+-    if buck2_core::is_open_source() {
+-        return Ok(false);
+-    }
+     Ok(!buck2_env!(
+         "BUCK2_TEST_DISABLE_LOG_UPLOAD",
+         bool,
+diff --git a/app/buck2_file_watcher/src/watchman/core.rs b/app/buck2_file_watcher/src/watchman/core.rs
+index 111f59f90fbc8..1b4595a524567 100644
+--- a/app/buck2_file_watcher/src/watchman/core.rs
++++ b/app/buck2_file_watcher/src/watchman/core.rs
+@@ -208,7 +208,8 @@ async fn with_timeout<R>(
+ }
+ 
+ async fn write_to_manifold(buf: &[u8], name: &str) -> Option<String> {
+-    let manifold = ManifoldClient::new().await.ok()?;
++    // FIXME(jadel): thread configuration through
++    let manifold = ManifoldClient::new_with_config(None).await.ok()?;
+ 
+     let filename = format!("flat/{}_{}_logs", uuid::Uuid::new_v4(), name);
+     let ttl = Ttl::from_days(14); // 14 days should be plenty of time to take action
+@@ -221,12 +222,7 @@ async fn write_to_manifold(buf: &[u8], name: &str) -> Option<String> {
+         .await
+         .ok()?;
+ 
+-    let url = format!(
+-        "https://interncache-all.fbcdn.net/manifold/{}/{}",
+-        bucket.name, filename
+-    );
+-
+-    Some(url)
++    manifold.file_view_url(&bucket, &filename)
+ }
+ 
+ async fn cmd_logs_to_manifold(cmd: &str, args: Vec<&str>) -> Option<String> {
+diff --git a/app/buck2_server_commands/src/commands/install.rs b/app/buck2_server_commands/src/commands/install.rs
+index 4b4cf8614e2af..e35a53d8d2470 100644
+--- a/app/buck2_server_commands/src/commands/install.rs
++++ b/app/buck2_server_commands/src/commands/install.rs
+@@ -805,17 +805,31 @@ async fn handle_install_request<'a>(
+ }
+ 
+ async fn upload_installer_logs(log_path: &AbsNormPathBuf) -> buck2_error::Result<String> {
+-    let manifold = ManifoldClient::new().await?;
++    // FIXME(jadel): thread configuration through
++    let manifold = ManifoldClient::new_with_config(None).await?;
+     let trace_id: &str = &get_dispatcher().trace_id().to_string();
+     let manifold_filename = format!("flat/{}.log", trace_id);
+-    manifold
++    let bucket = Bucket::INSTALLER_LOGS;
++    let url = manifold
+         .upload_file(
+             log_path,
+-            manifold_filename,
+-            Bucket::INSTALLER_LOGS,
++            manifold_filename.clone(),
++            bucket,
+             Ttl::from_days(14),
+         )
+-        .await
++        .await;
++    if cfg!(fbcode_build) {
++        let _unused = url?;
++        // We use the explorer url here rather than interncache since it is accessible off-vpn and
++        // we don't care about the truncation of long logs.
++        Ok(format!(
++            "https://www.internalfb.com/manifold/explorer/{}/{}",
++            bucket.name,
++            manifold_filename,
++        ))
++    } else {
++        url
++    }
+ }
+ 
+ async fn build_launch_installer<'a>(
+diff --git a/app/buck2_server_commands/src/html.rs b/app/buck2_server_commands/src/html.rs
+index 7d1d24c0f1182..93b4f2f3fcb77 100644
+--- a/app/buck2_server_commands/src/html.rs
++++ b/app/buck2_server_commands/src/html.rs
+@@ -39,20 +39,20 @@ impl Html {
+             let html_out = output_format(graph)?;
+             let mut cursor = &mut Cursor::new(html_out.as_bytes());
+             let manifold_path = format!("flat/{}-graph.html", trace_id);
+-            let manifold = ManifoldClient::new().await?;
++            // FIXME(jadel): thread configuration through
++            let manifold = ManifoldClient::new_with_config(None).await?;
+ 
++            let bucket = Bucket::EVENT_LOGS;
+             manifold
+                 .read_and_upload(
+-                    Bucket::EVENT_LOGS,
++                    bucket,
+                     &manifold_path,
+                     Default::default(),
+                     &mut cursor,
+                 )
+                 .await?;
+-            res = format!(
+-                "\nView html in your browser: https://interncache-all.fbcdn.net/manifold/buck2_logs/{} (requires VPN/lighthouse)\n",
+-                manifold_path
+-            );
++            let url = manifold.file_view_url(&bucket, &manifold_path).unwrap_or_default();
++            res = format!("\nView html in your browser: {url} (requires VPN/lighthouse)\n");
+         }
+         #[cfg(not(fbcode_build))]
+         {

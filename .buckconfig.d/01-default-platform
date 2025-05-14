@@ -1,0 +1,9 @@
+# configure the default execution platform here
+#
+# Note: this file has a lower precedence than .buckconfig and .buckconfig.local (which has the highest)
+
+[build]
+execution_platforms = prelude//platforms:default
+
+[test]
+re_profile = default

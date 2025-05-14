@@ -18,10 +18,7 @@ import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
 import Network.GRPC.Server.StreamType (Methods)
 import qualified Proto.Instrument as Instr
 import Types.GhcHandler (WorkerMode (..))
-import Types.Orchestration (
-  ServerSocketPath (..),
-  serverSocketFromPath,
-  )
+import Types.Orchestration (ServerSocketPath (..), serverSocketFromPath)
 
 -- | Global options for the worker, passed when the process is started, in contrast to request options stored in
 -- 'BuckArgs'.

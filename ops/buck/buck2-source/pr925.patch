@@ -1,0 +1,37 @@
+From e9e8dc3bc319afaceb2f15ede964da8756d061ee Mon Sep 17 00:00:00 2001
+From: Rebecca Turner <rbt@sent.as>
+Date: Mon, 28 Apr 2025 12:19:41 -0700
+Subject: [PATCH] `//A/B/C` is a valid name for `//A/B/C:C`
+
+> Prefer using the short name when referring to an eponymous target (`//x` instead of `//x:x`). If
+> you are in the same package, prefer the local reference (`:x` instead of `//x`).
+
+See: https://bazel.build/build/style-guide#target-naming
+
+This syntax is supported on the command-line, but not in BUCK files. Unfortunately, the only(?)
+Starlark formatter (buildifier: https://github.com/bazelbuild/buildtools) automatically abbreviates
+targets on the assumption that this syntax is valid, which causes errors when using Buck2:
+
+    ...
+    4: Error coercing "//src/Foo"
+    5: Invalid absolute target pattern `//src/Foo` is not allowed
+    6: Expected a `:`, a trailing `/...` or the literal `...`.
+
+We can adjust the parsing rules to allow this syntax in more places.
+---
+ app/buck2_core/src/pattern/pattern.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/app/buck2_core/src/pattern/pattern.rs b/app/buck2_core/src/pattern/pattern.rs
+index 959a93842aa25..fb2e6beaf690e 100644
+--- a/app/buck2_core/src/pattern/pattern.rs
++++ b/app/buck2_core/src/pattern/pattern.rs
+@@ -298,7 +298,7 @@ impl<T: PatternType> ParsedPattern<T> {
+             cell_alias_resolver,
+             TargetParsingOptions {
+                 relative,
+-                infer_target: false,
++                infer_target: true,
+                 strip_package_trailing_slash: false,
+             },
+             pattern,
