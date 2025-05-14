@@ -30,6 +30,7 @@ library
   ghc-options: -O2
   hs-source-dirs: lib
   exposed-modules:
+    GhcWorker.Batch
     GhcWorker.CompileResult
     GhcWorker.GhcHandler
     GhcWorker.Grpc
@@ -52,6 +53,7 @@ library
     grapesy ^>=1.0.1,
     process,
     stm,
+    temporary,
     text,
     unix
 

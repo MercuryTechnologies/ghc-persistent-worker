@@ -30,3 +30,15 @@ $ cabal run ghc-persistent-worker-server -- --ghc ~/repo/srcc/ghcHEAD/_build/sta
 $ GHC_PERSISTENT_WORKER_SOCKET=/tmp/ghc_server.ipc cabal run ghc-persistent-worker-client -- test/A.hs
 ```
 (optionally, one can set `--package-db (pkg_db_path)`. One can have multiple `--package-db`.)
+
+Buck
+====
+
+The flake provides a test environment for Buck with a locally Nix-built worker.
+Enter the shell `buck` to use it:
+
+```
+$ nix develop .#buck
+$ buck build //test/three-layers/project/...
+
+```

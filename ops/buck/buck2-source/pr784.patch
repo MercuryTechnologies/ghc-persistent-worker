@@ -1,0 +1,121 @@
+commit 3415359cd160307a7fff2476515a23722766f739
+Author: Hugo van der Wijst <hvanderwijst@tesla.com>
+Date:   Tue Sep 24 13:29:55 2024 -0700
+
+    Use preferred digest hashing algorithm for action permission checker.
+    
+    To check if buck2 has permissions to upload to action cache, it tries to
+    upload an empty action result. The digest hashing algorithm is hard
+    coded to use SHA1 instead of the preferred hashing algorithm. This
+    commit changes this so the preferred hashing algorithm is used.
+
+diff --git a/app/buck2_execute_impl/src/executors/action_cache_upload_permission_checker.rs b/app/buck2_execute_impl/src/executors/action_cache_upload_permission_checker.rs
+index 21dedd915..0cb394a99 100644
+--- a/app/buck2_execute_impl/src/executors/action_cache_upload_permission_checker.rs
++++ b/app/buck2_execute_impl/src/executors/action_cache_upload_permission_checker.rs
+@@ -14,6 +14,7 @@ use buck2_core::async_once_cell::AsyncOnceCell;
+ use buck2_core::execution_types::executor_config::RePlatformFields;
+ use buck2_core::execution_types::executor_config::RemoteExecutorUseCase;
+ use buck2_error::BuckErrorContext;
++use buck2_execute::digest_config::DigestConfig;
+ use buck2_execute::re::error::RemoteExecutionError;
+ use buck2_execute::re::manager::ManagedRemoteExecutionClient;
+ use dashmap::DashMap;
+@@ -53,8 +54,9 @@ impl ActionCacheUploadPermissionChecker {
+         &self,
+         re_use_case: RemoteExecutorUseCase,
+         platform: &RePlatformFields,
++        digest_config: DigestConfig,
+     ) -> buck2_error::Result<Result<(), String>> {
+-        let (action, action_result) = empty_action_result(platform)?;
++        let (action, action_result) = empty_action_result(platform, digest_config)?;
+ 
+         // This is CAS upload, if it fails, something is very broken.
+         self.re_client
+@@ -107,11 +109,16 @@ impl ActionCacheUploadPermissionChecker {
+         &self,
+         re_use_case: RemoteExecutorUseCase,
+         platform: &RePlatformFields,
++        digest_config: DigestConfig,
+     ) -> buck2_error::Result<Result<(), String>> {
+         let cache_value = self.cache_value(re_use_case, platform);
+         cache_value
+             .has_permission_to_upload_to_cache
+-            .get_or_try_init(self.do_has_permission_to_upload_to_cache(re_use_case, platform))
++            .get_or_try_init(self.do_has_permission_to_upload_to_cache(
++                re_use_case,
++                platform,
++                digest_config,
++            ))
+             .await
+             .cloned()
+             .buck_error_context("Upload for permission check")
+diff --git a/app/buck2_execute_impl/src/executors/caching.rs b/app/buck2_execute_impl/src/executors/caching.rs
+index 85b753788..b40712e19 100644
+--- a/app/buck2_execute_impl/src/executors/caching.rs
++++ b/app/buck2_execute_impl/src/executors/caching.rs
+@@ -131,7 +131,7 @@ impl CacheUploader {
+                         }
+                     }
+ 
+-                    if let Err(rejected) = self.check_upload_permission().await? {
++                    if let Err(rejected) = self.check_upload_permission(info).await? {
+                         return Ok(rejected);
+                     }
+ 
+@@ -228,7 +228,7 @@ impl CacheUploader {
+                         DepFileReActionResultMissingError(remote_dep_file_key.clone()),
+                     )?;
+ 
+-                    if let Err(rejected) = self.check_upload_permission().await? {
++                    if let Err(rejected) = self.check_upload_permission(info).await? {
+                         return Ok(rejected);
+                     }
+                     let remote_dep_file = dep_file_bundle
+@@ -290,10 +290,13 @@ impl CacheUploader {
+         .await
+     }
+ 
+-    async fn check_upload_permission(&self) -> buck2_error::Result<Result<(), CacheUploadOutcome>> {
++    async fn check_upload_permission(
++        &self,
++        info: &CacheUploadInfo<'_>,
++    ) -> buck2_error::Result<Result<(), CacheUploadOutcome>> {
+         let outcome = if let Err(reason) = self
+             .cache_upload_permission_checker
+-            .has_permission_to_upload_to_cache(self.re_use_case, &self.platform)
++            .has_permission_to_upload_to_cache(self.re_use_case, &self.platform, info.digest_config)
+             .await?
+         {
+             Err(CacheUploadOutcome::Rejected(
+diff --git a/app/buck2_execute_impl/src/executors/empty_action_result.rs b/app/buck2_execute_impl/src/executors/empty_action_result.rs
+index 39494ac65..9a62cb94b 100644
+--- a/app/buck2_execute_impl/src/executors/empty_action_result.rs
++++ b/app/buck2_execute_impl/src/executors/empty_action_result.rs
+@@ -7,13 +7,11 @@
+  * of this source tree.
+  */
+ 
+-use buck2_common::cas_digest::DigestAlgorithm;
+ use buck2_core::execution_types::executor_config::RePlatformFields;
+ use buck2_execute::digest::CasDigestToReExt;
+ use buck2_execute::digest_config::DigestConfig;
+ use buck2_execute::execute::action_digest_and_blobs::ActionDigestAndBlobs;
+ use buck2_execute::execute::action_digest_and_blobs::ActionDigestAndBlobsBuilder;
+-use once_cell::sync::OnceCell;
+ use remote_execution as RE;
+ use remote_execution::TActionResult2;
+ use remote_execution::TExecutedActionMetadata;
+@@ -23,11 +21,8 @@ use crate::executors::to_re_platform::RePlatformFieldsToRePlatform;
+ /// Create an empty action result for permission check.
+ pub(crate) fn empty_action_result(
+     platform: &RePlatformFields,
++    digest_config: DigestConfig,
+ ) -> buck2_error::Result<(ActionDigestAndBlobs, TActionResult2)> {
+-    static DIGEST_CONFIG: OnceCell<DigestConfig> = OnceCell::new();
+-    let digest_config = *DIGEST_CONFIG
+-        .get_or_try_init(|| DigestConfig::leak_new(vec![DigestAlgorithm::Sha1], None))?;
+-
+     let mut blobs = ActionDigestAndBlobsBuilder::new(digest_config);
+ 
+     let command = blobs.add_command(&RE::Command {

@@ -1,0 +1,31 @@
+load("//haskell:custom.bzl", "haskell_lib", "haskell_bin")
+
+haskell_lib(
+    name = "worker-test-l2-lib1",
+    srcs = [
+        "L2_1_1.hs",
+    ],
+    deps = [
+        "//haskell:base",
+        "//haskell:template-haskell",
+
+    ],
+    allow_worker = False,
+)
+
+haskell_lib(
+    name = "worker-test-l3-lib1",
+    srcs = [
+        "L3_1_1.hs",
+    ],
+    deps = [
+        "//haskell:base",
+        "//haskell:template-haskell",
+        ":worker-test-l2-lib1",
+        "//haskell:dep1",
+        "//haskell:dep2",
+        "//haskell:dep3",
+        "//haskell:dep4",
+    ],
+)
+
