@@ -2,6 +2,11 @@ module Main where
 
 import GHC.Debug.Client
 import GHC.Debug.Snapshot
+import System.Directory (getCurrentDirectory)
 
 main :: IO ()
-main = withDebuggeeConnect "/tmp/ghc-debug" (\d -> makeSnapshot d "/home/tek/snapshot")
+main = do
+  here <- getCurrentDirectory
+  let path = here </> "snapshot"
+  withDebuggeeConnect "/tmp/ghc-debug" (\d -> makeSnapshot d path)
+  putStrLn ("Wrote snapshot to " ++ path)

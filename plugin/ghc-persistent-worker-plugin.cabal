@@ -59,6 +59,7 @@ library
     build-depends:    binary,
                       bytestring,
                       containers,
+                      deepseq,
                       directory,
                       exceptions,
                       filepath,

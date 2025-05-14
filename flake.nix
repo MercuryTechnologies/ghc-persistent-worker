@@ -173,10 +173,10 @@
         src = ./debug;
         cabal.dependencies = ["ghc-debug-client" "ghc-debug-common" "ghc-debug-stub" "containers"];
         executable.enable = true;
-        executables.snapshot = {};
-        executables.gen-case = {
-          ghc-options = ["-O0"];
+        executables.snapshot = {
+          dependencies = ["directory" "filepath"];
         };
+        executables.gen-case = {};
       };
 
       ghc-persistent-worker-plugin = {

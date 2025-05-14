@@ -173,14 +173,14 @@ fromTo showLimit from to =
 
     process = displayFromTo showLimit
 
-modLocationDynFlags ::
+modLocationToDynFlags ::
   (
     [ClosurePtr] ->
     DebugM FromTo,
     (FromTo -> IO ())
   )
-modLocationDynFlags =
-  fromTo (Just 1) "ModLocation" "DynFlags"
+modLocationToDynFlags =
+  fromTo (Just 5) "ModLocation" "DynFlags"
 
 aToB ::
   (
@@ -260,7 +260,7 @@ debug e = do
   process payload
   where
     (prep, process) = current
-    current = aToB
+    current = modLocationToDynFlags
 
 main :: IO ()
-main = snapshotRun "snapshot-synth-1" debug
+main = snapshotRun "snapshot-mwb-1" debug

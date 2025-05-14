@@ -24,6 +24,9 @@ import GHC.Utils.Outputable (
   )
 import System.IO (hPutStrLn, stderr)
 
+enableLog :: Bool
+enableLog = True
+
 data Log =
   Log {
     diagnostics :: [String],
@@ -42,9 +45,10 @@ logDiagnostics ::
   String ->
   m ()
 logDiagnostics logVar msg =
-  liftIO $ modifyMVar_ logVar \ Log {diagnostics, ..} -> do
-    when debug (dbg msg)
-    pure Log {diagnostics = msg : diagnostics, ..}
+  when enableLog do
+    liftIO $ modifyMVar_ logVar \ Log {diagnostics, ..} -> do
+      when debug (dbg msg)
+      pure Log {diagnostics = msg : diagnostics, ..}
 
 logOther ::
   MonadIO m =>
@@ -52,9 +56,10 @@ logOther ::
   String ->
   m ()
 logOther logVar msg =
-  liftIO $ modifyMVar_ logVar \ Log {other, ..} -> do
-    when debug (dbg msg)
-    pure Log {other = msg : other, ..}
+  when enableLog do
+    liftIO $ modifyMVar_ logVar \ Log {other, ..} -> do
+      when debug (dbg msg)
+      pure Log {other = msg : other, ..}
 
 logFlush :: MVar Log -> IO [String]
 logFlush var =

@@ -14,7 +14,7 @@ import GHC.Unit.Env (addHomeModInfoToHug, ue_unsafeHomeUnit)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
-import Internal.Cache (ModuleArtifacts (..), Target (..))
+import Internal.Cache (ModuleArtifacts (..), Target (..), forceLocation)
 import Internal.Error (eitherMessages)
 
 -- | Insert a compilation result into the current unit's home package table, as it is done by upsweep.
@@ -34,6 +34,10 @@ cleanCurrentModuleTempFilesMaybe logger tmpfs dflags =
   if gopt Opt_KeepTmpFiles dflags
     then liftIO $ keepCurrentModuleTempFiles logger tmpfs
     else liftIO $ cleanCurrentModuleTempFiles logger tmpfs
+
+forceSummary :: ModSummary -> ()
+forceSummary ModSummary {ms_location} =
+  forceLocation ms_location `seq` ()
 
 -- | Compile a module with multiple home units in the session state, using the home package table to look up
 -- dependencies.
@@ -56,9 +60,10 @@ compileModuleWithDepsInHpt (Target src) = do
   hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
     summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
     summary <- setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
-    result <- compileOne hsc_env summary 1 1 Nothing (HomeModLinkable Nothing Nothing)
+    result <- forceSummary summary `seq` compileOne hsc_env summary 1 1 Nothing (HomeModLinkable Nothing Nothing)
     -- This deletes assembly files too early
-    when False do
+    -- FIXME
+    when True do
       cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts
     pure result
   modifySession (addDepsToHscEnv [hmi])

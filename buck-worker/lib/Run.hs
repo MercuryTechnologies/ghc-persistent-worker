@@ -81,8 +81,9 @@ createGhcMethods ::
   MVar WorkerStatus ->
   Maybe (Chan (Proto Instr.Event)) ->
   IO (Methods IO (ProtobufMethodsOf Worker))
-createGhcMethods cache workerMode status instrChan =
-  pure (ghcServerMethods (toGrpcHandler (ghcHandler cache workerMode) status cache instrChan))
+createGhcMethods cache workerMode status instrChan = do
+  counter <- newMVar 0
+  pure (ghcServerMethods (toGrpcHandler (ghcHandler counter cache workerMode) status cache instrChan))
 
 -- | Main function for running the default persistent worker using the provided server socket path and CLI options.
 runWorker :: ServerSocketPath -> CliOptions -> IO ()
@@ -95,7 +96,7 @@ runWorker socket CliOptions {orchestration, workerMode, workerExe, serve} = do
           loader = False,
           enable = True,
           names = False,
-          finder = False,
+          finder = True,
           eps = False
         }
       WorkerOneshotMode -> emptyCache True

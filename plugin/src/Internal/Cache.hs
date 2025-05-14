@@ -3,7 +3,8 @@
 module Internal.Cache where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
-import Control.Monad (join)
+import Control.DeepSeq (rnf)
+import Control.Monad (join, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
@@ -17,7 +18,7 @@ import Data.Ord (comparing)
 import qualified Data.Set as Set
 import Data.Set (Set, (\\))
 import Data.Traversable (for)
-import GHC (Ghc, ModIface, ModuleName, mi_module, moduleName, moduleNameString, setSession)
+import GHC (Ghc, ModIface, ModLocation (..), ModuleName, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Data.FastString (FastString)
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Monad (withSession)
@@ -28,6 +29,7 @@ import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import GHC.Types.Name.Cache (NameCache (..), OrigNameCache)
 import GHC.Types.Unique.DFM (plusUDFM)
 import GHC.Types.Unique.FM (UniqFM, minusUFM, nonDetEltsUFM, sizeUFM)
+import GHC.Unit (UnitId (..))
 import GHC.Unit.Env (
   HomeUnitEnv (..),
   HomeUnitGraph,
@@ -49,6 +51,7 @@ import System.Environment (lookupEnv)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
+import Control.Exception (evaluate)
 import Data.IORef (IORef, newIORef)
 import qualified Data.Map.Lazy as LazyMap
 import GHC.Fingerprint (Fingerprint, getFileHash)
@@ -564,6 +567,26 @@ report logVar workerId target cache = do
 
     workerDesc wid = text (" (" ++ wid ++ ")")
 
+forceLocation :: ModLocation -> ()
+forceLocation ModLocation {..} =
+  rnf (
+    ml_hs_file,
+    ml_hi_file,
+    ml_dyn_hi_file,
+    ml_obj_file,
+    ml_dyn_obj_file,
+    ml_hie_file
+  )
+
+forceUnitId :: UnitId -> ()
+forceUnitId (UnitId s) = rnf s
+
+forceInstalledFindResult :: InstalledFindResult -> ()
+forceInstalledFindResult = \case
+  InstalledFound loc m -> rnf (forceLocation loc, m)
+  InstalledNoPackage uid -> rnf (forceUnitId uid)
+  InstalledNotFound path uid -> rnf (path, (forceUnitId <$> uid))
+
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
 -- | This replacement of the Finder implementation has the sole purpose of recording some cache stats, for now.
@@ -577,7 +600,8 @@ newFinderCache cacheVar Cache {finder = FinderState {modules, files}} target = d
       flushFinderCaches _ = panic "GHC attempted to flush finder caches, which shouldn't happen in worker mode"
 
       addToFinderCache :: InstalledModule -> InstalledFindResult -> IO ()
-      addToFinderCache key val =
+      addToFinderCache key val = do
+        evaluate (forceInstalledFindResult val)
         atomicModifyIORef' modules $ \c ->
           case (lookupInstalledModuleEnv c key, val) of
             (Just InstalledFound{}, InstalledNotFound{}) -> (c, ())
@@ -752,7 +776,8 @@ finalizeCache logVar workerId hsc_env target artifacts cache0 = do
         storeIface hsc_env iface
       pure cache2
     else pure cache0
-  report logVar workerId target cache1
+  when True do
+    report logVar workerId target cache1
   pure cache1
 
 withSessionM :: (HscEnv -> IO (HscEnv, a)) -> Ghc a
