@@ -1,0 +1,8 @@
+load("@toolchains//:libs.bzl", "toolchain_libraries")
+
+python_bootstrap_binary(
+    name = "generate_toolchain_libs",
+    main = "generate_toolchain_libs.py",
+)
+
+[haskell_toolchain_library(name = lib, visibility = ["//..."]) for lib in toolchain_libraries]
