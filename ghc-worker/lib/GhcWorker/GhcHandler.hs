@@ -10,7 +10,7 @@ import GHC (DynFlags (..), Ghc, getSession)
 import GHC.Driver.DynFlags (GhcMode (..))
 import GHC.Driver.Env (hscUpdateFlags)
 import GHC.Driver.Monad (modifySession)
-import GhcWorker.BuckArgs (CompileResult (..), writeResult)
+import GhcWorker.BuckArgs (CompileResult (..), writeCloseOutput, writeResult)
 import GhcWorker.Grpc (GrpcHandler (..))
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
@@ -72,8 +72,8 @@ dispatch workerMode hooks env args =
       pure (code, Just (Target "metadata"))
     Just ModeClose -> do
       dbg "in dispatch. Mode Close"
+      writeCloseOutput args
       exitSuccess
-      -- exitImmediately ExitSuccess
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
   where
