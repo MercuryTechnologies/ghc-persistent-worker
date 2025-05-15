@@ -42,9 +42,13 @@ import Types.Orchestration (
 -- The 'Instrument' component is intended to be optional.
 data CreateMethods where
   CreateMethods :: {
-    createInstrumentation :: IO (instr, Methods IO (ProtobufMethodsOf Instrument)),
-    createGhc :: Maybe instr -> IO (Methods IO (ProtobufMethodsOf Worker))
+    createInstrumentation :: IO (instrumentSocket, Methods IO (ProtobufMethodsOf Instrument)),
+    createGhc :: Maybe instrumentSocket -> IO (Methods IO (ProtobufMethodsOf Worker))
   } -> CreateMethods
+
+newtype FeatureInstrument =
+  FeatureInstrument { flag :: Bool }
+  deriving stock (Eq, Show)
 
 -- | Start a gRPC server that dispatches requests to GHC handlers.
 runLocalGhc ::
@@ -54,10 +58,10 @@ runLocalGhc ::
   IO ()
 runLocalGhc CreateMethods {..} socket minstr = do
   dbg ("Starting ghc server on " ++ socket.path)
-  instrResource <- for minstr \instr -> do
-    dbg ("Instrumentation info available on " ++ instr.path)
+  instrResource <- for minstr \instrumentSocket -> do
+    dbg ("Instrumentation info available on " ++ instrumentSocket.path)
     (resource, methods) <- createInstrumentation
-    _instrThread <- async $ runServerWithHandlers def (grpcServerConfig instr.path) (fromMethods methods)
+    _instrThread <- async $ runServerWithHandlers def (grpcServerConfig instrumentSocket.path) (fromMethods methods)
     pure resource
   methods <- createGhc instrResource
   runServerWithHandlers def (grpcServerConfig socket.path) (fromMethods methods)
@@ -69,8 +73,8 @@ runCentralGhc ::
   ServerSocketPath ->
   Maybe InstrumentSocketPath ->
   IO ()
-runCentralGhc mode discovery socket instr =
-  finally (runLocalGhc mode socket instr) do
+runCentralGhc mode discovery socket instrumentSocket =
+  finally (runLocalGhc mode socket instrumentSocket) do
     dbg ("Shutting down ghc server on " ++ socket.path)
     removeFile discovery.path
 
@@ -163,11 +167,14 @@ waitForCentralGhc proc socket = do
     dbg "Spawned process for the GHC server exited after starting up."
 
 -- | Run a GHC server synchronously.
-runCentralGhcSpawned :: CreateMethods -> ServerSocketPath -> IO ()
-runCentralGhcSpawned methods socket =
-  runCentralGhc methods primaryFile socket instr
+runCentralGhcSpawned :: CreateMethods -> FeatureInstrument -> ServerSocketPath -> IO ()
+runCentralGhcSpawned methods featureInstrument socket =
+  runCentralGhc methods primaryFile socket instrumentSocket
   where
-    instr = Just (instrumentSocketIn dir)
+    instrumentSocket =
+      if featureInstrument.flag
+      then Just (instrumentSocketIn dir)
+      else Nothing
 
     primaryFile = primarySocketDiscoveryIn dir
 
@@ -216,10 +223,10 @@ serveOrProxyCentralGhc methods socket = do
   where
     run primaryFile = do
       let primary = PrimarySocketPath socket.path
-      thread <- async (runCentralGhc methods primaryFile socket instr)
+      thread <- async (runCentralGhc methods primaryFile socket instrumentSocket)
       waitPoll primary
       pure (primary, thread)
 
-    instr = Just (instrumentSocketIn socketDir)
+    instrumentSocket = Just (instrumentSocketIn socketDir)
 
     socketDir = SocketDirectory (init (dropWhileEnd ('-' /=) (takeDirectory socket.path)))
