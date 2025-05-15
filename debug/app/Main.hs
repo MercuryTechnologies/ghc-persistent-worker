@@ -260,7 +260,7 @@ debug e = do
   process payload
   where
     (prep, process) = current
-    current = modLocationToDynFlags
+    current = thunks
 
 main :: IO ()
-main = snapshotRun "snapshot-mwb-1" debug
+main = snapshotRun "snapshot-synth-3" debug

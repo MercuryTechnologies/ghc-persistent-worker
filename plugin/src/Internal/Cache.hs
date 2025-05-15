@@ -1,4 +1,5 @@
 {-# language CPP, NoFieldSelectors #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Internal.Cache where
 
@@ -8,7 +9,6 @@ import Control.Monad (join, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
-import Data.Foldable (for_)
 import Data.IORef (readIORef)
 import Data.List (sortBy)
 import qualified Data.Map.Strict as Map
@@ -20,7 +20,7 @@ import Data.Set (Set, (\\))
 import Data.Traversable (for)
 import GHC (Ghc, ModIface, ModLocation (..), ModuleName, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Data.FastString (FastString)
-import GHC.Driver.Env (HscEnv (..))
+import GHC.Driver.Env (HscEnv (..), hscEPS)
 import GHC.Driver.Monad (withSession)
 import GHC.Linker.Types (Linkable, LinkerEnv (..), Loader (..), LoaderState (..))
 import GHC.Ptr (Ptr)
@@ -34,22 +34,38 @@ import GHC.Unit.Env (
   HomeUnitEnv (..),
   HomeUnitGraph,
   UnitEnv (..),
+  unitEnv_elts,
   unitEnv_insert,
   unitEnv_lookup,
   unitEnv_singleton,
   unitEnv_union,
   )
-import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
+import GHC.Unit.External (ExternalPackageState (..), ExternalUnitCache (..), initExternalUnitCache)
 import GHC.Unit.Finder (InstalledFindResult (..))
 import GHC.Unit.Finder.Types (FinderCache (..))
+import GHC.Unit.Home.ModInfo (HomeModInfo (..), eltsHpt)
 import GHC.Unit.Module.Env (InstalledModuleEnv, emptyModuleEnv, moduleEnvKeys, plusModuleEnv)
 import GHC.Unit.Module.Graph (ModuleGraph)
 import qualified GHC.Utils.Outputable as Outputable
-import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
+import GHC.Utils.Outputable (
+  Outputable,
+  SDoc,
+  comma,
+  doublePrec,
+  fsep,
+  hang,
+  nest,
+  ppr,
+  punctuate,
+  text,
+  vcat,
+  ($$),
+  (<+>),
+  )
 import Internal.Log (Log, logd)
 import System.Environment (lookupEnv)
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 
 import Control.Exception (evaluate)
 import Data.IORef (IORef, newIORef)
@@ -57,7 +73,6 @@ import qualified Data.Map.Lazy as LazyMap
 import GHC.Fingerprint (Fingerprint, getFileHash)
 import GHC.IORef (atomicModifyIORef')
 import GHC.Unit (InstalledModule, emptyInstalledModuleEnv, extendInstalledModuleEnv, lookupInstalledModuleEnv)
-import GHC.Unit.Finder (FinderCache (..), InstalledFindResult (..))
 import GHC.Utils.Panic (panic)
 
 #else
@@ -198,7 +213,7 @@ data BinPath =
   }
   deriving stock (Eq, Show)
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 
 data FinderState =
   FinderState {
@@ -250,7 +265,6 @@ data CacheFeatures =
 newCacheFeatures :: CacheFeatures
 newCacheFeatures = CacheFeatures {enable = True, loader = True, names = True, finder = True, eps = True, hpt = False}
 
--- TODO the name cache could in principle be shared directly – try it out
 data Cache =
   Cache {
     features :: CacheFeatures,
@@ -340,7 +354,6 @@ basicSymbolsStats base update =
     new = sizeUFM (minusUFM update.get base.get)
   }
 
--- TODO complicated
 basicNamesStats :: OrigNameCache -> OrigNameCache -> NamesStats
 basicNamesStats _ _ =
   NamesStats {
@@ -427,7 +440,6 @@ restoreCache target initialLoaderState initialSymbolCache initialNames cache
   | otherwise
   = pure (initialNames, (initialSymbolCache, (initialLoaderState, cache)))
 
--- TODO filter all cached items to include only external Names if possible
 initCache ::
   LoaderState ->
   SymbolCache ->
@@ -567,6 +579,11 @@ report logVar workerId target cache = do
 
     workerDesc wid = text (" (" ++ wid ++ ")")
 
+showEps :: MVar Log -> HscEnv -> IO ()
+showEps logVar hsc_env = do
+  eps <- hscEPS hsc_env
+  logd logVar (text "EPS:" <+> ppr (moduleEnvKeys eps.eps_PIT))
+
 forceLocation :: ModLocation -> ()
 forceLocation ModLocation {..} =
   rnf (
@@ -587,7 +604,16 @@ forceInstalledFindResult = \case
   InstalledNoPackage uid -> rnf (forceUnitId uid)
   InstalledNotFound path uid -> rnf (path, (forceUnitId <$> uid))
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+pprInstalledFindResult :: InstalledFindResult -> SDoc
+pprInstalledFindResult = \case
+  InstalledFound _ m -> ppr m
+  InstalledNoPackage _ -> text "no package"
+  InstalledNotFound _ _ -> text "not found"
+
+instance Outputable InstalledFindResult where
+  ppr = pprInstalledFindResult
+
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 
 -- | This replacement of the Finder implementation has the sole purpose of recording some cache stats, for now.
 -- While its mutable state is allocated separately and shared across sessions, this doesn't really make a difference at
@@ -601,7 +627,7 @@ newFinderCache cacheVar Cache {finder = FinderState {modules, files}} target = d
 
       addToFinderCache :: InstalledModule -> InstalledFindResult -> IO ()
       addToFinderCache key val = do
-        evaluate (forceInstalledFindResult val)
+        !() <- evaluate (forceInstalledFindResult val)
         atomicModifyIORef' modules $ \c ->
           case (lookupInstalledModuleEnv c key, val) of
             (Just InstalledFound{}, InstalledNotFound{}) -> (c, ())
@@ -611,9 +637,10 @@ newFinderCache cacheVar Cache {finder = FinderState {modules, files}} target = d
       lookupFinderCache key = do
         c <- readIORef modules
         let result = lookupInstalledModuleEnv c key
-        case result of
-          Just _ -> cacheHit key
-          Nothing -> cacheMiss key
+        when True do
+          case result of
+            Just _ -> cacheHit key
+            Nothing -> cacheMiss key
         pure $! result
 
       lookupFileCache :: FilePath -> IO Fingerprint
@@ -688,7 +715,8 @@ updateModuleGraph :: MVar Cache -> ModuleGraph -> IO ()
 updateModuleGraph cacheVar new =
   modifyMVar_ cacheVar \ cache -> do
 #if defined(MWB)
-    pure cache {moduleGraph = Just (maybe new merge cache.moduleGraph)}
+    let !merged = maybe new merge cache.moduleGraph
+    pure cache {moduleGraph = Just merged}
   where
     merge old =
       mkModuleGraph (Map.elems (Map.unionWith mergeNodes oldMap newMap))
@@ -726,15 +754,21 @@ prepareCache cacheVar target hsc_env0 cache0 = do
   let (hsc_env1, cache1) = fromMaybe (hsc_env0, cache0 {features = cache0.features {loader = False}}) result
   pure (cache1, (hsc_env1, cache1.features.enable))
 
-storeIface :: HscEnv -> ModIface -> IO ()
-storeIface _ _ =
-  pure ()
+forceHug :: HomeUnitGraph -> HomeUnitGraph
+forceHug hug =
+  seq (sum (forceHue <$> unitEnv_elts hug)) hug
+  where
+    forceHue (_, HomeUnitEnv {..}) =
+      sum (forceHmi <$> eltsHpt homeUnitEnv_hpt)
+
+    forceHmi HomeModInfo {..} =
+      seq hm_details (1 :: Int)
 
 storeHug :: HscEnv -> Cache -> IO Cache
 storeHug hsc_env cache = do
+  let !new = hsc_env.hsc_unit_env.ue_home_unit_graph
+      !merged = forceHug (maybe id (unitEnv_union mergeHugs) cache.hug new)
   pure cache {hug = Just merged}
-  where
-    merged = maybe id (unitEnv_union mergeHugs) cache.hug hsc_env.hsc_unit_env.ue_home_unit_graph
 
 insertUnitEnv :: HscEnv -> Cache -> Cache
 insertUnitEnv hsc_env cache =
@@ -754,7 +788,7 @@ finalizeCache ::
   Maybe ModuleArtifacts ->
   Cache ->
   IO Cache
-finalizeCache logVar workerId hsc_env target artifacts cache0 = do
+finalizeCache logVar workerId hsc_env target _ cache0 = do
   cache1 <-
     if cache0.features.enable
     then do
@@ -772,8 +806,6 @@ finalizeCache logVar workerId hsc_env target artifacts cache0 = do
         then do
           storeHug hsc_env cache1
         else pure cache1
-      for_ artifacts \ ModuleArtifacts {iface} ->
-        storeIface hsc_env iface
       pure cache2
     else pure cache0
   when True do
@@ -804,3 +836,43 @@ withCache logVar workerId cacheVar target prog = do
     finalize art =
       withSession \ hsc_env ->
         liftIO (modifyMVar_ cacheVar (finalizeCache logVar workerId hsc_env target art))
+
+------------------------------------------------------------------------------------------------------------------------
+
+prepareSimple :: HscEnv -> Cache -> IO (Cache, (HscEnv, ()))
+prepareSimple hsc_env0 cache = do
+  pure (cache, (hsc_env2, ()))
+  where
+    hsc_env1 =
+      maybe hsc_env0 (\ hug -> hsc_env0 {hsc_unit_env = hsc_env0.hsc_unit_env {ue_home_unit_graph = hug}}) cache.hug
+
+    hsc_env2 =
+      maybe id restoreModuleGraph cache.moduleGraph hsc_env1
+
+    restoreModuleGraph mg e =
+      e {hsc_mod_graph = mg}
+
+finalizeSimple ::
+  MVar Log ->
+  HscEnv ->
+  Cache ->
+  IO Cache
+finalizeSimple logVar hsc_env cache = do
+  s <- liftIO getRTSStats
+  let logMem desc value = logd logVar (text (desc ++ ":") <+> doublePrec 2 (fromIntegral value / 1_000_000) <+> text "MB")
+  logMem "Mem in use" s.gc.gcdetails_mem_in_use_bytes
+  -- logMem "Max mem in use" s.max_mem_in_use_bytes
+  -- logMem "Max live bytes" s.max_live_bytes
+  storeHug hsc_env cache
+
+withCacheSimple ::
+  MVar Log ->
+  MVar Cache ->
+  Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
+  Ghc (Maybe (Maybe ModuleArtifacts, a))
+withCacheSimple logVar cacheVar prog = do
+  _ <- withSessionM \ hsc_env -> modifyMVar cacheVar (prepareSimple hsc_env)
+  result <- prog
+  withSession \ hsc_env ->
+    liftIO (modifyMVar_ cacheVar (finalizeSimple logVar hsc_env))
+  pure result

@@ -2,20 +2,27 @@
 
 module Internal.CompileHpt where
 
+import Control.DeepSeq (deepseq, rnf)
+import Control.Exception (evaluate)
 import Control.Monad (when)
 import GHC (DynFlags (..), GeneralFlag (..), Ghc, GhcMonad (..), Logger, ModLocation (..), ModSummary (..), gopt)
-import GHC.Driver.Env (HscEnv (..), hscUpdateHUG)
+import GHC.Driver.Env (HscEnv (..), discardIC, hscUpdateHUG)
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
 import GHC.Driver.Monad (modifySession)
 import GHC.Driver.Pipeline (compileOne)
 import GHC.Runtime.Loader (initializeSessionPlugins)
+import GHC.Types.Name.Env (seqEltsNameEnv)
+import GHC.Types.TyThing (pprShortTyThing)
 import GHC.Unit.Env (addHomeModInfoToHug, ue_unsafeHomeUnit)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
+import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Utils.Monad (MonadIO (..))
+import GHC.Utils.Outputable (showPprUnsafe)
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
 import Internal.Cache (ModuleArtifacts (..), Target (..), forceLocation)
 import Internal.Error (eitherMessages)
+import GHC.Linker.Types (Linkable (..), Unlinked (..))
 
 -- | Insert a compilation result into the current unit's home package table, as it is done by upsweep.
 addDepsToHscEnv :: [HomeModInfo] -> HscEnv -> HscEnv
@@ -39,6 +46,19 @@ forceSummary :: ModSummary -> ()
 forceSummary ModSummary {ms_location} =
   forceLocation ms_location `seq` ()
 
+forceBytecode :: Linkable -> ()
+forceBytecode LM {linkableUnlinked} =
+  rnf (sum (forceUnlinked <$> linkableUnlinked))
+  where
+    forceUnlinked = \case
+      BCOs cbc _ -> seq cbc (1 :: Int)
+      _ -> 1
+
+forceHmi :: HomeModInfo -> ()
+forceHmi HomeModInfo {hm_details, hm_linkable} =
+  seq (maybe () forceBytecode hm_linkable.homeMod_bytecode) $
+  seq (seqEltsNameEnv (\ a -> deepseq (showPprUnsafe (pprShortTyThing a)) ()) hm_details.md_types) ()
+
 -- | Compile a module with multiple home units in the session state, using the home package table to look up
 -- dependencies.
 --
@@ -61,10 +81,13 @@ compileModuleWithDepsInHpt (Target src) = do
     summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
     summary <- setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
     result <- forceSummary summary `seq` compileOne hsc_env summary 1 1 Nothing (HomeModLinkable Nothing Nothing)
-    -- This deletes assembly files too early
-    -- FIXME
     when True do
       cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts
     pure result
+  !() <- liftIO $ evaluate (forceHmi hmi)
   modifySession (addDepsToHscEnv [hmi])
+  -- TODO does this reduce retainers? or create extra work?
+  modifySession discardIC
+  -- TODO ???
+  -- addToFinderCache
   pure (Just ModuleArtifacts {iface, bytecode = homeMod_bytecode hm_linkable})

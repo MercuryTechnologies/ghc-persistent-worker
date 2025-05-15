@@ -1,4 +1,3 @@
-{-# options_ghc -O0 #-}
 module Main where
 
 import Control.Concurrent (MVar, modifyMVar_, newMVar, readMVar, threadDelay)

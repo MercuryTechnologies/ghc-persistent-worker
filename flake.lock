@@ -26,8 +26,8 @@
     "ghc-debug": {
       "flake": false,
       "locked": {
-        "lastModified": 1747308524,
-        "narHash": "sha256-6rScyeghSj2DsMsImADpo4AQaUxmRzhbc9hgFaZ/ohg=",
+        "lastModified": 1747326817,
+        "narHash": "sha256-vodTmNguBaGbnuyFUtNMutBg54C5u8u7zoDDl0DUIkQ=",
         "path": "/data/mercury/code/haskell/ghc-debug",
         "type": "path"
       },

@@ -20,21 +20,25 @@
       clock_dir = "${config.ghc.vanillaGhc.clock}";
     };
 
-    workerEnv = {config, ...}: {
-      env = (testEnv config);
-      overrides = {overrideAttrs, notest, ghcOptions, modify, hsLibC, ...}: let
-        opts = ghcOptions ["-finfo-table-map" "-fdistinct-constructor-tables"];
-      in {
-        buck-worker = opts (modify hsLibC.enableSharedExecutables (notest (overrideAttrs (testEnv config))));
-      };
+    envOverrides = config: {overrideAttrs, notest, nodoc, ...}: {
+      ghc-persistent-worker-plugin = nodoc notest;
+      buck-worker = nodoc (notest (overrideAttrs (testEnv config)));
+    };
+
+    ipeOverrides = {ghcOptions, ...}: let
+      opts = ghcOptions ["-finfo-table-map" "-fdistinct-constructor-tables"];
+    in {
+      ghc-persistent-worker-plugin = opts;
+      buck-worker = opts;
+      debug = opts;
     };
 
     ghcBuild = {
       enable = true;
       version = "9.10.1";
       url = "https://gitlab.haskell.org/ghc/ghc";
-      rev = "2c4d9f6151898e1da7721d39e0ef30bdfb0b9e44";
-      sha256 = "sha256-sTSEiKRRS9+n4M/mI9IbBvmcahGynVksoWlEH/OMzJQ=";
+      rev = "6d8c65a7096bba40ba1ba208e8fbfb0349de6ff0";
+      sha256 = "sha256-41ngesQck2MlM4NvAtjAdNbF9GOu7zhZJwx0EDeABBY=";
       flavour = "release+split_sections";
     };
 
@@ -51,23 +55,24 @@
       ;
     hls.genCabal = false;
 
-    envs.dev = args: workerEnv args // {
+    envs.dev = args: {
+      env = testEnv args.config;
       hls.enable = lib.mkForce false;
-      ghc.build = ghcBuild;
+      ghc.build = ghcBuildIpe;
+      overrides = [
+        ({modify, hsLibC, ...}: {
+          buck-worker = modify hsLibC.enableSharedExecutables;
+        })
+        ipeOverrides
+        (envOverrides args.config)
+      ];
     };
 
-    envs.profiled = args: let
-      general = workerEnv args;
-    in general // {
+    envs.profiled = args: {
+      env = testEnv args.config;
       overrides = [
-        ({ghcOptions, ...}: let
-          opts = ghcOptions ["-finfo-table-map" "-fdistinct-constructor-tables"];
-        in {
-          ghc-persistent-worker-plugin = opts;
-          buck-worker = opts;
-          debug = opts;
-        })
-        general.overrides
+        ipeOverrides
+        (envOverrides args.config)
       ];
       ghc.build = ghcBuildIpe;
     };
@@ -94,7 +99,7 @@
     # store dir, which is needed because Buck supplies individual package DBs to GHC.
     envs.buck-build = {
       packages = [];
-      ghc.build = ghcBuild;
+      ghc.build = ghcBuildIpe;
 
       overrides = {override, ...}: {
         __all = override (drv: {
@@ -117,7 +122,7 @@
 
     commands.hls.env = "hls-db";
 
-    output.extraPackages = ["ghc-debug-brick" "eventlog2html" "hp2pretty"];
+    output.extraPackages = ["ghc-debug-brick" "eventlog2html" "hp2pretty" "ghc-events"];
 
     packages = {
 
@@ -148,6 +153,9 @@
             "vector"
           ];
           default-extensions = ["OverloadedLists"];
+          ghc-options = [
+            "-O2"
+          ];
         };
         executables.buck-worker = {
           dependencies = [
@@ -163,9 +171,10 @@
           ];
           default-extensions = ["OverloadedLists"];
           ghc-options-exe = [
+            "-O2"
             "-threaded"
             "-rtsopts"
-            ''"-with-rtsopts=-K512M -H -I5 -T -N"''
+            ''"-with-rtsopts=-K512M -H -I5 -T"''
           ];
           source-dirs = ".";
         };
@@ -185,6 +194,7 @@
           ];
           default-extensions = ["OverloadedLists"];
           ghc-options-exe = [
+            "-O2"
             "-threaded"
             "-rtsopts"
             ''"-with-rtsopts=-K512M -H -I5 -T -N"''

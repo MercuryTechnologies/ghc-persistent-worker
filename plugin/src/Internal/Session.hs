@@ -23,7 +23,7 @@ import GHC (
   prettyPrintGhcErrors,
   pushLogHookM,
   setSessionDynFlags,
-  withSignalHandlers,
+  withSignalHandlers, popLogHookM,
   )
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
@@ -38,7 +38,7 @@ import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Args (Args (..))
-import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Options (..), Target (..), withCache)
+import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Options (..), Target (..), withCache, withCacheSimple)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log (..), logToState)
 import Prelude hiding (log)
@@ -116,12 +116,14 @@ initGhc dflags0 logger fileish_args dynamicFlagWarnings = do
 -- In a Buck compile step these should always be a single path, but in the metadata step they enumerate an entire unit.
 withGhcInSession :: Env -> ([(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
 withGhcInSession env prog argv = do
-  pushLogHookM (const (logToState env.log))
+  let !log = env.log
+  pushLogHookM (const (logToState log))
   cache <- liftIO $ readMVar env.cache
   (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags (argv ++ map instrumentLocation (words cache.options.extraGhcOptions))
-  prettyPrintGhcErrors logger do
+  result <- prettyPrintGhcErrors logger do
     srcs <- initGhc dflags0 logger fileish_args dynamicFlagWarnings
     prog srcs
+  result <$ popLogHookM
 
 -- | Create a base session and store it in the cache.
 -- On subsequent calls, return the cached session, unless the cache is disabled or @reuse@ is true.
@@ -292,8 +294,8 @@ withGhcMhu :: Env -> ([String] -> Target -> Ghc (Maybe a)) -> IO (Maybe a)
 withGhcMhu env =
   withGhcUsingCacheMhu cacheHandler env
   where
-    cacheHandler target prog = do
-      result <- withCache env.log env.args.workerTargetId env.cache target do
+    cacheHandler _ prog = do
+      result <- withCacheSimple env.log env.cache do
         res <- prog
         pure do
           a <- res

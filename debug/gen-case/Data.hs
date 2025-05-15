@@ -1,4 +1,3 @@
-{-# options_ghc -O0 #-}
 module Data where
 
 import Control.Concurrent (MVar, newMVar)

@@ -241,8 +241,8 @@ waitForCentralGhc proc socket = do
 forkCentralGhc :: WorkerExe -> SocketDirectory -> IO PrimarySocketPath
 forkCentralGhc exe socketDir = do
   dbg ("Forking GHC server at " ++ primary.path)
-  proc <- spawnProcess exe.path ["--make", "--serve", primary.path, "+RTS", "-hT", "-i1", "-l", "-ol/home/tek/profile.eventlog", "-RTS"]
-  -- proc <- spawnProcess exe.path ["--make", "--serve", primary.path]
+  -- proc <- spawnProcess exe.path ["--make", "--serve", primary.path, "+RTS", "-hT", "-i1", "-l", "-ol/home/tek/profile.eventlog", "-RTS"]
+  proc <- spawnProcess exe.path ["--make", "--serve", primary.path]
   waitForCentralGhc proc primary
   pure primary
   where
