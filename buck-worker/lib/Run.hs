@@ -19,7 +19,7 @@ import Orchestration (
   runCentralGhcSpawned,
   runLocalGhc,
   serveOrProxyCentralGhc,
-  spawnOrProxyCentralGhc,
+  spawnOrProxyCentralGhc, FeatureInstrument (..),
   )
 import qualified Proto.Instrument as Instr
 
@@ -39,7 +39,9 @@ data CliOptions =
     workerExe :: Maybe WorkerExe,
 
     -- | If this is given, the app should start a GHC server synchronously, listening on the given path.
-    serve :: Maybe ServerSocketPath
+    serve :: Maybe ServerSocketPath,
+
+    instrument :: FeatureInstrument
   }
   deriving stock (Eq, Show)
 
@@ -49,7 +51,8 @@ defaultCliOptions =
     orchestration = Multi,
     workerMode = WorkerOneshotMode,
     workerExe = Nothing,
-    serve = Nothing
+    serve = Nothing,
+    instrument = FeatureInstrument False
   }
 
 parseOptions :: [String] -> IO CliOptions
@@ -63,6 +66,7 @@ parseOptions =
       "--make" : rest -> spin z {workerMode = WorkerMakeMode} rest
       "--exe" : exe : rest -> spin z {workerExe = Just (WorkerExe exe)} rest
       "--serve" : socket : rest -> spin z {serve = Just (ServerSocketPath socket)} rest
+      "--instrument" : rest -> spin z {instrument = FeatureInstrument True} rest
       arg -> throwIO (userError ("Invalid worker CLI args: " ++ unwords arg))
 
 -- | Allocate a communication channel for instrumentation events and construct a gRPC server handler that streams said
@@ -87,7 +91,7 @@ createGhcMethods cache workerMode status instrChan = do
 
 -- | Main function for running the default persistent worker using the provided server socket path and CLI options.
 runWorker :: ServerSocketPath -> CliOptions -> IO ()
-runWorker socket CliOptions {orchestration, workerMode, workerExe, serve} = do
+runWorker socket CliOptions {orchestration, workerMode, workerExe, serve, instrument} = do
   cache <-
     case workerMode of
       WorkerMakeMode ->
@@ -112,7 +116,7 @@ runWorker socket CliOptions {orchestration, workerMode, workerExe, serve} = do
         Nothing -> throwIO (userError "Spawn mode requires specifying the worker executable with '--exe'")
       spawnOrProxyCentralGhc exe socket
   case serve of
-    Just serverSocket -> runCentralGhcSpawned methods serverSocket
+    Just serverSocket -> runCentralGhcSpawned methods instrument serverSocket
     Nothing ->
       case orchestration of
         Single -> serveOrProxyCentralGhc methods socket
