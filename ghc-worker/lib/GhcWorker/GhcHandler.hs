@@ -70,6 +70,10 @@ dispatch workerMode hooks env args =
     Just ModeClose -> do
       dbg "in dispatch. Mode Close"
       writeCloseOutput args
+      pure 0
+      -- exitSuccess
+    Just ModeTerminate -> do
+      dbg "in dispatc. Mode Terminate"
       exitSuccess
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
