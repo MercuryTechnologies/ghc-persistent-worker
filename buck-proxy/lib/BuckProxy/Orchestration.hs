@@ -208,7 +208,7 @@ spawnOrProxyCentralGhc exe omode wmode socket refHandler = do
     dbg (show primary)
     withConnection def (ServerUnix primary.path) \ connection ->
       withRPC connection def (Proxy @(Protobuf Worker "execute")) \ call -> do
-        let req = defMessage & Fields.argv .~ ["--worker-mode", "close"]
+        let req = defMessage & Fields.argv .~ ["--worker-mode", "terminate"]
         sendFinalInput call req
         resp <- recvNextOutput call
         dbg (show resp)
