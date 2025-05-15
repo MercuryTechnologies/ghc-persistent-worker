@@ -9,6 +9,7 @@ import GhcWorker.Grpc (ghcServerMethods, instrumentMethods)
 import GhcWorker.Instrumentation (WorkerStatus (..), toGrpcHandler)
 import GhcWorker.Orchestration (
   CreateMethods (..),
+  FeatureInstrument (..),
   runCentralGhcSpawned,
   )
 import Internal.Cache (Cache (..), CacheFeatures (..), emptyCache, emptyCacheWith)
@@ -29,8 +30,10 @@ data CliOptions =
     -- | The worker implementation: Make mode or oneshot mode.
     workerMode :: WorkerMode,
 
-    -- | listening on the given path.
-    serve :: ServerSocketPath
+    -- | If this is given, the app should start a GHC server synchronously, listening on the given path.
+    serve :: ServerSocketPath,
+
+    instrument :: FeatureInstrument
   }
   deriving stock (Eq, Show)
 
@@ -38,7 +41,8 @@ defaultCliOptions :: CliOptions
 defaultCliOptions =
   CliOptions {
     workerMode = WorkerOneshotMode,
-    serve = ServerSocketPath "" "" ""
+    serve = ServerSocketPath "" "" "",
+    instrument = FeatureInstrument False
   }
 
 parseOptions :: [String] -> IO CliOptions
@@ -49,6 +53,7 @@ parseOptions =
       [] -> pure z
       "--make" : rest -> spin z {workerMode = WorkerMakeMode} rest
       "--serve" : socket : rest -> spin z {serve = serverSocketFromPath socket} rest
+      "--instrument" : rest -> spin z {instrument = FeatureInstrument True} rest
       arg -> throwIO (userError ("Invalid worker CLI args: " ++ unwords arg))
 
 -- | Allocate a communication channel for instrumentation events and construct a gRPC server handler that streams said
@@ -72,7 +77,7 @@ createGhcMethods cache workerMode status instrChan =
 
 -- | Main function for running the default persistent worker using the provided server socket path and CLI options.
 runWorker :: CliOptions -> IO ()
-runWorker CliOptions {workerMode, serve} = do
+runWorker CliOptions {workerMode, serve, instrument} = do
   cache <-
     case workerMode of
       WorkerMakeMode ->
@@ -91,4 +96,4 @@ runWorker CliOptions {workerMode, serve} = do
       createInstrumentation = createInstrumentMethods cache,
       createGhc = createGhcMethods cache workerMode status
     }
-  runCentralGhcSpawned methods serve
+  runCentralGhcSpawned methods instrument serve
