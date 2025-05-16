@@ -1,6 +1,6 @@
 module GhcWorker.GhcHandler where
 
-import Control.Concurrent (MVar)
+import Control.Concurrent (MVar, forkIO, threadDelay)
 import Control.Exception (throwIO)
 import Control.Monad.Catch (onException)
 import Control.Monad.IO.Class (liftIO)
@@ -70,6 +70,9 @@ dispatch workerMode hooks env args =
     Just ModeClose -> do
       dbg "in dispatch. Mode Close"
       writeCloseOutput args
+      forkIO $ do
+        threadDelay 1_000_000
+        exitImmediately ExitSuccess
       pure 0
       -- exitSuccess
     Just ModeTerminate -> do
