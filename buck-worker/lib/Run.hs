@@ -1,25 +1,32 @@
 module Run where
 
+import qualified BuckArgs as BuckArgs
+import BuckArgs (BuckArgs, Mode (..), emptyBuckArgs)
 import BuckWorker (Instrument, Worker)
 import Control.Concurrent (MVar, newChan, newMVar)
 import Control.Concurrent.Chan (Chan)
 import Control.Exception (throwIO)
-import GhcHandler (WorkerMode (..), ghcHandler)
+import Data.Foldable (for_)
+import GhcHandler (WorkerMode (..), dispatch, ghcHandler)
 import Grpc (ghcServerMethods, instrumentMethods)
-import Instrumentation (WorkerStatus (..), toGrpcHandler)
+import Instrumentation (WorkerStatus (..), hooksNoop, toGrpcHandler)
+import Internal.Args (Args (..), emptyArgs)
 import Internal.Cache (Cache (..), CacheFeatures (..), emptyCache, emptyCacheWith)
+import Internal.Log (newLog)
+import Internal.Session (Env (..))
 import Network.GRPC.Common.Protobuf (Proto)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
 import Network.GRPC.Server.StreamType (Methods)
 import Orchestration (
   CreateMethods (..),
+  FeatureInstrument (..),
   Orchestration (..),
   ServerSocketPath (..),
   WorkerExe (..),
   runCentralGhcSpawned,
   runLocalGhc,
   serveOrProxyCentralGhc,
-  spawnOrProxyCentralGhc, FeatureInstrument (..),
+  spawnOrProxyCentralGhc,
   )
 import qualified Proto.Instrument as Instr
 
@@ -122,3 +129,26 @@ runWorker socket CliOptions {orchestration, workerMode, workerExe, serve, instru
         Single -> serveOrProxyCentralGhc methods socket
         Multi -> runLocalGhc methods socket Nothing
         Spawn -> runSpawn
+
+batchCompile :: [FilePath] -> IO ()
+batchCompile paths = do
+  logVar <- newLog True
+  cache <- emptyCacheWith CacheFeatures {
+          hpt = True,
+          loader = False,
+          enable = True,
+          names = False,
+          finder = False,
+          eps = False
+        }
+  let env = Env {log = logVar, cache, args}
+      withOptions opts = env {args = env.args {ghcOptions = env.args.ghcOptions ++ opts}}
+  _ <- dispatch WorkerMakeMode hooksNoop (withOptions paths) buckArgs {BuckArgs.mode = Just ModeMetadata}
+  for_ paths \ path ->
+    dispatch WorkerMakeMode hooksNoop (withOptions [path]) buckArgs {BuckArgs.mode = Just ModeCompile}
+  pure ()
+  where
+    buckArgs = emptyBuckArgs mempty
+    args = (emptyArgs mempty) {
+      topdir = Just "/nix/store/zlw55w44mid9acbhkqqm8frjsd6mjwhg-ghc-9.10.1-with-packages/lib/ghc-9.10.1/lib/"
+    }

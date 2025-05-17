@@ -178,6 +178,26 @@
           ];
           source-dirs = ".";
         };
+        executables.batch-worker = {
+          dependencies = [
+            "containers"
+            "text"
+            "vector"
+            "async"
+            "directory"
+            "filepath"
+            "ghc"
+            "ghc-persistent-worker-plugin"
+            "grapesy"
+          ];
+          default-extensions = ["OverloadedLists"];
+          ghc-options-exe = [
+            "-O2"
+            "-threaded"
+            "-rtsopts"
+            ''"-with-rtsopts=-K512M -H -I5 -T"''
+          ];
+        };
         executables.ghc-bin = {
           dependencies = [
             "bytestring"

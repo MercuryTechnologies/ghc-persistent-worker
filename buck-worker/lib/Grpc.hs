@@ -30,7 +30,7 @@ import Proto.Worker_Fields qualified as Fields
 import System.IO (hPutStrLn, stderr)
 
 debugRequestArgs :: Bool
-debugRequestArgs = False
+debugRequestArgs = True
 
 -- | The environment variables sent by Buck.
 newtype CommandEnv =

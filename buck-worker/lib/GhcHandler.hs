@@ -50,6 +50,7 @@ compileAndReadAbiHash ghcMode compile hooks args target = do
       abiHash :: Maybe AbiHash
       abiHash = do
         path <- args.abiOut
+        -- TODO is this a retainer?
         Just AbiHash {path, hash = showAbiHash hsc_env artifacts.iface}
     pure CompileResult {artifacts, abiHash}
 
@@ -79,7 +80,7 @@ dispatch workerMode hooks env args =
         withGhc env (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args)
       WorkerMakeMode ->
         withGhcMhu env \ _ ->
-          compileAndReadAbiHash CompManager compileModuleWithDepsInHpt hooks args
+          compileAndReadAbiHash CompManager (compileModuleWithDepsInHpt env.log) hooks args
 
 -- | Default implementation of an 'InstrumentedHandler' using our custom persistent worker GHC mode, either using HPT or
 -- EPS for local dependency lookup.
