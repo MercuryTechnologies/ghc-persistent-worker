@@ -178,6 +178,28 @@
           ];
           source-dirs = ".";
         };
+        executables.ghc-bin = {
+          dependencies = [
+            "bytestring"
+            "containers"
+            "deepseq"
+            "directory"
+            "exceptions"
+            "filepath"
+            "ghc"
+            "ghc-boot"
+            "text"
+            "time"
+            "transformers"
+            "unix"
+          ];
+          ghc-options-exe = [
+            "-O2"
+            "-threaded"
+            "-rtsopts"
+            ''"-with-rtsopts=-K512M -H -I5 -T"''
+          ];
+        };
         test = {
           enable = true;
           dependencies = [
@@ -232,7 +254,7 @@
             "unix"
           ];
           source-dirs = ["src" "src-ghc98"];
-          ghc-options = ["-DMWB"];
+          ghc-options = ["-DMWB" "-O2"];
           component = {
             other-modules = [
               "GHC.Main"

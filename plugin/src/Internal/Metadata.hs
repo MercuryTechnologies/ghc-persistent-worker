@@ -10,7 +10,7 @@ import GHC.Driver.Monad (modifySession, modifySessionM, withSession, withTempSes
 import GHC.Platform.Ways (Way (WayDyn), addWay)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit.Env (UnitEnv (..), unitEnv_union)
-import Internal.Cache (Cache (..), Target (..), insertUnitEnv, mergeHugs, newFinderCache, updateModuleGraph)
+import Internal.Cache (Cache (..), Target (..), insertUnitEnv, mergeHugs, newFinderCache, updateModuleGraph, logMemStats)
 import Internal.MakeFile (doMkDependHS)
 import Internal.Session (Env (..), runSession, withGhcInSession)
 
@@ -63,6 +63,7 @@ computeMetadataInSession setup env srcs = do
 
 -- | Run 'computeMetadataInSession' without extra session initialization code, which is just used in tests.
 computeMetadata :: Env -> IO Bool
-computeMetadata env =
-  fmap (fromMaybe False) $ runSession False env $ withGhcInSession env \ srcs ->
+computeMetadata env = do
+  res <- fmap (fromMaybe False) $ runSession False env $ withGhcInSession env \ srcs ->
     computeMetadataInSession (pure ()) env (fst <$> srcs)
+  res <$ logMemStats "after meta" env.log

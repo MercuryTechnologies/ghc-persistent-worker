@@ -852,17 +852,22 @@ prepareSimple hsc_env0 cache = do
     restoreModuleGraph mg e =
       e {hsc_mod_graph = mg}
 
+logMemStats :: String -> MVar Log -> IO ()
+logMemStats step logVar = do
+  s <- liftIO getRTSStats
+  let logMem desc value = logd logVar (text (desc ++ ":") <+> doublePrec 2 (fromIntegral value / 1_000_000) <+> text "MB")
+  logd logVar (text ("-------------- " ++ step))
+  logMem "Mem in use" s.gc.gcdetails_mem_in_use_bytes
+  logMem "Max mem in use" s.max_mem_in_use_bytes
+  logMem "Max live bytes" s.max_live_bytes
+
 finalizeSimple ::
   MVar Log ->
   HscEnv ->
   Cache ->
   IO Cache
 finalizeSimple logVar hsc_env cache = do
-  s <- liftIO getRTSStats
-  let logMem desc value = logd logVar (text (desc ++ ":") <+> doublePrec 2 (fromIntegral value / 1_000_000) <+> text "MB")
-  logMem "Mem in use" s.gc.gcdetails_mem_in_use_bytes
-  -- logMem "Max mem in use" s.max_mem_in_use_bytes
-  -- logMem "Max live bytes" s.max_live_bytes
+  logMemStats "finalize" logVar
   storeHug hsc_env cache
 
 withCacheSimple ::
@@ -871,6 +876,7 @@ withCacheSimple ::
   Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
   Ghc (Maybe (Maybe ModuleArtifacts, a))
 withCacheSimple logVar cacheVar prog = do
+  liftIO $ logMemStats "cache" logVar
   _ <- withSessionM \ hsc_env -> modifyMVar cacheVar (prepareSimple hsc_env)
   result <- prog
   withSession \ hsc_env ->
