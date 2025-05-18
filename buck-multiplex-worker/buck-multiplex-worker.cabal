@@ -19,6 +19,7 @@ executable multiplex-worker
   build-depends:
     base ==4.*,
     binary,
+    buck-worker-common,
     buck-worker-internal,
     buck-worker-proto,
     buck-worker-types,
