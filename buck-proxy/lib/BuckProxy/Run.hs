@@ -1,11 +1,13 @@
 module BuckProxy.Run where
 
-import Control.Concurrent.MVar (MVar)
-import Control.Exception (throwIO)
 import BuckProxy.Orchestration (
   WorkerExe (..),
-  spawnOrProxyCentralGhc,
+  proxyServer,
   )
+import Control.Concurrent.MVar (MVar, newMVar)
+import Control.Exception (throwIO)
+import Data.Map (Map)
+import Data.Map qualified as Map
 import Types.GhcHandler (WorkerMode (..))
 import Types.Orchestration (
   Orchestration (Multi, Single),
@@ -50,6 +52,13 @@ parseOptions =
       arg -> throwIO (userError ("Invalid worker CLI args: " ++ unwords arg))
 
 -- | Main function for starting buck proxy using the provided server socket path and CLI options.
-run :: ServerSocketPath -> CliOptions -> MVar (IO ()) -> IO ()
+run ::
+  -- | This is WORKER_SOCKET
+  ServerSocketPath ->
+  CliOptions ->
+  MVar (IO ()) ->
+  IO ()
 run socket CliOptions {orchestration, workerMode, workerExe} refHandler = do
-  spawnOrProxyCentralGhc workerExe orchestration workerMode socket refHandler
+  workerMap <- newMVar (Map.empty)
+  -- spawnOrProxyCentralGhc workerMap workerExe orchestration workerMode socket refHandler
+  proxyServer workerMap workerExe orchestration workerMode socket
