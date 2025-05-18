@@ -1,14 +1,11 @@
 module GhcWorker.Grpc where
 
-import BuckWorker (ExecuteCommand, ExecuteResponse)
+import Common.Grpc (GrpcHandler, execute, streamingNotImplemented)
 import Control.Concurrent.Chan (Chan, dupChan, readChan)
 import Control.Concurrent.MVar (MVar, modifyMVar_, readMVar)
-import Control.Exception (SomeException (..), displayException, fromException, try)
-import Control.Monad (forever, when)
-import Data.Int (Int32)
+import Control.Monad (forever)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
-import Data.Text.Encoding (decodeUtf8Lenient)
 import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import Internal.Cache (Cache (..), Options (..))
 import Network.GRPC.Common (NextElem (..))
@@ -24,78 +21,7 @@ import Network.GRPC.Server.StreamType (
 import qualified Proto.Instrument as Instr
 import Proto.Instrument (Instrument)
 import Proto.Instrument_Fields qualified as Instr
-import Proto.Worker (ExecuteCommand'EnvironmentEntry, ExecuteEvent, Worker (..))
-import Proto.Worker_Fields qualified as Fields
-import System.Exit (ExitCode (..), exitSuccess)
-import System.IO (hPutStrLn, stderr)
-import Types.Grpc (CommandEnv (..), RequestArgs (..))
-
-debugRequestArgs :: Bool
-debugRequestArgs = False
-
-
--- | A handler for gRPC requests takes a 'Map' of environment variables and a list of command line arguments and returns
--- a list of output message lines and an exit code.
-newtype GrpcHandler =
-  GrpcHandler {
-    run ::
-      CommandEnv ->
-      RequestArgs ->
-      IO ([String], Int32)
-  }
-
-commandEnv :: [Proto ExecuteCommand'EnvironmentEntry] -> CommandEnv
-commandEnv =
-  CommandEnv .
-  Map.fromList .
-  fmap \kv -> (fromBs kv.key, fromBs kv.value)
-  where
-    fromBs = Text.unpack . decodeUtf8Lenient
-
--- | Generic wrapper for a handler of the 'Worker' message 'ExecuteCommand', taking care of input data conversions and
--- response construction.
-execute ::
-  GrpcHandler ->
-  Proto ExecuteCommand ->
-  IO (Proto ExecuteResponse)
-execute handler req = do
-  when debugRequestArgs do
-    hPutStrLn stderr (unlines argv)
-  eres <- try (handler.run (commandEnv req.env) (RequestArgs argv))
-  (output, exitCode) <-
-    case eres of
-      Right (output, exitCode) -> pure (output, exitCode)
-      Left e@(SomeException e') ->
-        case fromException e of
-          Just ExitSuccess -> exitSuccess
-          _ -> pure (["Uncaught exception: " ++ displayException e'], 1)
-  pure $
-    defMessage
-      & Fields.exitCode
-      .~ exitCode
-      & Fields.stderr
-      .~ Text.unlines (Text.pack <$> output)
-  where
-    argv = Text.unpack . decodeUtf8Lenient <$> req.argv
-
--- | The worker protocol is intended to support streaming events, but we're not using that yet.
-streamingNotImplemented :: IO (NextElem (Proto ExecuteEvent)) -> IO (Proto ExecuteResponse)
-streamingNotImplemented _ =
-  pure $
-    defMessage
-      & Fields.exitCode
-      .~ 1
-      & Fields.stderr
-      .~ "Streaming not implemented"
-
--- | Wrap a 'GrpcHandler' in a grapesy handler data type.
-ghcServerMethods ::
-  GrpcHandler ->
-  Methods IO (ProtobufMethodsOf Worker)
-ghcServerMethods handler =
-  simpleMethods
-    (mkClientStreaming streamingNotImplemented)
-    (mkNonStreaming (execute handler))
+import Proto.Worker (Worker (..))
 
 -- | Fetch statistics about the current state of the RTS for instrumentation.
 mkStats :: Cache -> IO (Proto Instr.Stats)
