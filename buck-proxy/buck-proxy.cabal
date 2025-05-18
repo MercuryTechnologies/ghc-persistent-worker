@@ -30,12 +30,15 @@ library
   ghc-options: -O2
   hs-source-dirs: lib
   exposed-modules:
+    BuckProxy.Deprecated.Orchestration
     BuckProxy.Orchestration
     BuckProxy.Run
     BuckProxy.Util
   build-depends:
+    buck-worker-common,
     buck-worker-proto,
     buck-worker-types,
+    containers,
     deepseq,
     directory,
     filepath,

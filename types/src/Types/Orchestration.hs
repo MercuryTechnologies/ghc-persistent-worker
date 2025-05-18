@@ -61,11 +61,11 @@ spawnedSocketDirectory server =
   SocketDirectory (takeDirectory server.path)
 
 -- | For project socket, use the trace id extracted from server socket path.
-projectSocketDirectory :: Orchestration -> ServerSocketPath -> SocketDirectory
-projectSocketDirectory omode server =
-  case omode of
-    Multi -> SocketDirectory (root </> server.traceId ++ "-" ++ server.workerSpecId)
-    Single -> SocketDirectory (root </> server.traceId)
+projectSocketDirectory ::
+  -- | target id. TODO: Make a newtype.
+  String ->
+  SocketDirectory
+projectSocketDirectory targetId = SocketDirectory (root </> targetId)
   where
     root = "/tmp/ghc-persistent-worker"
 

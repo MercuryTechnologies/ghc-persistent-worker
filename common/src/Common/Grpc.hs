@@ -95,3 +95,44 @@ fromGrpcHandler handler =
     (mkClientStreaming streamingNotImplemented)
     (mkNonStreaming (execute handler))
 
+
+{-
+-- | Forward a request received from a client to another gRPC server and forward the response back,
+-- prefixing the error messages so we know where the error originated.
+forwardRequest ::
+  Connection ->
+  Proto ExecuteCommand ->
+  IO (Proto ExecuteResponse)
+forwardRequest connection req = withRPC connection def (Proxy @(Protobuf Worker "execute")) \ call -> do
+  sendFinalInput call req
+  resp <- recvNextOutput call
+  pure $
+    resp
+      & Fields.stderr
+      %~ ("gRPC client error: " <>)
+-}
+
+{-
+-- | Proxy handler that can hijack method before relaying
+distribute ::
+  -- | multiplexer
+  ( IO Connection) ->
+  -- | continuation for proxy. relay target connection should be provided
+  -- by a closure of use.
+  (Connectin -> Methods IO (ProtobufMethodsOf Worker) -> IO a) ->
+  Methods IO (ProtobufMethodsOf Worker)
+proxyWithGrpcHandler handler use =
+  -- withConnection def server $ \ connection -> do
+  use $
+    Method (mkClientStreaming streamingNotImplemented) $
+    Method (mkNonStreaming (forwardRequest {- connection -})) $
+    NoMoreMethods
+  {- where
+    server = ServerUnix socket.path
+  -}
+  {-
+  simpleMethods
+    (mkClientStreaming streamingNotImplemented)
+    (mkNonStreaming (execute handler))
+ -}
+-}
