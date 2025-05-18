@@ -3,6 +3,7 @@
 module Main where
 
 import BuckWorker (Worker (..))
+import Common.Grpc (GrpcHandler (GrpcHandler), fromGrpcHandler)
 import Control.Concurrent (Chan, MVar, newMVar)
 import Control.Concurrent.STM (TVar, newTVarIO)
 import Control.Exception (throwIO)
@@ -17,7 +18,6 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (maybeToList)
 import GHC (getSession)
 import GhcWorker.BuckArgs (CompileResult (..), writeResult)
-import GhcWorker.Grpc (GrpcHandler (GrpcHandler), ghcServerMethods)
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..), WorkerStatus (..), toGrpcHandler)
 import GhcWorker.Orchestration (CreateMethods (..), runLocalGhc)
 import GhcWorker.Run (createInstrumentMethods)
@@ -112,7 +112,7 @@ createGhcMethods ::
   Maybe (Chan (Proto Instr.Event)) ->
   IO (Methods IO (ProtobufMethodsOf Worker))
 createGhcMethods pool status cache instrChan =
-  pure (ghcServerMethods (toGrpcHandler (ghcHandler pool cache) status cache instrChan))
+  pure (fromGrpcHandler (toGrpcHandler (ghcHandler pool cache) status cache instrChan))
 
 main :: IO ()
 main = do

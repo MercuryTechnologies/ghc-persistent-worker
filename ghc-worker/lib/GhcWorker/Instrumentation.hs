@@ -1,12 +1,13 @@
 module GhcWorker.Instrumentation where
 
+import Common.Grpc (GrpcHandler (..))
 import Control.Concurrent (MVar, modifyMVar_, readMVar)
 import Control.Concurrent.Chan (Chan, writeChan)
 import Control.Exception (bracket_)
 import Data.Foldable (traverse_)
 import Data.Int (Int32)
 import Data.Text qualified as Text
-import GhcWorker.Grpc (GrpcHandler (..), mkStats)
+import GhcWorker.Grpc (mkStats)
 import Internal.Cache (Cache, Target (..))
 import Internal.Log (dbg)
 import Network.GRPC.Common.Protobuf (Proto, defMessage, (&), (.~))
