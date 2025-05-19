@@ -7,38 +7,40 @@ module BuckProxy.Orchestration (
 import BuckProxy.Util (dbg)
 import qualified BuckWorker as Worker
 import BuckWorker (ExecuteCommand, ExecuteResponse)
-import Common.Grpc (GrpcHandler (..), fromGrpcHandler, streamingNotImplemented)
+import Common.Grpc (commandEnv, streamingNotImplemented)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, putMVar, takeMVar)
-import Control.DeepSeq (force)
-import Control.Exception (bracket_, throwIO, try)
+import Control.Exception (throwIO, try)
 import Control.Monad (void, when)
-import Data.Map (Map)
-import Data.Map qualified as Map
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
-import GHC.IO.Handle.Lock (LockMode (..), hLock, hUnlock)
+import Data.Text qualified as Text
+import Data.Text.Encoding (decodeUtf8Lenient)
 import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
-import Network.GRPC.Common (NextElem (..), Proxy (..), def)
-import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&), (.~))
+import Network.GRPC.Common (Proxy (..), def)
+import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&))
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
 import Network.GRPC.Server.Run (InsecureConfig (..), ServerConfig (..), runServerWithHandlers)
-import Network.GRPC.Server.StreamType (Methods (..), fromMethods, mkClientStreaming, mkNonStreaming)
-import Proto.Worker (ExecuteEvent, Worker (..))
+import Network.GRPC.Server.StreamType (
+  Methods (..),
+  fromMethods,
+  mkClientStreaming,
+  mkNonStreaming,
+  )
+import Proto.Worker (Worker (..))
 import Proto.Worker_Fields qualified as Fields
 import System.Directory (createDirectoryIfMissing)
-import System.FilePath (takeDirectory, (</>))
 import System.Exit (exitFailure)
-import System.IO (IOMode (..), hGetLine, hPutStr, openFile, withFile)
-import System.Process (CreateProcess (..), ProcessHandle, StdStream(UseHandle), createProcess, getProcessExitCode, proc)
+import System.Process ({- CreateProcess (..), -} ProcessHandle, {- StdStream(UseHandle), -} createProcess, getProcessExitCode, proc)
 import Types.BuckArgs (BuckArgs (workerTargetId), parseBuckArgs)
 import Types.GhcHandler (WorkerMode (..))
+import Types.Grpc (RequestArgs (..))
 import Types.Orchestration (
-  Orchestration,
-  PrimarySocketDiscoveryPath (..),
   PrimarySocketPath (..),
   ServerSocketPath (..),
   SocketDirectory (..),
-  primarySocketDiscoveryIn,
+  extractTraceIdAndWorkerSpecId,
   primarySocketIn,
   projectSocketDirectory,
   )
@@ -52,69 +54,48 @@ newtype WorkerExe =
 -- | Forward a request received from a client to another gRPC server and forward the response back,
 -- prefixing the error messages so we know where the error originated.
 forwardRequest ::
-  {- Connection -> -}
+  Connection ->
   Proto ExecuteCommand ->
   IO (Proto ExecuteResponse)
-forwardRequest {- connection -} req = do
-  dbg (show req)
-  pure defMessage
-
-  {- withRPC connection def (Proxy @(Protobuf Worker "execute")) \ call -> do
+forwardRequest connection req = withRPC connection def (Proxy @(Protobuf Worker "execute")) \ call -> do
   sendFinalInput call req
   resp <- recvNextOutput call
   pure $
     resp
       & Fields.stderr
       %~ ("gRPC client error: " <>)
-  -}
 
 proxyHandler ::
   MVar (Map String PrimarySocketPath) ->
   WorkerExe ->
-  Orchestration ->
   WorkerMode ->
-  ServerSocketPath ->
-  GrpcHandler
-proxyHandler workerMap exe omode wmode socket =
-  GrpcHandler \ commandEnv argv -> do
-    buckArgs <- either (throwIO . userError) pure (parseBuckArgs commandEnv argv)
-    let mtargetId = buckArgs.workerTargetId
-    case mtargetId of
-      Nothing -> throwIO (userError "No --worker-target-id passed")
-      Just targetId -> do
-        wmap <- takeMVar workerMap
+  FilePath ->
+  Proto ExecuteCommand ->
+  IO (Proto ExecuteResponse)
+proxyHandler workerMap exe wmode basePath req = do
+  let cmdEnv = commandEnv req.env
+      argv = Text.unpack . decodeUtf8Lenient <$> req.argv
+  buckArgs <- either (throwIO . userError) pure (parseBuckArgs cmdEnv (RequestArgs argv))
+  let mtargetId = buckArgs.workerTargetId
+  case mtargetId of
+    Nothing -> throwIO (userError "No --worker-target-id passed")
+    Just targetId -> do
+      wmap <- takeMVar workerMap
+      primary <-
         case Map.lookup targetId wmap of
           Nothing -> do
-            let workerSocketDir = projectSocketDirectory targetId
+            let workerSocketDir = projectSocketDirectory basePath targetId
             void $ try @IOError (createDirectoryIfMissing True workerSocketDir.path)
             primary <- spawnGhcWorker exe wmode workerSocketDir
             putMVar workerMap (Map.insert targetId primary wmap)
-            let msg = "No primary socket for " ++ show targetId ++ ", so created it on " ++ primary.path
-            pure ([msg], 1)
+            dbg $ "No primary socket for " ++ show targetId ++ ", so created it on " ++ primary.path
+            pure primary
           Just primary -> do
-            let msg = "Primary socket for " ++ show targetId ++ ": " ++ primary.path
-            pure ([msg], 1)
-
-{-
--- | Bracket a computation with a gRPC worker client resource, connecting to the server listening on the provided
--- socket.
-withProxy ::
-  -- PrimarySocketPath ->
-  MVar (Map String PrimarySocketPath) ->
-  (Methods IO (ProtobufMethodsOf Worker) -> IO a) ->
-  IO a
-withProxy workerMap use = do
-  -- withConnection def server $ \ connection -> do
-    use $ fromGrpcHandler (proxyHandler workerMap )
-
-      {-
-      Method (mkClientStreaming streamingNotImplemented) $
-      Method (mkNonStreaming (forwardRequest {- connection -})) $
-      NoMoreMethods -}
-  {- where
-    server = ServerUnix socket.path
-  -}
--}
+            putMVar workerMap wmap
+            dbg $ "Primary socket for " ++ show targetId ++ ": " ++ primary.path
+            pure primary
+      withConnection def (ServerUnix primary.path) \connection ->
+        forwardRequest connection req
 
 grpcServerConfig :: FilePath -> ServerConfig
 grpcServerConfig socketPath =
@@ -128,11 +109,10 @@ proxyServer ::
   -- | mutable worker map (we spawn a new ghc-worker as a new target id arrives)
   MVar (Map String PrimarySocketPath) ->
   WorkerExe ->
-  Orchestration ->
   WorkerMode ->
   ServerSocketPath ->
   IO ()
-proxyServer workerMap exe omode wmode socket = do
+proxyServer workerMap exe wmode socket = do
   try launch >>= \case
     Right () ->
       dbg ("Shutting down buck-proxy on " ++ socket.path)
@@ -140,7 +120,13 @@ proxyServer workerMap exe omode wmode socket = do
       dbg ("buck-proxy on" ++ socket.path ++ " crashed" ++ show err)
       exitFailure
   where
-    methods = fromGrpcHandler (proxyHandler workerMap exe omode wmode socket)
+    (traceId, workerSpecId) = extractTraceIdAndWorkerSpecId socket.path
+    base = traceId ++ "-" ++ workerSpecId
+    methods :: Methods IO (ProtobufMethodsOf Worker)
+    methods =
+      Method (mkClientStreaming streamingNotImplemented) $
+      Method (mkNonStreaming (proxyHandler workerMap exe wmode base)) $
+      NoMoreMethods
     launch = do
       dbg ("Starting buck-proxy on " ++ socket.path)
       runServerWithHandlers def (grpcServerConfig socket.path) $ fromMethods methods
@@ -204,34 +190,3 @@ spawnGhcWorker exe mode socketDir = do
   pure primary
   where
     primary = primarySocketIn socketDir
-
-
-{-
--- | Start a proxy gRPC server that forwards requests to the central GHC server.
--- If that server isn't running, spawn a process and wait for it to boot up.
-spawnOrProxyCentralGhc ::
-  MVar (Map String FilePath) ->
-  WorkerExe ->
-  Orchestration ->
-  WorkerMode ->
-  ServerSocketPath ->
-  MVar (IO ()) ->
-  IO ()
-spawnOrProxyCentralGhc workerMap exe omode wmode socket refHandler = undefined
--}
-{-  let socketDir = projectSocketDirectory omode socket
-  eprimary <- runOrProxyCentralGhc socketDir \ _ -> do
-    primary <- forkCentralGhc exe wmode socketDir
-    pure (primary, ())
-  let primary = either id fst eprimary
-  putMVar refHandler $ do
-    dbg (show primary)
-    withConnection def (ServerUnix primary.path) \ connection ->
-      withRPC connection def (Proxy @(Protobuf Worker "execute")) \ call -> do
-        let req = defMessage & Fields.argv .~ ["--worker-mode", "terminate"]
-        sendFinalInput call req
-        resp <- recvNextOutput call
-        dbg (show resp)
-
-  proxyServer primary socket
--}
