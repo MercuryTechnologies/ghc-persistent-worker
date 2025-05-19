@@ -1,0 +1,13 @@
+haskell_library(
+    name = "comparison-1",
+    srcs = [
+        "Test1.hs",
+        "Test2.hs",
+        "Test3.hs",
+    ],
+    deps = [
+        "//haskell:base",
+        "//haskell:template-haskell",
+    ],
+)
+

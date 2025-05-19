@@ -124,6 +124,11 @@
 
     output.extraPackages = ["ghc-debug-brick" "eventlog2html" "hp2pretty" "ghc-events"];
 
+    outputs.apps.comparison-1 = {
+      type = "app";
+      program = "${import ./comparison-1/run.nix { inherit config build; }}";
+    };
+
     packages = {
 
       buck-worker = {
