@@ -140,5 +140,6 @@ compileModuleWithDepsInHpt specific (Target src) = do
     when False do
       cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts
     pure result
+
   modifySession (addDepsToHscEnv [hmi])
   pure (Just ModuleArtifacts {iface, bytecode = homeMod_bytecode hm_linkable})

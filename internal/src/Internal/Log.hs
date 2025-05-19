@@ -6,8 +6,22 @@ import Data.Text.Encoding (encodeUtf8)
 import Control.Concurrent.MVar (MVar, modifyMVar_, modifyMVar, newMVar)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import GHC (Severity (SevIgnore))
-import GHC.Types.Error (MessageClass (..), getCaretDiagnostic, mkLocMessageWarningGroups)
+import GHC (Ghc, Severity (SevIgnore), noSrcSpan)
+import GHC.Driver.Config.Diagnostic (initDiagOpts)
+import GHC.Driver.DynFlags (getDynFlags)
+import GHC.Driver.Errors.Types (DriverMessage (..), GhcMessage(GhcDriverMessage))
+import GHC.Driver.Monad qualified as GHC (logDiagnostics)
+import GHC.Types.Error (
+  DiagnosticReason (WarningWithoutFlag),
+  MessageClass (..),
+  getCaretDiagnostic,
+  mkLocMessageWarningGroups,
+  mkPlainDiagnostic,
+  mkSimpleUnknownDiagnostic,
+  noHints,
+  singleMessage,
+  )
+import GHC.Utils.Error (mkPlainMsgEnvelope)
 import GHC.Utils.Logger (LogAction, LogFlags (..))
 import GHC.Utils.Outputable (
   Outputable,
@@ -115,3 +129,33 @@ logd ::
   SDoc ->
   m ()
 logd = logp
+
+
+ghcLogd :: SDoc -> Ghc ()
+ghcLogd doc = do
+  dflags <- getDynFlags
+  let diagOpts = initDiagOpts dflags
+      reason = WarningWithoutFlag
+      msg =
+        DriverUnknownMessage $
+          mkSimpleUnknownDiagnostic $
+          mkPlainDiagnostic reason noHints $
+          doc
+      msgs = singleMessage (mkPlainMsgEnvelope diagOpts noSrcSpan msg)
+  GHC.logDiagnostics (GhcDriverMessage <$> msgs)
+{-
+  -- liftIO $
+  --   logOutput (hsc_logger hsc_env) (pprHsBytes "IWKIM Here")
+  let dflags = hsc_dflags hsc_env
+      diagOpts = initDiagOpts dflags
+      reason = WarningWithoutFlag
+  let msg =
+        DriverUnknownMessage $
+          mkSimpleUnknownDiagnostic $
+          mkPlainDiagnostic reason noHints $
+          text "HELLO THERE"
+
+  let warns = -- emptyMessages
+        singleMessage (mkPlainMsgEnvelope diagOpts noSrcSpan msg)
+  -- liftIO $ printOrThrowDiagnostics (hsc_logger hsc_env) (initPrintConfig dflags) (initDiagOpts dflags) (GhcDriverMessage <$> warns)
+-}

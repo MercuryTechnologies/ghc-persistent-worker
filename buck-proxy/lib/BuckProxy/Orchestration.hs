@@ -32,7 +32,7 @@ import Proto.Worker (Worker (..))
 import Proto.Worker_Fields qualified as Fields
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
-import System.Process ({- CreateProcess (..), -} ProcessHandle, {- StdStream(UseHandle), -} createProcess, getProcessExitCode, proc)
+import System.Process (CreateProcess (..), ProcessHandle, StdStream(UseHandle), createProcess, getProcessExitCode, proc)
 import Types.BuckArgs (BuckArgs (workerTargetId), parseBuckArgs)
 import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (RequestArgs (..))
@@ -44,6 +44,8 @@ import Types.Orchestration (
   primarySocketIn,
   projectSocketDirectory,
   )
+import System.IO (IOMode (..), openFile)
+import System.FilePath (takeDirectory, (</>))
 
 -- | Path to the worker executable, i.e. this program.
 --- Used to spawn the GHC server process.
@@ -177,14 +179,15 @@ spawnGhcWorker ::
   IO PrimarySocketPath
 spawnGhcWorker exe mode socketDir = do
   dbg ("Forking GHC server at " ++ primary.path)
-  -- let fp = takeDirectory primary.path </> "stderr"
-  -- fh <- openFile fp WriteMode
+  let fp = takeDirectory primary.path </> "stderr"
+  fh <- openFile fp WriteMode
   let workerModeFlag = case mode of
         WorkerOneshotMode -> []
         WorkerMakeMode -> ["--make"]
       worker = (proc exe.path (workerModeFlag ++ ["--serve", primary.path]))
-        -- { std_err = UseHandle fh
-        -- }
+        { std_err = UseHandle fh
+        }
+  dbg ("workerModeFlag = " ++ show workerModeFlag)
   (_, _, _, ph) <- createProcess worker
   waitForGhcWorker ph primary
   pure primary
