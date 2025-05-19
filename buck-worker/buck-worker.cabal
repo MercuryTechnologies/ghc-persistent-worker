@@ -57,6 +57,7 @@ library
     lens-family,
     process,
     proto-lens,
+    temporary,
     text,
     vector
 

@@ -2,12 +2,10 @@
 
 module Internal.CompileHpt where
 
-import Control.Concurrent (MVar)
 import Control.DeepSeq (deepseq, rnf)
-import Control.Exception (evaluate)
 import Control.Monad (when)
 import GHC (DynFlags (..), GeneralFlag (..), Ghc, GhcMonad (..), Logger, ModLocation (..), ModSummary (..), gopt)
-import GHC.Driver.Env (HscEnv (..), discardIC, hscUpdateHUG)
+import GHC.Driver.Env (HscEnv (..), hscUpdateHUG)
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
 import GHC.Driver.Monad (modifySession)
@@ -22,9 +20,8 @@ import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.Outputable (showPprUnsafe)
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
-import Internal.Cache (ModuleArtifacts (..), Target (..), forceLocation, logMemStats)
+import Internal.Cache (ModuleArtifacts (..), Target (..), forceLocation)
 import Internal.Error (eitherMessages)
-import Internal.Log (Log)
 
 -- | Insert a compilation result into the current unit's home package table, as it is done by upsweep.
 addDepsToHscEnv :: [HomeModInfo] -> HscEnv -> HscEnv
@@ -73,27 +70,20 @@ forceHmi HomeModInfo {hm_details, hm_linkable} =
 -- - Call the module compilation function @compileOne@
 -- - Store the resulting @HomeModInfo@ in the current unit's home package table.
 compileModuleWithDepsInHpt ::
-  MVar Log ->
   Target ->
   Ghc (Maybe ModuleArtifacts)
-compileModuleWithDepsInHpt logVar (Target src) = do
+compileModuleWithDepsInHpt (Target src) = do
   initializeSessionPlugins
   hsc_env <- getSession
   hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
-    logMemStats "before summarise" logVar
     summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
-    logMemStats "after summarise" logVar
     summary <- setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
-    logMemStats "before compile" logVar
     result <- forceSummary summary `seq` compileOne hsc_env summary 1 1 Nothing (HomeModLinkable Nothing Nothing)
-    logMemStats "after compile" logVar
     when True do
       cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts
-    logMemStats "after clean" logVar
     pure result
   -- !() <- liftIO $ evaluate (forceHmi hmi)
   modifySession (addDepsToHscEnv [hmi])
-  liftIO $ logMemStats "after add" logVar
   -- TODO does this reduce retainers? or create extra work?
   -- modifySession discardIC
   -- TODO ???

@@ -52,8 +52,10 @@ computeMetadataInSession setup env srcs = do
   withSession \ hsc_env ->
     liftIO $ modifyMVar_ env.cache $ (pure . insertUnitEnv hsc_env)
   module_graph <- withTempSession addDynWay do
-    when False do
+    when True do
       modifySessionM \ hsc_env -> do
+        -- TODO I think this needs a separate cache because it may pollute it with incompatible entries?
+        -- Is that a problem for other parts of the session?
         hsc_FC <- liftIO $ newFinderCache env.cache cache (Target "metadata")
         pure hsc_env {hsc_FC}
     modifySession $ hscUpdateFlags \ d -> d {ghcMode = MkDepend}
@@ -66,4 +68,4 @@ computeMetadata :: Env -> IO Bool
 computeMetadata env = do
   res <- fmap (fromMaybe False) $ runSession False env $ withGhcInSession env \ srcs ->
     computeMetadataInSession (pure ()) env (fst <$> srcs)
-  res <$ logMemStats "after meta" env.log
+  res <$ logMemStats "after metadata" env.log

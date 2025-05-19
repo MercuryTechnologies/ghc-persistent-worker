@@ -80,7 +80,7 @@ dispatch workerMode hooks env args =
         withGhc env (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args)
       WorkerMakeMode ->
         withGhcMhu env \ _ ->
-          compileAndReadAbiHash CompManager (compileModuleWithDepsInHpt env.log) hooks args
+          compileAndReadAbiHash CompManager compileModuleWithDepsInHpt hooks args
 
 -- | Default implementation of an 'InstrumentedHandler' using our custom persistent worker GHC mode, either using HPT or
 -- EPS for local dependency lookup.
@@ -105,7 +105,7 @@ ghcHandler counter cache workerMode =
       do
         case buckArgs.mode of
           Just ModeCompile -> do
-            exceeded <- modifyMVar counter \ prev -> pure (prev + 1, prev >= 20000)
+            exceeded <- modifyMVar counter \ prev -> pure (prev + 1, prev >= 200000)
             when exceeded do
               threadDelay 10_000_000_000
           _ -> pure ()

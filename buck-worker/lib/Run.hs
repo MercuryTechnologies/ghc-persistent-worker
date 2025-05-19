@@ -1,7 +1,7 @@
 module Run where
 
 import qualified BuckArgs as BuckArgs
-import BuckArgs (BuckArgs, Mode (..), emptyBuckArgs)
+import BuckArgs (Mode (..), emptyBuckArgs)
 import BuckWorker (Instrument, Worker)
 import Control.Concurrent (MVar, newChan, newMVar)
 import Control.Concurrent.Chan (Chan)
@@ -11,8 +11,8 @@ import GhcHandler (WorkerMode (..), dispatch, ghcHandler)
 import Grpc (ghcServerMethods, instrumentMethods)
 import Instrumentation (WorkerStatus (..), hooksNoop, toGrpcHandler)
 import Internal.Args (Args (..), emptyArgs)
-import Internal.Cache (Cache (..), CacheFeatures (..), emptyCache, emptyCacheWith)
-import Internal.Log (newLog)
+import Internal.Cache (Cache (..), CacheFeatures (..), emptyCache, emptyCacheWith, logMemStats)
+import Internal.Log (dbg, newLog)
 import Internal.Session (Env (..))
 import Network.GRPC.Common.Protobuf (Proto)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
@@ -29,6 +29,9 @@ import Orchestration (
   spawnOrProxyCentralGhc,
   )
 import qualified Proto.Instrument as Instr
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath (addExtension, replaceExtension, takeFileName, (</>))
+import System.IO.Temp (withSystemTempDirectory)
 
 -- | Global options for the worker, passed when the process is started, in contrast to request options stored in
 -- 'BuckArgs'.
@@ -130,8 +133,62 @@ runWorker socket CliOptions {orchestration, workerMode, workerExe, serve, instru
         Multi -> runLocalGhc methods socket Nothing
         Spawn -> runSpawn
 
+batchCompileWith ::
+  FilePath ->
+  Env ->
+  [FilePath] ->
+  IO ()
+batchCompileWith tmp env paths = do
+  createDirectoryIfMissing True out
+  _ <- dispatch WorkerMakeMode hooksNoop (withOptions (metadataOptions ++ paths)) buckArgs {BuckArgs.mode = Just ModeMetadata}
+  for_ paths \ path -> do
+    let name = takeFileName path
+    dbg name
+    dispatch WorkerMakeMode hooksNoop (withOptions (compileOptions name ++ [path])) buckArgs {BuckArgs.mode = Just ModeCompile, BuckArgs.abiOut = Just (out </> addExtension name "hash")}
+  where
+    out = tmp </> "out"
+
+    withOptions opts = env {args = env.args {ghcOptions = env.args.ghcOptions ++ opts}}
+
+    compileOptions name =
+      [
+        "-fwrite-ide-info",
+        "-no-link",
+        "-i",
+        "-hide-all-packages",
+        "-dynamic",
+        "-fPIC",
+        "-osuf", "dyn_o",
+        "-hisuf", "dyn_hi",
+        "-o", out </> replaceExtension name "dyn_o",
+        "-ohi", out </> replaceExtension name "dyn_hi",
+        "-odir", out,
+        "-hiedir", out,
+        "-dumpdir", out,
+        "-stubdir", out,
+        "-i" ++ out,
+        "-package", "base",
+        "-package", "template-haskell",
+        "-fbyte-code-and-object-code"
+      ]
+
+    metadataOptions = [
+      "-i",
+      "-hide-all-packages",
+      "-include-pkg-deps",
+      "-package", "base",
+      "-package", "template-haskell",
+      "-dep-json", out </> "depends.json",
+      "-dep-makefile", out </> "depends.make",
+      "-outputdir", "."
+      ]
+
+    buckArgs = emptyBuckArgs mempty
+
+
 batchCompile :: [FilePath] -> IO ()
-batchCompile paths = do
+batchCompile paths =
+  withSystemTempDirectory "batch-worker" \ tmp -> do
   logVar <- newLog True
   cache <- emptyCacheWith CacheFeatures {
           hpt = True,
@@ -141,14 +198,19 @@ batchCompile paths = do
           finder = False,
           eps = False
         }
-  let env = Env {log = logVar, cache, args}
-      withOptions opts = env {args = env.args {ghcOptions = env.args.ghcOptions ++ opts}}
-  _ <- dispatch WorkerMakeMode hooksNoop (withOptions paths) buckArgs {BuckArgs.mode = Just ModeMetadata}
-  for_ paths \ path ->
-    dispatch WorkerMakeMode hooksNoop (withOptions [path]) buckArgs {BuckArgs.mode = Just ModeCompile}
-  pure ()
-  where
-    buckArgs = emptyBuckArgs mempty
-    args = (emptyArgs mempty) {
-      topdir = Just "/nix/store/zlw55w44mid9acbhkqqm8frjsd6mjwhg-ghc-9.10.1-with-packages/lib/ghc-9.10.1/lib/"
-    }
+  let ghcTemp = tmp </> "ghc-tmp"
+      args = (emptyArgs mempty) {
+        -- This is what Buck uses
+        -- topdir = Just "/nix/store/v6n3b9gc39apd7hh9cxs7rz3xi9vif3g-ghc-9.10.1/lib/ghc-9.10.1/lib/",
+
+        -- This is the vanilla GHC directory
+        topdir = Just "/nix/store/zlw55w44mid9acbhkqqm8frjsd6mjwhg-ghc-9.10.1-with-packages/lib/ghc-9.10.1/lib/",
+        tempDir = Just ghcTemp,
+        ghcOptions = [
+          "-this-unit-id", "test"
+        ]
+      }
+      env = Env {log = logVar, cache, args}
+  createDirectoryIfMissing True ghcTemp
+  batchCompileWith tmp env paths
+  logMemStats "final" logVar

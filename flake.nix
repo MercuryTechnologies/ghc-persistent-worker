@@ -174,7 +174,7 @@
             "-O2"
             "-threaded"
             "-rtsopts"
-            ''"-with-rtsopts=-K512M -H -I5 -T"''
+            ''"-with-rtsopts=-K512M -H -I5 -T -N"''
           ];
           source-dirs = ".";
         };
@@ -195,7 +195,7 @@
             "-O2"
             "-threaded"
             "-rtsopts"
-            ''"-with-rtsopts=-K512M -H -I5 -T"''
+            ''"-with-rtsopts=-K512M -H -I5 -T -N"''
           ];
         };
         executables.ghc-bin = {

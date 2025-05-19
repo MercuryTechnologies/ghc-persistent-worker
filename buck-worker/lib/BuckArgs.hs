@@ -157,7 +157,6 @@ toGhcArgs args = do
   pure Args {
     topdir,
     workerTargetId = args.workerTargetId,
-    env = args.env,
     binPath = args.binPath,
     tempDir = args.tempDir,
     ghcPath = args.ghcPath,

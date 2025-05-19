@@ -877,7 +877,8 @@ withCacheSimple ::
   Ghc (Maybe (Maybe ModuleArtifacts, a))
 withCacheSimple logVar cacheVar prog = do
   liftIO $ logMemStats "cache" logVar
-  _ <- withSessionM \ hsc_env -> modifyMVar cacheVar (prepareSimple hsc_env)
+  _ <- withSessionM \ hsc_env ->
+    modifyMVar cacheVar (prepareSimple hsc_env)
   result <- prog
   withSession \ hsc_env ->
     liftIO (modifyMVar_ cacheVar (finalizeSimple logVar hsc_env))

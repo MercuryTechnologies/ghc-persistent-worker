@@ -20,10 +20,11 @@ import GHC (
   gopt,
   parseDynamicFlags,
   parseTargetFiles,
+  popLogHookM,
   prettyPrintGhcErrors,
   pushLogHookM,
   setSessionDynFlags,
-  withSignalHandlers, popLogHookM,
+  withSignalHandlers,
   )
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
@@ -38,7 +39,7 @@ import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Args (Args (..))
-import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Options (..), Target (..), withCache, withCacheSimple, logMemStats)
+import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Options (..), Target (..), withCache, withCacheSimple)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log (..), logToState)
 import Prelude hiding (log)
@@ -255,6 +256,9 @@ withUnitSpecificOptions reuse env use =
 
     spin (g, s) = \case
       [] -> (reverse g, reverse s)
+      -- "-fwrite-ide-info" : rest
+      --   -> spin (g, s) rest
+      -- TODO remove
       "-hide-all-packages" : rest
         -> spin (g, s) rest
       "-this-unit-id" : uid : rest
@@ -291,8 +295,7 @@ withGhcUsingCacheMhu cacheHandler env prog =
 
 -- | Like @withGhcUsingCacheMhu@, using the default cache handler @withCache@.
 withGhcMhu :: Env -> ([String] -> Target -> Ghc (Maybe a)) -> IO (Maybe a)
-withGhcMhu env f = do
-  logMemStats "before session" env.log
+withGhcMhu env f =
   withGhcUsingCacheMhu cacheHandler env f
   where
     cacheHandler _ prog = do
