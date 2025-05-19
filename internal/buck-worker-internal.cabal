@@ -13,19 +13,15 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
-common warnings
-    ghc-options: -Wall
-
 flag mwb
     description: use mwb-customized GHC
     manual: True
     default: False
 
 library
-    import:           warnings
+    ghc-options:      -Wall
     hs-source-dirs:   src
-    exposed-modules:  GHCPersistentWorkerPlugin
-                      Internal.AbiHash
+    exposed-modules:  Internal.AbiHash
                       Internal.Cache
                       Internal.Compile
                       Internal.CompileHpt
@@ -36,15 +32,6 @@ library
                       Internal.MakeFile.JSON
                       Internal.Metadata
                       Internal.Session
-                      Util
-    other-modules:  GHC.Main
-                    Logger
-
-    if (impl(ghc >= 9.11))
-        hs-source-dirs: src-ghcHEAD
-
-    if (impl(ghc < 9.11))
-        hs-source-dirs: src-ghc98
 
     if (impl(ghc >= 9.9))
         build-depends: base ^>=4.20
