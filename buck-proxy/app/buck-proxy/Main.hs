@@ -1,6 +1,6 @@
 module Main where
 
-import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar)
+import Control.Concurrent.MVar (MVar, newMVar, readMVar)
 import Control.Exception (Exception (..), SomeException (..), try)
 import Control.Monad (void)
 import BuckProxy.Run (CliOptions, parseOptions, run)
@@ -32,6 +32,6 @@ main = do
   hSetBuffering stderr LineBuffering
   options <- parseOptions =<< getArgs
   socket <- envServerSocket
-  refHandler <- newEmptyMVar
+  refHandler <- newMVar (pure ())
   void $ installHandler sigTERM (Catch $ onSigTERM refHandler) Nothing
   serve socket options refHandler
