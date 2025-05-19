@@ -95,9 +95,8 @@ createGhcMethods ::
   MVar WorkerStatus ->
   Maybe (Chan (Proto Instr.Event)) ->
   IO (Methods IO (ProtobufMethodsOf Worker))
-createGhcMethods cache workerMode status instrChan = do
-  counter <- newMVar 0
-  pure (ghcServerMethods (toGrpcHandler (ghcHandler counter cache workerMode) status cache instrChan))
+createGhcMethods cache workerMode status instrChan =
+  pure (ghcServerMethods (toGrpcHandler (ghcHandler cache workerMode) status cache instrChan))
 
 -- | Main function for running the default persistent worker using the provided server socket path and CLI options.
 runWorker :: ServerSocketPath -> CliOptions -> IO ()
@@ -136,11 +135,12 @@ runWorker socket CliOptions {orchestration, workerMode, workerExe, serve, instru
 batchCompileWith ::
   FilePath ->
   Env ->
+  [String] ->
   [FilePath] ->
   IO ()
-batchCompileWith tmp env paths = do
+batchCompileWith tmp env extraOptions paths = do
   createDirectoryIfMissing True out
-  _ <- dispatch WorkerMakeMode hooksNoop (withOptions (metadataOptions ++ paths)) buckArgs {BuckArgs.mode = Just ModeMetadata}
+  _ <- dispatch WorkerMakeMode hooksNoop (withOptions (metadataOptions ++ extraOptions ++ paths)) buckArgs {BuckArgs.mode = Just ModeMetadata}
   for_ paths \ path -> do
     let name = takeFileName path
     dbg name
@@ -186,8 +186,8 @@ batchCompileWith tmp env paths = do
     buckArgs = emptyBuckArgs mempty
 
 
-batchCompile :: [FilePath] -> IO ()
-batchCompile paths =
+batchCompile :: [String] -> IO ()
+batchCompile argv =
   withSystemTempDirectory "batch-worker" \ tmp -> do
   logVar <- newLog True
   cache <- emptyCacheWith CacheFeatures {
@@ -211,6 +211,8 @@ batchCompile paths =
         ]
       }
       env = Env {log = logVar, cache, args}
+      extraOptions = words =<< take 1 argv
+      paths = drop 1 argv
   createDirectoryIfMissing True ghcTemp
-  batchCompileWith tmp env paths
+  batchCompileWith tmp env extraOptions paths
   logMemStats "final" logVar

@@ -1,0 +1,68 @@
+haskell_library(
+    name = "worker-test-l1-lib1",
+    srcs = [
+        "L1_1_1.hs",
+        "L1_1_2.hs",
+    ],
+    deps = [
+        "//haskell:base",
+        "//haskell:template-haskell",
+    ],
+)
+
+haskell_library(
+    name = "worker-test-l1-lib2",
+    srcs = [
+        "L1_2_1.hs",
+        "L1_2_2.hs",
+    ],
+    deps = [
+        "//haskell:base",
+        "//haskell:template-haskell",
+    ],
+)
+
+haskell_library(
+    name = "worker-test-l2-lib1",
+    srcs = [
+        "L2_1_1.hs",
+        "L2_1_2.hs",
+    ],
+    deps = [
+        "//haskell:base",
+        "//haskell:template-haskell",
+        ":worker-test-l1-lib1",
+        ":worker-test-l1-lib2",
+    ],
+)
+
+haskell_library(
+    name = "worker-test-l2-lib2",
+    srcs = [
+        "L2_2_1.hs",
+        "L2_2_2.hs",
+    ],
+    deps = [
+        "//haskell:base",
+        "//haskell:template-haskell",
+        ":worker-test-l1-lib1",
+        ":worker-test-l1-lib2",
+    ],
+)
+
+haskell_library(
+    name = "worker-test-l3-lib1",
+    srcs = [
+        "L3_1_1.hs",
+        "L3_1_2.hs",
+        "L3_1_3.hs",
+        "L3_1_4.hs",
+    ],
+    deps = [
+        "//haskell:base",
+        "//haskell:template-haskell",
+        ":worker-test-l2-lib1",
+        ":worker-test-l2-lib2",
+    ],
+)
+

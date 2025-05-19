@@ -13,6 +13,7 @@ conf=(
   [bindings]=50
   [th]=0
   [bin]=0
+  [deps]=0
 )
 
 msg() {
@@ -77,11 +78,13 @@ l3_modules=$conf[l3-modules]
 bindings=$conf[bindings]
 use_th=$conf[th]
 add_bin=$conf[bin]
+deps=$conf[deps]
 
 marker='worker-test-project-marker'
 typeset -a l1_imports
 typeset -a l2_imports
 typeset -a l3_imports
+typeset -a dep_imports
 typeset -a targets
 typeset -a l1_deps
 typeset -a l2_deps
@@ -89,6 +92,7 @@ typeset -a l3_deps
 l1_imports=()
 l2_imports=()
 l3_imports=()
+dep_imports=()
 targets=()
 l1_deps=()
 l2_deps=()
@@ -96,6 +100,7 @@ l3_deps=()
 l1_sum='0'
 l2_sum='0'
 l3_sum='0'
+dep_sum='0'
 
 if [[ -d $dir ]] && [[ -n $(ls $dir) ]] && [[ ! -f $dir/$marker ]]
 then
@@ -174,9 +179,10 @@ l3_module()
   module ${mod} where
 
 ${(F)l2_imports}
+${(F)dep_imports}
 
 $name :: Int
-$name = ${i} + ${l2_sum}
+$name = ${i} + ${l2_sum} + ${dep_sum}
 "
   l3_sum+=" + ${name}"
   l3_imports+=("import ${mod}")
@@ -233,11 +239,25 @@ l3_library()
         "//haskell:base",
         "//haskell:template-haskell",
 '${(F)l2_deps}'
+'${(F)dep_deps}'
     ],
 )
 ')
   l3_deps+=('        ":'$target'",')
 }
+
+if (( $deps > 0 ))
+then
+  for k in {1..$deps}
+  do
+    dep_imports+=("import Dep${k}")
+    dep_deps+=('        "//haskell:dep'${k}'",')
+    for i in {1..4}
+    do
+      dep_sum+=" + \\\$(dep${k}_${i})"
+    done
+  done
+fi
 
 if (( $l1 > 0 ))
 then

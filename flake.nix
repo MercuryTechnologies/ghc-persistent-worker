@@ -44,7 +44,11 @@
 
     ghcBuildIpe = ghcBuild // { flavour = "release+split_sections+ipe"; };
 
-  in hix ({config, build, lib, ...}: {
+  in hix ({config, build, lib, util, ...}: let
+
+    testDeps = import ./ops/test-deps.nix { inherit util; };
+
+  in {
 
     compiler = "ghc910";
     ghcVersions = [];
@@ -101,7 +105,7 @@
       packages = [];
       ghc.build = ghcBuildIpe;
 
-      overrides = {override, ...}: {
+      overrides = api@{override, ...}: testDeps.overrides api // {
         __all = override (drv: {
           postInstall = (drv.postInstall or "") + ''
             ghc-pkg recache --package-db $packageConfDir
@@ -114,7 +118,8 @@
     # rules.
     # Exposes the toolchain Haskell packages listed in `./ops/ghc-toolchain-libraries.nix` in the attribute
     # `haskellPackages.libs` as well as Python and the GHC compiler derivation.
-    outputs.packages = import ./ops/buck/packages.nix { inherit config lib; };
+    outputs.packages =
+      import ./ops/buck/packages.nix { inherit config lib; };
 
     # ------------------------------------------------------------------------------------------------------------------
 
@@ -127,6 +132,11 @@
     outputs.apps.comparison-1 = {
       type = "app";
       program = "${import ./comparison-1/run.nix { inherit config build; }}";
+    };
+
+    outputs.apps.comparison-2 = {
+      type = "app";
+      program = "${import ./comparison-2/run.nix { inherit config build util; }}";
     };
 
     packages = {

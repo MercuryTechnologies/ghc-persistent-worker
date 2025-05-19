@@ -2,7 +2,7 @@ module GhcHandler where
 
 import qualified BuckArgs as BuckArgs
 import BuckArgs (BuckArgs, CompileResult (..), Mode (..), parseBuckArgs, toGhcArgs, writeResult)
-import Control.Concurrent (MVar, modifyMVar, threadDelay)
+import Control.Concurrent (MVar)
 import Control.Exception (throwIO)
 import Control.Monad (when)
 import Control.Monad.Catch (onException)
@@ -91,11 +91,10 @@ dispatch workerMode hooks env args =
 --
 -- If an exception was thrown, the hook is called without data.
 ghcHandler ::
-  MVar Int ->
   MVar Cache ->
   WorkerMode ->
   InstrumentedHandler
-ghcHandler counter cache workerMode =
+ghcHandler cache workerMode =
   InstrumentedHandler \ hooks -> GrpcHandler \ commandEnv argv -> do
     buckArgs <- either (throwIO . userError) pure (parseBuckArgs commandEnv argv)
     args <- toGhcArgs buckArgs
@@ -103,12 +102,6 @@ ghcHandler counter cache workerMode =
     let env = Env {log, cache, args}
     onException
       do
-        case buckArgs.mode of
-          Just ModeCompile -> do
-            exceeded <- modifyMVar counter \ prev -> pure (prev + 1, prev >= 200000)
-            when exceeded do
-              threadDelay 10_000_000_000
-          _ -> pure ()
         result <- dispatch workerMode hooks env buckArgs
         output <- logFlush env.log
         liftIO $ hooks.compileFinish (Just (output, result))
