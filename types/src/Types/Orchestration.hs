@@ -62,12 +62,15 @@ spawnedSocketDirectory server =
 
 -- | For project socket, use the trace id extracted from server socket path.
 projectSocketDirectory ::
+  -- | base path
+  FilePath ->
   -- | target id. TODO: Make a newtype.
   String ->
   SocketDirectory
-projectSocketDirectory targetId = SocketDirectory (root </> targetId)
+projectSocketDirectory base targetId = SocketDirectory (root </> workerBase)
   where
     root = "/tmp/ghc-persistent-worker"
+    workerBase = base ++ "_" ++ targetId
 
 -- | The file system path of the socket on which the primary worker running the GHC server is listening.
 newtype PrimarySocketPath =

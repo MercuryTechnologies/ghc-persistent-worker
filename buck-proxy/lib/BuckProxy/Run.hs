@@ -6,8 +6,7 @@ import BuckProxy.Orchestration (
   )
 import Control.Concurrent.MVar (MVar, newMVar)
 import Control.Exception (throwIO)
-import Data.Map (Map)
-import Data.Map qualified as Map
+import Data.Map.Strict qualified as Map
 import Types.GhcHandler (WorkerMode (..))
 import Types.Orchestration (
   Orchestration (Multi, Single),
@@ -58,7 +57,6 @@ run ::
   CliOptions ->
   MVar (IO ()) ->
   IO ()
-run socket CliOptions {orchestration, workerMode, workerExe} refHandler = do
+run socket CliOptions {workerMode, workerExe} refHandler = do
   workerMap <- newMVar (Map.empty)
-  -- spawnOrProxyCentralGhc workerMap workerExe orchestration workerMode socket refHandler
-  proxyServer workerMap workerExe orchestration workerMode socket
+  proxyServer workerMap workerExe workerMode socket
