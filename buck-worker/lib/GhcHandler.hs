@@ -4,9 +4,9 @@ import qualified BuckArgs as BuckArgs
 import BuckArgs (BuckArgs, CompileResult (..), Mode (..), parseBuckArgs, toGhcArgs, writeResult)
 import Control.Concurrent (MVar)
 import Control.Exception (throwIO)
-import Control.Monad (when)
 import Control.Monad.Catch (onException)
 import Control.Monad.IO.Class (liftIO)
+import Data.Coerce (coerce)
 import Data.Functor ((<&>))
 import Data.Int (Int32)
 import GHC (DynFlags (..), Ghc, getSession)
@@ -19,7 +19,7 @@ import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Cache (Cache (..), ModuleArtifacts (..), Target (..))
 import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
-import Internal.Log (logFlush, newLog)
+import Internal.Log (LogName (..), logFlush, newLog)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Prelude hiding (log)
@@ -62,25 +62,30 @@ dispatch ::
   Hooks ->
   Env ->
   BuckArgs ->
-  IO Int32
+  IO (Int32, Maybe Target)
 dispatch workerMode hooks env args =
   case args.mode of
     Just ModeCompile -> do
       result <- compile
-      writeResult args result
-    Just ModeMetadata ->
-      computeMetadata env <&> \case
+      code <- writeResult args (fst <$> result)
+      pure (code, snd <$> result)
+    Just ModeMetadata -> do
+      code <- computeMetadata env <&> \case
         True -> 0
         False -> 1
+      pure (code, Just (Target "metadata"))
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
   where
     compile = case workerMode of
       WorkerOneshotMode ->
-        withGhc env (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args)
+        withGhc env (withTarget (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args))
       WorkerMakeMode ->
         withGhcMhu env \ _ ->
-          compileAndReadAbiHash CompManager compileModuleWithDepsInHpt hooks args
+          withTarget (compileAndReadAbiHash CompManager compileModuleWithDepsInHpt hooks args)
+
+    withTarget f target =
+      f target <&> fmap \ r -> (r, target)
 
 -- | Default implementation of an 'InstrumentedHandler' using our custom persistent worker GHC mode, either using HPT or
 -- EPS for local dependency lookup.
@@ -102,8 +107,8 @@ ghcHandler cache workerMode =
     let env = Env {log, cache, args}
     onException
       do
-        result <- dispatch workerMode hooks env buckArgs
-        output <- logFlush env.log
+        (result, target) <- dispatch workerMode hooks env buckArgs
+        output <- logFlush (coerce target) env.log
         liftIO $ hooks.compileFinish (Just (output, result))
         pure (output, result)
       do

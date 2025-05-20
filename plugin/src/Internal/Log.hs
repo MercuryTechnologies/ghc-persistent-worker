@@ -1,11 +1,12 @@
 module Internal.Log where
 
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar)
+import Control.Monad (unless, when)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.ByteString (ByteString)
+import Data.Coerce (coerce)
 import Data.Text (pack)
 import Data.Text.Encoding (encodeUtf8)
-import Control.Concurrent.MVar (MVar, modifyMVar_, modifyMVar, newMVar)
-import Control.Monad (when)
-import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHC (Severity (SevIgnore))
 import GHC.Types.Error (MessageClass (..), getCaretDiagnostic, mkLocMessageWarningGroups)
 import GHC.Utils.Logger (LogAction, LogFlags (..))
@@ -22,10 +23,17 @@ import GHC.Utils.Outputable (
   ($$),
   ($+$),
   )
+import System.Directory (createDirectoryIfMissing, doesPathExist)
+import System.FilePath (takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
 
 enableLog :: Bool
 enableLog = True
+
+-- | Name of the current session's target for the log file path.
+newtype LogName =
+  LogName { get :: String }
+  deriving stock (Eq, Show)
 
 data Log =
   Log {
@@ -61,13 +69,29 @@ logOther logVar msg =
       when debug (dbg msg)
       pure Log {other = msg : other, ..}
 
-logFlush :: MVar Log -> IO [String]
-logFlush var =
-  modifyMVar var \ Log {..} -> pure (Log {diagnostics = [], other = [], debug}, reverse (other ++ diagnostics))
+logDir :: FilePath
+logDir =
+  "/tmp/ghc-persistent-worker/log"
 
-logFlushBytes :: MVar Log -> IO ByteString
-logFlushBytes var = do
-  lns <- logFlush var
+writeLogFile :: Maybe LogName -> [String] -> IO ()
+writeLogFile logName logLines = do
+  createDirectoryIfMissing True (takeDirectory path)
+  exists <- doesPathExist path
+  unless exists do
+    writeFile path ""
+  appendFile path (unlines logLines)
+  where
+    path = logDir </> maybe "unknown" coerce logName
+
+logFlush :: Maybe LogName -> MVar Log -> IO [String]
+logFlush logName var = do
+  logLines <- modifyMVar var \ Log {..} -> pure (Log {diagnostics = [], other = [], debug}, reverse (other ++ diagnostics))
+  writeLogFile logName logLines
+  pure logLines
+
+logFlushBytes :: Maybe LogName -> MVar Log -> IO ByteString
+logFlushBytes logName var = do
+  lns <- logFlush logName var
   pure (encodeUtf8 (pack (unlines lns)))
 
 logToState :: MVar Log -> LogAction
