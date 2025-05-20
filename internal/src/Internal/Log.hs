@@ -1,11 +1,12 @@
 module Internal.Log where
 
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar)
+import Control.Monad (unless, when)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.ByteString (ByteString)
+import Data.Coerce (coerce)
 import Data.Text (pack)
 import Data.Text.Encoding (encodeUtf8)
-import Control.Concurrent.MVar (MVar, modifyMVar_, modifyMVar, newMVar)
-import Control.Monad (when)
-import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHC (Severity (SevIgnore))
 import GHC.Types.Error (MessageClass (..), getCaretDiagnostic, mkLocMessageWarningGroups)
 import GHC.Utils.Logger (LogAction, LogFlags (..))
@@ -22,7 +23,14 @@ import GHC.Utils.Outputable (
   ($$),
   ($+$),
   )
+import System.Directory (createDirectoryIfMissing, doesPathExist)
+import System.FilePath (takeDirectory, (</>), addExtension)
 import System.IO (hPutStrLn, stderr)
+
+-- | Name of the current session's target for the log file path.
+newtype LogName =
+  LogName { get :: String }
+  deriving stock (Eq, Show)
 
 data Log =
   Log {
@@ -56,13 +64,36 @@ logOther logVar msg =
     when debug (dbg msg)
     pure Log {other = msg : other, ..}
 
-logFlush :: MVar Log -> IO [String]
-logFlush var =
-  modifyMVar var \ Log {..} -> pure (Log {diagnostics = [], other = [], debug}, reverse (other ++ diagnostics))
+logDir :: FilePath
+logDir =
+  "/tmp/ghc-persistent-worker/log"
+
+-- | Write the current session's log to a file in 'logDir', using the provided 'LogName' as relative path.
+--
+-- This name is usually the name of the module being compiled, or @metadata@.
+--
+-- If the session fails before the target could be determined, this is 'Nothing', so we choose @unknown@ for the file
+-- name.
+writeLogFile :: Maybe LogName -> [String] -> IO ()
+writeLogFile logName logLines = do
+  createDirectoryIfMissing True (takeDirectory path)
+  exists <- doesPathExist path
+  unless exists do
+    writeFile path ""
+  appendFile path (unlines logLines)
+  where
+    path = logDir </> addExtension (maybe "unknown" coerce logName) "log"
+
+-- | Write the current session's log to a file, clear the fields in the 'MVar' and return the log lines.
+logFlush :: Maybe LogName -> MVar Log -> IO [String]
+logFlush logName var = do
+  logLines <- modifyMVar var \ Log {..} -> pure (Log {diagnostics = [], other = [], debug}, reverse (other ++ diagnostics))
+  writeLogFile logName logLines
+  pure logLines
 
 logFlushBytes :: MVar Log -> IO ByteString
 logFlushBytes var = do
-  lns <- logFlush var
+  lns <- logFlush Nothing var
   pure (encodeUtf8 (pack (unlines lns)))
 
 logToState :: MVar Log -> LogAction
