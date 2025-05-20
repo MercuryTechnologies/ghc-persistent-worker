@@ -17,10 +17,11 @@ import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Cache (Cache (..), ModuleArtifacts (..), Target (..))
 import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
-import Internal.Log (logFlush, newLog)
+import Internal.Log (LogName (..), logFlush, newLog)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Prelude hiding (log)
+import System.FilePath (takeBaseName)
 import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
 import Types.GhcHandler (WorkerMode (..))
@@ -55,25 +56,30 @@ dispatch ::
   Hooks ->
   Env ->
   BuckArgs ->
-  IO Int32
+  IO (Int32, Maybe Target)
 dispatch workerMode hooks env args =
   case args.mode of
     Just ModeCompile -> do
       result <- compile
-      writeResult args result
-    Just ModeMetadata ->
-      computeMetadata env <&> \case
+      code <- writeResult args (fst <$> result)
+      pure (code, snd <$> result)
+    Just ModeMetadata -> do
+      code <- computeMetadata env <&> \case
         True -> 0
         False -> 1
+      pure (code, Just (Target "metadata"))
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
   where
     compile = case workerMode of
       WorkerOneshotMode ->
-        withGhc env (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args)
+        withGhc env (withTarget (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args))
       WorkerMakeMode ->
         withGhcMhu env \ _ ->
-          compileAndReadAbiHash CompManager compileModuleWithDepsInHpt hooks args
+          withTarget (compileAndReadAbiHash CompManager compileModuleWithDepsInHpt hooks args)
+
+    withTarget f target =
+      f target <&> fmap \ r -> (r, target)
 
 -- | Default implementation of an 'InstrumentedHandler' using our custom persistent worker GHC mode, either using HPT or
 -- EPS for local dependency lookup.
@@ -95,9 +101,11 @@ ghcHandler cache workerMode =
     let env = Env {log, cache, args}
     onException
       do
-        result <- dispatch workerMode hooks env buckArgs
-        output <- logFlush env.log
+        (result, target) <- dispatch workerMode hooks env buckArgs
+        output <- logFlush (logName <$> target) env.log
         liftIO $ hooks.compileFinish (Just (output, result))
         pure (output, result)
       do
         liftIO $ hooks.compileFinish Nothing
+    where
+      logName (Target target) = LogName (takeBaseName target)
