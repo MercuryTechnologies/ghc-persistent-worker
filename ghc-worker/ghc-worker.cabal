@@ -50,6 +50,7 @@ library
     ghc,
     grapesy ^>=1.0.1,
     process,
+    stm,
     text,
     unix
 
