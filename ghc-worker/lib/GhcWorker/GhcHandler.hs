@@ -25,8 +25,8 @@ import Internal.State (ModuleArtifacts (..), WorkerState (..), dumpState)
 import Prelude hiding (log)
 import System.Exit (ExitCode (ExitSuccess))
 import System.Posix.Process (exitImmediately)
-import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
+import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (RequestArgs (..))
 import Types.State (Target)
@@ -96,10 +96,12 @@ dispatch lock workerMode hooks env args =
       pure (if success then 0 else 1, target)
     Just ModeClose -> do
       dbg "in dispatch. Mode Close"
-      _ <- writeCloseOutput args
+      code <- writeCloseOutput args
       _ <- forkIO $ do
         threadDelay 1_000_000
         exitImmediately ExitSuccess
+      pure (code, Nothing)
+    Just ModeTerminate ->
       pure (0, Nothing)
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
