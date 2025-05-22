@@ -26,3 +26,9 @@ writeResult args = \case
         [] -> writeFile path "\n"
         dbs -> writeFile path (unlines dbs)
     pure 0
+
+writeCloseOutput :: BuckArgs -> IO Int32
+writeCloseOutput args =
+  case args.closeOutput of
+    Nothing -> pure 1
+    Just path -> writeFile path "\n" >> pure 0

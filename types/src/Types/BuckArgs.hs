@@ -19,6 +19,10 @@ data Mode =
   |
   ModeMetadata
   |
+  ModeClose
+  |
+  ModeTerminate
+  |
   ModeUnknown String
   deriving stock (Eq, Show)
 
@@ -27,6 +31,8 @@ parseMode = \case
   "compile" -> ModeCompile
   "link" -> ModeLink
   "metadata" -> ModeMetadata
+  "close" -> ModeClose
+  "terminate" -> ModeTerminate
   mode -> ModeUnknown mode
 
 data BuckArgs =
@@ -47,7 +53,9 @@ data BuckArgs =
     ghcOptions :: [String],
     multiplexerCustom :: Bool,
     mode :: Maybe Mode,
-    envKey :: Maybe String
+    envKey :: Maybe String,
+    closeInput :: Maybe String,
+    closeOutput :: Maybe String
   }
   deriving stock (Eq, Show)
 
@@ -70,7 +78,9 @@ emptyBuckArgs env =
     ghcOptions = [],
     multiplexerCustom = False,
     mode = Nothing,
-    envKey = Nothing
+    envKey = Nothing,
+    closeInput = Nothing,
+    closeOutput = Nothing
   }
 
 options :: Map String ([String] -> BuckArgs -> Either String ([String], BuckArgs))
@@ -84,7 +94,6 @@ options =
     withArgErr "--extra-env-value" \ z a -> addEnv z a,
     withArg "--worker-target-id" \ z a -> z {workerTargetId = Just a},
     withArg "--worker-socket" const,
-    skip "--worker-close",
     withArg "--plugin-db" \ z a -> z {pluginDb = Just a},
     withArg "--ghc" \ z a -> z {ghcOptions = [], ghcPath = Just a},
     withArg "--ghc-dir" \ z a -> z {ghcDirFile = Just a},
@@ -93,6 +102,9 @@ options =
     withArg "--bin-exe" \ z a -> z {binPath = takeDirectory a : z.binPath},
     withArg "--worker-mode" \ z a -> z {mode = Just (parseMode a)},
     flag "--worker-multiplexer-custom" \ z -> z {multiplexerCustom = True},
+    withArg "--worker-close" \z _a -> z {mode = Just ModeClose},
+    withArg "--close-input" \z a -> z {closeInput = Just a},
+    withArg "--close-output" \z a -> z {closeOutput = Just a},
     ("-c", \ rest z -> Right (rest, z {mode = Just ModeCompile})),
     ("-M", \ rest z -> Right (rest, z {mode = Just ModeMetadata}))
   ]
@@ -100,8 +112,6 @@ options =
     addEnv z a = case z.envKey of
       Just key -> Right z {env = Map.insert key a z.env, envKey = Nothing}
       Nothing -> Left ("--extra-env-value used without preceding --extra-env-key (arg: " ++ a ++ ")")
-
-    skip name = (name, \ rest z -> Right (rest, z))
 
     flag name f = (name, \ rest z -> Right (rest, f z))
 

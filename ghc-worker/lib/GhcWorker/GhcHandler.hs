@@ -10,7 +10,7 @@ import GHC (DynFlags (..), Ghc, getSession)
 import GHC.Driver.DynFlags (GhcMode (..))
 import GHC.Driver.Env (hscUpdateFlags)
 import GHC.Driver.Monad (modifySession)
-import GhcWorker.BuckArgs (CompileResult (..), writeResult)
+import GhcWorker.BuckArgs (CompileResult (..), writeCloseOutput, writeResult)
 import GhcWorker.Grpc (GrpcHandler (..))
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
@@ -22,8 +22,8 @@ import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Prelude hiding (log)
 import System.FilePath (takeBaseName)
-import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
+import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import Types.GhcHandler (WorkerMode (..))
 
 -- | Compile a single module.
@@ -68,6 +68,11 @@ dispatch workerMode hooks env args =
         True -> 0
         False -> 1
       pure (code, Just (Target "metadata"))
+    Just ModeClose -> do
+      code <- writeCloseOutput args
+      pure (code, Nothing)
+    Just ModeTerminate ->
+      pure (0, Nothing)
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
   where
