@@ -30,7 +30,7 @@ data Hooks =
 
     -- | A module compilation has finished.
     -- If the job was successful, the argument contains 'Just' the stderr lines and the exit code, otherwise 'Nothing'.
-    compileFinish :: Maybe ([String], Int32) -> IO ()
+    compileFinish :: Maybe (Maybe Target, [String], Int32) -> IO ()
   }
 
 -- | Dummy implementation of 'Hooks'.
@@ -114,11 +114,12 @@ withInstrumentation instrChan status cacheVar handler =
 
     -- Note: This is WIP.
     compileFinish =
-      traverse_ \ (output, exitCode) ->
+      traverse_ \ (target, output, exitCode) -> do
+        let tgt = maybe "" (.get) target
         writeChan instrChan $
           defMessage &
             Instr.compileEnd .~
-              messageCompileEnd "" (fromIntegral exitCode) (unlines output)
+              messageCompileEnd tgt (fromIntegral exitCode) (unlines output)
 
 -- | Construct a 'GrpcHandler' by passing functioning 'Hooks' to an 'InstrumentedHandler' if the third argument contains
 -- 'Just' a message channel, or passing no-op 'Hooks' otherwise.
