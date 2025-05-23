@@ -4,7 +4,7 @@ import Brick.BChan (BChan, newBChan, writeBChan)
 import BuckWorker (Instrument)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Exception (SomeException, catch)
-import Control.Monad (filterM, void)
+import Control.Monad (filterM, void, when)
 import Data.List (dropWhileEnd, isSuffixOf)
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
@@ -18,7 +18,7 @@ import Network.GRPC.Common.NextElem (whileNext_)
 import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (&), (.~))
 import Proto.Instrument qualified as Instr
 import Proto.Instrument_Fields qualified as Fields
-import System.Directory (doesFileExist, getModificationTime, listDirectory)
+import System.Directory (doesPathExist, getModificationTime, listDirectory)
 import System.Environment (lookupEnv)
 import System.FSNotify (Event(..), watchTree, withManager)
 import UI qualified
@@ -58,13 +58,15 @@ listen eventChan instrPath = do
 main :: IO ()
 main = do
   workers <- envWorkerPath
+  workerPathExists <- doesPathExist workers.path
   eventChan <- newBChan 10
 
   -- Find already running workers
-  primaryDirs <- do
-    dirs <- listDirectory workers.path
-    filterM (\dir -> doesFileExist (workers.path ++ dir ++ "/primary")) dirs
-  mapM_ (listen eventChan . (++ "/instrument") . (workers.path ++)) primaryDirs
+  when workerPathExists do
+    primaryDirs <- do
+      dirs <- listDirectory workers.path
+      filterM (\dir -> doesPathExist (workers.path ++ dir ++ "/primary")) dirs
+    mapM_ (listen eventChan . (++ "/instrument") . (workers.path ++)) primaryDirs
 
   -- Detect new workers
   withManager $ \mgr -> do
