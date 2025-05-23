@@ -4,7 +4,7 @@ import Brick.BChan (BChan, newBChan, writeBChan)
 import BuckWorker (Instrument)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Exception (SomeException, catch)
-import Control.Monad (filterM, void, when)
+import Control.Monad (filterM, void, when, forever)
 import Data.List (dropWhileEnd, isSuffixOf)
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
@@ -60,6 +60,12 @@ main = do
   workers <- envWorkerPath
   workerPathExists <- doesPathExist workers.path
   eventChan <- newBChan 10
+
+  -- Update time every 100ms
+  _ <- forkIO $ forever $ do
+    time <- getCurrentTime
+    writeBChan eventChan (UI.SetTime time)
+    threadDelay 100_000
 
   -- Find already running workers
   when workerPathExists do
