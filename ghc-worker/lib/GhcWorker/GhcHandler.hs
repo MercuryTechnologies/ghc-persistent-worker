@@ -103,7 +103,7 @@ ghcHandler cache workerMode =
       do
         (result, target) <- dispatch workerMode hooks env buckArgs
         output <- logFlush (logName <$> target) env.log
-        liftIO $ hooks.compileFinish (Just (output, result))
+        liftIO $ hooks.compileFinish (Just (target, output, result))
         pure (output, result)
       do
         liftIO $ hooks.compileFinish Nothing
