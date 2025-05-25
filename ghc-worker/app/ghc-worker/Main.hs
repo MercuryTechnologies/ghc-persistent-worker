@@ -14,6 +14,7 @@ main = do
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
   options <- parseOptions =<< getArgs
+  dbg "I AM HERE: IWKIM"
   try (runWorker options) >>= \case
     Right () ->
       dbg "Worker terminated without cancellation."
