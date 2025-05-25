@@ -44,8 +44,6 @@ import Types.Orchestration (
   primarySocketIn,
   projectSocketDirectory,
   )
-import System.IO (IOMode (..), openFile)
-import System.FilePath (takeDirectory, (</>))
 
 -- | Path to the worker executable, i.e. this program.
 --- Used to spawn the GHC server process.

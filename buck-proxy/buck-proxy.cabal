@@ -39,7 +39,6 @@ library
     buck-worker-types,
     containers,
     directory,
-    filepath,
     grapesy ^>=1.0.1,
     process,
     text
