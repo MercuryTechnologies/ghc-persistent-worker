@@ -2,6 +2,7 @@ module GhcWorker.GhcHandler where
 
 import Common.Grpc (GrpcHandler (..))
 import Control.Concurrent (MVar, forkIO, threadDelay)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar', readTVar, retry, writeTVar)
 import Control.Exception (throwIO)
 import Control.Monad.Catch (onException)
 import Control.Monad.IO.Class (liftIO)
@@ -27,6 +28,25 @@ import System.Posix.Process (exitImmediately)
 import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
 import Types.GhcHandler (WorkerMode (..))
+
+data LockState = LockStart | LockFreeze Int | LockThaw Int | LockEnd
+  deriving stock (Eq, Show)
+
+withLock :: Int -> TVar LockState -> IO a -> IO a
+withLock maxLock lock action = do
+  _ <- atomically do
+    s <- readTVar lock
+    case s of
+      LockStart -> writeTVar lock (LockFreeze maxLock) >> pure (LockFreeze maxLock)
+      LockFreeze _ -> retry
+      LockThaw n | n > 0 -> writeTVar lock (LockFreeze (n - 1)) >> pure (LockFreeze (n - 1))
+      LockThaw 0 -> writeTVar lock LockEnd >> pure LockEnd
+      x -> pure x
+  r <- action
+  atomically $ modifyTVar' lock \case
+    LockFreeze n -> LockThaw n
+    x -> x
+  pure r
 
 -- | Compile a single module.
 -- Depending on @mode@ this will either use the old EPS-based oneshot-style compilation logic or the HPT-based
@@ -54,16 +74,21 @@ compileAndReadAbiHash ghcMode compile hooks args target = do
 -- single module for 'ModeCompile' (@-c@), or computing and writing the module graph to a JSON file for 'ModeMetadata'
 -- (@-M@).
 dispatch ::
+  TVar LockState ->
   WorkerMode ->
   Hooks ->
   Env ->
   BuckArgs ->
   IO (Int32, Maybe Target)
-dispatch workerMode hooks env args =
+dispatch lock workerMode hooks env args =
   case args.mode of
     Just ModeCompile -> do
-      result <- compile
-      code <- writeResult args (fst <$> result)
+      let maxLock = 10
+      (code, result) <- do
+        withLock maxLock lock do
+          result <- compile
+          code <- writeResult args (fst <$> result)
+          pure (code, result)
       pure (code, snd <$> result)
     Just ModeMetadata -> do
       code <- computeMetadata env <&> \case
@@ -99,10 +124,12 @@ dispatch workerMode hooks env args =
 --
 -- If an exception was thrown, the hook is called without data.
 ghcHandler ::
+  -- | first req lock hack
+  TVar LockState ->
   MVar Cache ->
   WorkerMode ->
   InstrumentedHandler
-ghcHandler cache workerMode =
+ghcHandler lock cache workerMode =
   InstrumentedHandler \ hooks -> GrpcHandler \ commandEnv argv -> do
     buckArgs <- either (throwIO . userError) pure (parseBuckArgs commandEnv argv)
     args <- toGhcArgs buckArgs
@@ -110,7 +137,7 @@ ghcHandler cache workerMode =
     let env = Env {log, cache, args}
     onException
       do
-        (result, target) <- dispatch workerMode hooks env buckArgs
+        (result, target) <- dispatch lock workerMode hooks env buckArgs
         output <- logFlush (logName <$> target) env.log
         liftIO $ hooks.compileFinish (Just (target, output, result))
         pure (output, result)

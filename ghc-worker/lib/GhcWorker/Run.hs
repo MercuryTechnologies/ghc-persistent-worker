@@ -4,8 +4,9 @@ import BuckWorker (Instrument, Worker)
 import Common.Grpc (fromGrpcHandler)
 import Control.Concurrent (MVar, newChan, newMVar)
 import Control.Concurrent.Chan (Chan)
+import Control.Concurrent.STM (TVar, newTVarIO)
 import Control.Exception (throwIO)
-import GhcWorker.GhcHandler (ghcHandler)
+import GhcWorker.GhcHandler (LockState (..), ghcHandler)
 import GhcWorker.Grpc (instrumentMethods)
 import GhcWorker.Instrumentation (WorkerStatus (..), toGrpcHandler)
 import GhcWorker.Orchestration (
@@ -63,13 +64,14 @@ createInstrumentMethods cacheVar = do
 
 -- | Construct a gRPC server handler for the main part of the persistent worker.
 createGhcMethods ::
+  TVar LockState ->
   MVar Cache ->
   WorkerMode ->
   MVar WorkerStatus ->
   Maybe (Chan (Proto Instr.Event)) ->
   IO (Methods IO (ProtobufMethodsOf Worker))
-createGhcMethods cache workerMode status instrChan =
-  pure (fromGrpcHandler (toGrpcHandler (ghcHandler cache workerMode) status cache instrChan))
+createGhcMethods lock cache workerMode status instrChan =
+  pure (fromGrpcHandler (toGrpcHandler (ghcHandler lock cache workerMode) status cache instrChan))
 
 -- | Main function for running the default persistent worker using the provided server socket path and CLI options.
 runWorker :: CliOptions -> IO ()
@@ -86,10 +88,11 @@ runWorker CliOptions {workerMode, serve} = do
           eps = False
         }
       WorkerOneshotMode -> emptyCache True
+  lock <- newTVarIO LockStart 
   status <- newMVar WorkerStatus {active = 0}
   let
     methods = CreateMethods {
       createInstrumentation = createInstrumentMethods cache,
-      createGhc = createGhcMethods cache workerMode status
+      createGhc = createGhcMethods lock cache workerMode status
     }
   runCentralGhcSpawned methods serve
