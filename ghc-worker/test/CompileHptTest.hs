@@ -5,6 +5,7 @@ import Control.Monad.Trans.State.Strict (StateT, evalStateT, state)
 import Data.Char (toUpper)
 import Data.Foldable (fold, for_, traverse_)
 import Data.List (intercalate)
+import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.Map.Strict as Map
@@ -22,16 +23,18 @@ import GHC.Unit (UnitId, UnitState (..), stringToUnitId, unitIdString)
 import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), UnitEnvGraph (..), unitEnv_lookup_maybe)
 import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.Panic (throwGhcExceptionIO)
-import Internal.Args (Args (..))
-import Internal.Cache (Target (..))
+import Internal.Cache (Cache (..), Target (..), mergeHugs, newFinderCache, updateModuleGraph)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
+import Internal.Debug (showHugShort, showModGraph)
 import Internal.Log (dbg, dbgs, newLog)
+import Internal.Log (dbg, dbgp, dbgs, newLog)
 import Internal.Metadata (computeMetadataInSession)
 import Internal.Session (Env (..), buckLocation, withGhcInSession, withGhcMhu, withUnitSpecificOptions)
 import Prelude hiding (log)
 import System.Directory (createDirectoryIfMissing, listDirectory, removeDirectoryRecursive)
 import System.FilePath (dropExtension, takeBaseName, takeDirectory, takeExtension, takeFileName, (</>))
 import TestSetup (Conf (..), UnitConf (..), UnitMod (..), withProject)
+import Types.Args (Args (..))
 
 debugState :: Bool
 debugState = False

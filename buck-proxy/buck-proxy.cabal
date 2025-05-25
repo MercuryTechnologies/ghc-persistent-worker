@@ -32,6 +32,7 @@ library
   exposed-modules:
     BuckProxy.Orchestration
     BuckProxy.Run
+    BuckProxy.Util
   build-depends:
     buck-worker-proto,
     buck-worker-types,
@@ -49,4 +50,5 @@ executable buck-proxy
   build-depends:
     base ==4.*,
     buck-proxy,
-    buck-worker-types
+    buck-worker-types,
+    unix

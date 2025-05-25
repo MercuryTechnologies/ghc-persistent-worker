@@ -5,7 +5,7 @@ import BuckWorker (ExecuteCommand, ExecuteResponse)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel, wait)
 import Control.DeepSeq (force)
-import Control.Exception (bracket_, finally, onException, throwIO, try)
+import Control.Exception (SomeException (..), bracket_, catch, finally, fromException, onException, throwIO, try)
 import Control.Monad (void, when)
 import Data.List (dropWhileEnd)
 import Data.Maybe (isJust)
@@ -17,15 +17,17 @@ import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalIn
 import Network.GRPC.Common (Proxy (..), def)
 import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&))
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
+import Network.GRPC.Server (RequestHandler, ServerParams (..))
 import Network.GRPC.Server.Run (InsecureConfig (..), ServerConfig (..), runServerWithHandlers)
 import Network.GRPC.Server.StreamType (Methods (..), fromMethods, mkClientStreaming, mkNonStreaming)
 import Proto.Instrument (Instrument (..))
 import Proto.Worker (Worker (..))
 import Proto.Worker_Fields qualified as Fields
 import System.Directory (createDirectoryIfMissing, removeFile)
-import System.Exit (exitFailure)
+import System.Exit (ExitCode (..), exitFailure)
 import System.FilePath (takeDirectory)
 import System.IO (IOMode (..), hGetLine, hPutStr, withFile)
+import System.Posix.Process (exitImmediately)
 import System.Process (ProcessHandle, getProcessExitCode)
 import Types.Orchestration (
   InstrumentSocketPath (..),
@@ -37,6 +39,23 @@ import Types.Orchestration (
   primarySocketDiscoveryIn,
   spawnedSocketDirectory,
   )
+
+-- | Replaced defaultServerTopLevel by this one. At least, this shows where the exception got handled
+-- and later on, we can customize it.
+serverTopLevelImpl :: RequestHandler () -> RequestHandler ()
+serverTopLevelImpl h unmask req resp =
+    h unmask req resp `catch` handler
+  where
+    handler :: SomeException -> IO ()
+    handler e = --  dbg ("serverTopLevelImpl: " ++ show e)
+      case fromException e of
+        Just ExitSuccess -> dbg ("serverTopLevelImpl: 11 ") >> exitImmediately ExitSuccess
+        _ -> dbg ("serverTopLevelImpl: " ++ show e)
+
+grpcServerParam :: ServerParams
+grpcServerParam = def
+  { serverTopLevel = serverTopLevelImpl
+  }
 
 -- | The implementation of an app consisting of two gRPC servers, implementing the protocols 'Worker' and 'Instrument'.
 -- The 'Instrument' component is intended to be optional.
@@ -57,10 +76,11 @@ runLocalGhc CreateMethods {..} socket minstr = do
   instrResource <- for minstr \instr -> do
     dbg ("Instrumentation info available on " ++ instr.path)
     (resource, methods) <- createInstrumentation
-    _instrThread <- async $ runServerWithHandlers def (grpcServerConfig instr.path) (fromMethods methods)
+    _instrThread <-
+      async $ runServerWithHandlers grpcServerParam (grpcServerConfig instr.path) (fromMethods methods)
     pure resource
   methods <- createGhc instrResource
-  runServerWithHandlers def (grpcServerConfig socket.path) (fromMethods methods)
+  runServerWithHandlers grpcServerParam (grpcServerConfig socket.path) (fromMethods methods)
 
 -- | Start a gRPC server that runs GHC for client proxies, deleting the discovery file on shutdown.
 runCentralGhc ::
@@ -124,7 +144,7 @@ proxyServer primary socket = do
     launch =
       withProxy primary \ methods -> do
         dbg ("Starting proxy for " ++ primary.path ++ " on " ++ socket.path)
-        runServerWithHandlers def (grpcServerConfig socket.path) $ fromMethods methods
+        runServerWithHandlers grpcServerParam (grpcServerConfig socket.path) $ fromMethods methods
 
 messageExecute :: Proto Worker.ExecuteCommand
 messageExecute = defMessage

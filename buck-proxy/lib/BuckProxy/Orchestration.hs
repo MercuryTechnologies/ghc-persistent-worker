@@ -1,12 +1,15 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module BuckProxy.Orchestration where
 
+import BuckProxy.Util (dbg)
 import qualified BuckWorker as Worker
 import BuckWorker (ExecuteCommand, ExecuteResponse)
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.MVar (MVar, putMVar)
 import Control.DeepSeq (force)
 import Control.Exception (bracket_, throwIO, try)
 import Control.Monad (void, when)
-import Control.Monad.IO.Class (MonadIO (..))
 import Data.Maybe (isJust)
 import GHC.IO.Handle.Lock (LockMode (..), hLock, hUnlock)
 import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
@@ -19,7 +22,7 @@ import Proto.Worker (ExecuteEvent, Worker (..))
 import Proto.Worker_Fields qualified as Fields
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
-import System.IO (IOMode (..), hGetLine, hPutStr, hPutStrLn, stderr, withFile)
+import System.IO (IOMode (..), hGetLine, hPutStr, withFile)
 import System.Process (ProcessHandle, getProcessExitCode, spawnProcess)
 import Types.GhcHandler (WorkerMode (..))
 import Types.Orchestration (
@@ -38,9 +41,6 @@ import Types.Orchestration (
 newtype WorkerExe =
   WorkerExe { path :: FilePath }
   deriving stock (Eq, Show)
-
-dbg :: MonadIO m => String -> m ()
-dbg = liftIO . hPutStrLn stderr
 
 -- | The worker protocol is intended to support streaming events, but we're not using that yet.
 streamingNotImplemented :: IO (NextElem (Proto ExecuteEvent)) -> IO (Proto ExecuteResponse)
@@ -132,11 +132,11 @@ waitPoll socket =
 
 -- | Wait for a GHC server process to respond and check its exit code.
 waitForCentralGhc :: ProcessHandle -> PrimarySocketPath -> IO ()
-waitForCentralGhc proc socket = do
+waitForCentralGhc ph socket = do
   dbg "Waiting for server"
   waitPoll socket
   dbg "Server is up"
-  exitCode <- getProcessExitCode proc
+  exitCode <- getProcessExitCode ph
   when (isJust exitCode) do
     dbg "Spawned process for the GHC server exited after starting up."
 
@@ -191,10 +191,20 @@ runOrProxyCentralGhc socketDir runServer = do
 
 -- | Start a proxy gRPC server that forwards requests to the central GHC server.
 -- If that server isn't running, spawn a process and wait for it to boot up.
-spawnOrProxyCentralGhc :: WorkerExe -> Orchestration -> WorkerMode -> ServerSocketPath -> IO ()
-spawnOrProxyCentralGhc exe omode wmode socket = do
+spawnOrProxyCentralGhc :: WorkerExe -> Orchestration -> WorkerMode -> ServerSocketPath -> MVar (IO ()) -> IO ()
+spawnOrProxyCentralGhc exe omode wmode socket refHandler = do
   let socketDir = projectSocketDirectory omode socket
-  primary <- runOrProxyCentralGhc socketDir \ _ -> do
+  eprimary <- runOrProxyCentralGhc socketDir \ _ -> do
     primary <- forkCentralGhc exe wmode socketDir
     pure (primary, ())
-  proxyServer (either id fst primary) socket
+  let primary = either id fst eprimary
+  putMVar refHandler $ do
+    dbg (show primary)
+    withConnection def (ServerUnix primary.path) \ connection ->
+      withRPC connection def (Proxy @(Protobuf Worker "execute")) \ call -> do
+        let req = defMessage & Fields.argv .~ ["--worker-mode", "close"]
+        sendFinalInput call req
+        resp <- recvNextOutput call
+        dbg (show resp)
+
+  proxyServer primary socket
