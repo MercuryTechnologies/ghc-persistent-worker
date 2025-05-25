@@ -3,7 +3,7 @@ module GhcWorker.Grpc where
 import BuckWorker (ExecuteCommand, ExecuteResponse)
 import Control.Concurrent.Chan (Chan, dupChan, readChan)
 import Control.Concurrent.MVar (MVar, modifyMVar_, readMVar)
-import Control.Exception (SomeException (..), try)
+import Control.Exception (SomeException (..), displayException, fromException, try)
 import Control.Monad (forever, when)
 import Data.Int (Int32)
 import Data.Map.Strict qualified as Map
@@ -26,6 +26,7 @@ import Proto.Instrument (Instrument)
 import Proto.Instrument_Fields qualified as Instr
 import Proto.Worker (ExecuteCommand'EnvironmentEntry, ExecuteEvent, Worker (..))
 import Proto.Worker_Fields qualified as Fields
+import System.Exit (ExitCode (..), exitSuccess)
 import System.IO (hPutStrLn, stderr)
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
 
@@ -60,7 +61,14 @@ execute ::
 execute handler req = do
   when debugRequestArgs do
     hPutStrLn stderr (unlines argv)
-  (output, exitCode) <- either exceptionResult id <$> try (handler.run (commandEnv req.env) (RequestArgs argv))
+  eres <- try (handler.run (commandEnv req.env) (RequestArgs argv))
+  (output, exitCode) <-
+    case eres of
+      Right (output, exitCode) -> pure (output, exitCode)
+      Left e@(SomeException e') ->
+        case fromException e of
+          Just ExitSuccess -> exitSuccess
+          _ -> pure (["Uncaught exception: " ++ displayException e'], 1)
   pure $
     defMessage
       & Fields.exitCode
@@ -68,9 +76,6 @@ execute handler req = do
       & Fields.stderr
       .~ Text.unlines (Text.pack <$> output)
   where
-    exceptionResult (SomeException e) =
-      (["Uncaught exception: " ++ show e], 1)
-
     argv = Text.unpack . decodeUtf8Lenient <$> req.argv
 
 -- | The worker protocol is intended to support streaming events, but we're not using that yet.
