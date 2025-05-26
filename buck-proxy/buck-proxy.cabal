@@ -30,7 +30,6 @@ library
   ghc-options: -O2
   hs-source-dirs: lib
   exposed-modules:
-    BuckProxy.Deprecated.Orchestration
     BuckProxy.Orchestration
     BuckProxy.Run
     BuckProxy.Util
@@ -41,7 +40,8 @@ library
     containers,
     directory,
     grapesy ^>=1.0.1,
-    process
+    process,
+    text
 
 executable buck-proxy
   import: all
