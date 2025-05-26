@@ -21,9 +21,9 @@ import Internal.Log (LogName (..), dbg, logFlush, newLog)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Prelude hiding (log)
-import System.Exit (exitSuccess)
+import System.Exit (ExitCode (ExitSuccess), exitSuccess)
 import System.FilePath (takeBaseName)
--- import System.Posix.Process (exitImmediately)
+import System.Posix.Process (exitImmediately)
 import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
 import Types.GhcHandler (WorkerMode (..))
@@ -72,12 +72,11 @@ dispatch workerMode hooks env args =
       pure (code, Just (Target "metadata"))
     Just ModeClose -> do
       dbg "in dispatch. Mode Close"
-      writeCloseOutput args
-      forkIO $ do
+      _ <- writeCloseOutput args
+      _ <- forkIO $ do
         threadDelay 1_000_000
         exitImmediately ExitSuccess
-      pure 0
-      -- exitSuccess
+      pure (0, Nothing)
     Just ModeTerminate -> do
       dbg "in dispatc. Mode Terminate"
       exitSuccess
