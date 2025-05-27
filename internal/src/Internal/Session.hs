@@ -12,16 +12,19 @@ import Data.Maybe (maybeToList)
 import qualified Data.Set as Set
 import GHC (
   DynFlags (..),
+  GeneralFlag (Opt_KeepTmpFiles),
   Ghc,
   GhcLink (LinkBinary),
   Phase,
+  getSession,
   getSessionDynFlags,
+  gopt,
   parseDynamicFlags,
   parseTargetFiles,
   prettyPrintGhcErrors,
   pushLogHookM,
   setSessionDynFlags,
-  withSignalHandlers, gopt, GeneralFlag (Opt_KeepTmpFiles),
+  withSignalHandlers,
   )
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
@@ -151,19 +154,25 @@ runSession reuse Env {log, args, cache} prog = do
   modifyMVar_ cache (setupPath args)
   hsc_env <- ensureSession reuse cache args
   session <- Session <$> newIORef hsc_env
-  finally (run session) (cleanup hsc_env)
+  finally (run session) (cleanup session)
   where
     run session =
       flip unGhc session $ withSignalHandlers do
         traverse_ (modifySession . setTempDir) args.tempDir
         handleExceptions log Nothing (prog (map buckLocation args.ghcOptions))
 
-    cleanup hsc_env =
-      unless (gopt Opt_KeepTmpFiles (hsc_dflags hsc_env)) do
-        let tmpfs = hsc_tmpfs hsc_env
-            logger = hsc_logger hsc_env
-        cleanTempFiles logger tmpfs
-        cleanTempDirs logger tmpfs
+    cleanup session =
+      flip unGhc session do
+        hsc_env <- getSession
+        liftIO $ modifyMVar_ cache \case
+          Cache {baseSession = Just cachedEnv@HscEnv {hsc_interp = Nothing}, ..} ->
+            pure Cache {baseSession = Just cachedEnv {hsc_interp = hsc_env.hsc_interp}, ..}
+          c -> pure c
+        liftIO $ unless (gopt Opt_KeepTmpFiles (hsc_dflags hsc_env)) do
+          let tmpfs = hsc_tmpfs hsc_env
+              logger = hsc_logger hsc_env
+          cleanTempFiles logger tmpfs
+          cleanTempDirs logger tmpfs
 
 -- | When compiling a module, the leftover arguments from parsing @DynFlags@ should be a single source file path.
 -- Wrap it in 'Target' or terminate.
