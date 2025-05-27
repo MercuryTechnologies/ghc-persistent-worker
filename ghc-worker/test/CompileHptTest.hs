@@ -1,14 +1,15 @@
 module CompileHptTest where
 
+import Control.Concurrent (readMVar, threadDelay)
 import Control.Monad (unless, when)
-import Control.Monad.Trans.State.Strict (StateT, evalStateT, state)
 import Data.Char (toUpper)
 import Data.Foldable (fold, for_, traverse_)
 import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NonEmpty
-import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Map.Strict ((!?))
+import Data.Maybe (catMaybes, isNothing)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import GHC (DynFlags (..), Ghc, GhcException (..), GhcMode (..), GhcMonad (..), mkGeneralLocated, setUnitDynFlags)
@@ -21,20 +22,18 @@ import GHC.Driver.Session (parseDynamicFlagsCmdLine)
 import GHC.Unit (UnitId, UnitState (..), stringToUnitId, unitIdString)
 import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), UnitEnvGraph (..), unitEnv_lookup_maybe)
 import GHC.Utils.Monad (MonadIO (..))
+import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
-import Internal.Cache (Target (..))
+import Internal.Cache (Target (..), logMemStats)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
-import Internal.Log (dbg, dbgs, newLog)
-import Internal.Metadata (computeMetadataInSession)
-import Internal.Session (Env (..), buckLocation, withGhcInSession, withGhcMhu, withUnitSpecificOptions)
+import Internal.Log (dbg, dbgp, dbgs, newLog)
+import Internal.Metadata (computeMetadata, computeMetadataInSession)
+import Internal.Session (Env (..), withGhcMhu)
 import Prelude hiding (log)
 import System.Directory (createDirectoryIfMissing, listDirectory, removeDirectoryRecursive)
-import System.FilePath (dropExtension, takeBaseName, takeDirectory, takeExtension, takeFileName, (</>))
-import TestSetup (Conf (..), UnitConf (..), UnitMod (..), withProject)
+import System.FilePath (dropExtension, takeBaseName, takeExtension, takeFileName, (</>))
+import TestSetup (Conf (..), Module (..), ModuleSpec (..), Unit (..), UnitSpec (..), withProject)
 import Types.Args (Args (..))
-
-debugState :: Bool
-debugState = False
 
 -- | Parse command line flags, used to create unit-specific @DynFlags@.
 unitFlags :: [String] -> HscEnv -> Ghc DynFlags
@@ -87,40 +86,56 @@ initUnit specific = do
   modifySession (hscSetActiveUnitId current)
 
 -- | Approximate synthetic reproduction of what happens when the metadata step is performed by the worker.
-loadModuleGraph :: Env -> UnitMod -> [String] -> Ghc (Maybe Bool)
-loadModuleGraph env UnitMod {src} specific = do
+loadModuleGraph :: Env -> Unit -> [String] -> Ghc (Maybe Bool)
+loadModuleGraph env Unit {dir} specific = do
   names <- liftIO $ listDirectory dir
   let srcs = [dir </> name | name <- names, takeExtension name == ".hs"]
   computeMetadataInSession (initUnit specific) env srcs
-  where
-    dir = takeDirectory src
 
--- | Compile a single module using 'compileHpt' roughly like it happens when Buck requests it.
--- If the module's home unit has not been encountered before, simulate the metadata step by doctoring the session,
--- running downsweep, and merging the resulting module graph into the persisted state.
-makeModule :: Conf -> [UnitConf] -> UnitMod -> StateT (Set String) IO ()
-makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
+stepMetadata :: Conf -> Unit -> [Unit] -> IO ()
+stepMetadata Conf {cache, tmp, args0} unit deps = do
   log <- newLog True
-  liftIO $ createDirectoryIfMissing False sessionTmpDir
+  createDirectoryIfMissing False sessionTmpDir
+  names <- listDirectory unit.dir
+  let srcs = [unit.dir </> name | name <- names, takeExtension name == ".hs"]
+      env = Env {log, cache, args = args srcs}
+  dbgp (text ">>> metadata for" <+> ppr unit.uid)
+  success <- computeMetadata env
+  unless success do
+    liftIO $ throwGhcExceptionIO (ProgramError "Metadata failed")
+  where
+
+    args srcs = args0 {
+      ghcOptions = mkDependArgs ++ unitDepArgs ++ args0.ghcOptions ++ srcs,
+      tempDir = Just sessionTmpDir
+    }
+
+    unitDepArgs = concat [["-package-db", db, "-package-id", name]  | Unit {name, db} <- deps]
+
+    mkDependArgs = [
+      "-i",
+      "-hide-all-packages",
+      "-this-unit-id",
+      showPprUnsafe unit.uid,
+      "-dep-json=" ++ (sessionTmpDir </> "dep.json"),
+      "-dep-makefile=" ++ (sessionTmpDir </> "dep.make"),
+      "-include-pkg-deps",
+      "-package", "template-haskell"
+      ]
+
+    sessionTmpDir = tmp </> "tmp" </> unit.name
+
+stepCompile :: Conf -> Module -> IO ()
+stepCompile Conf {cache, tmp, args0} Module {unit, src} = do
+  log <- newLog True
   let env = Env {log, cache, args}
-      envM = env {args = env.args {ghcOptions = mkDependArgs ++ env.args.ghcOptions}}
-  firstTime <- state \ seen ->
-    if Set.member unit seen
-    then (False, seen)
-    else (True, Set.insert unit seen)
-  when firstTime do
-    success <- fmap (fromMaybe Nothing) $ liftIO $ withUnitSpecificOptions False envM \ env1 specific argv -> do
-      flip (withGhcInSession env1) (argv ++ fmap buckLocation dbsM) \ _ -> do
-        dbg ""
-        dbg (">>> metadata for " ++ unit)
-        Just <$> loadModuleGraph env1 umod specific
-    unless (success == Just True) do
-      liftIO $ throwGhcExceptionIO (ProgramError "Metadata failed")
+  liftIO $ createDirectoryIfMissing False sessionTmpDir
   result <- liftIO $ withGhcMhu env \ _ target -> do
     dbg ""
     dbg (">>> compiling " ++ takeFileName target.get)
     modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
-    compileModuleWithDepsInHpt target
+    cache' <- liftIO $ readMVar env.cache
+    compileModuleWithDepsInHpt cache'.counter target
   when (isNothing result) do
       liftIO $ throwGhcExceptionIO (ProgramError "Compile failed")
   dbgs result
@@ -132,18 +147,11 @@ makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
         tempDir = Just sessionTmpDir
       }
 
-    mkDependArgs = [
-      "-dep-json=" ++ (sessionTmpDir </> "dep.json"),
-      "-dep-makefile=" ++ (sessionTmpDir </> "dep.make"),
-      "-include-pkg-deps"
-      ]
-
     sessionTmpDir = tmp </> "tmp" </> takeBaseName src
 
     fileOptions =
       [
         "-i",
-        -- "-i" ++ takeDirectory src,
         "-this-unit-id",
         unit,
         "-o",
@@ -151,21 +159,9 @@ makeModule Conf {..} units umod@UnitMod {unit, src, deps} = do
         "-ohi",
         tmp </> "out" </> (modName ++ ".dyn_hi"),
         src
-      ] ++
-      concat [["-package", dep] | dep <- deps]
+      ]
 
     modName = dropExtension (takeFileName src)
-
-    dbsM = concat [["-package-db", db]  | UnitConf {db} <- units]
-
-unitMod :: Conf -> [String] -> String -> String -> String -> UnitMod
-unitMod conf deps name unit content =
-  UnitMod {
-    name,
-    src = conf.tmp </> "src" </> unit </> name ++ ".hs",
-    unit,
-    ..
-  }
 
 errContent :: String
 errContent =
@@ -225,22 +221,33 @@ main = print $(bug)
 
 -}
 
-targets1 :: Conf -> NonEmpty UnitMod
-targets1 conf =
+targets1 :: NonEmpty UnitSpec
+targets1 =
   [
-    unitMod conf [] "Err" "unit-a" errContent,
-    unitMod conf ["unit-a"] "Bug" "unit-main" bugContent,
-    unitMod conf [] "Main" "unit-main" main1
+    UnitSpec {
+      name = "unit-a",
+      deps = [],
+      modules = [
+        ModuleSpec "Err" errContent
+      ]
+    },
+    UnitSpec {
+      name = "unit-main",
+      deps = ["unit-a"],
+      modules = [
+        ModuleSpec "Bug" bugContent,
+        ModuleSpec "Main" main1
+      ]
+    }
   ]
 
 useTh :: Bool
 useTh = True
 
-modType1 :: Conf -> [String] -> Char -> Int -> [String] -> UnitMod
-modType1 conf pdeps unitTag n deps =
-  unitMod conf pdeps modName unit content
+modType1 :: Char -> Int -> [String] -> ModuleSpec
+modType1 unitTag n deps =
+  ModuleSpec modName content
   where
-    unit = "unit-" ++ [unitTag]
     content =
       unlines $
         ("module " ++ modName ++ " where") :
@@ -264,11 +271,10 @@ sumTh :: [String] -> String
 sumTh =
   foldl' (\ z a -> z ++ " + $(" ++ a ++ ")") "0"
 
-modType2 :: Conf -> [String] -> Char -> Int -> [String] -> [String] -> UnitMod
-modType2 conf pdeps unitTag n deps thDeps =
-  unitMod conf (pdeps) modName unit content
+modType2 :: Char -> Int -> [String] -> [String] -> ModuleSpec
+modType2 unitTag n deps thDeps =
+  ModuleSpec modName content
   where
-    unit = "unit-" ++ [unitTag]
     content =
       unlines $
         "{-# language TemplateHaskell #-}" :
@@ -300,27 +306,41 @@ mainContent deps =
   where
     names = [c : show i | (c, i) <- deps]
 
-targets2 :: Conf -> NonEmpty UnitMod
-targets2 conf =
+targets2 :: NonEmpty UnitSpec
+targets2 =
   [
-    unitMod conf [] "Err" "unit-b" errContent,
-    m1 'b' 1 [],
-    m1 'b' 2 [],
-    m1d ["unit-b"] 'a' 0 ["B2"],
-    modType2 conf ["unit-b"] 'a' 1 ["B1"] ["b1"],
-    m1 'b' 3 [],
-    m1d ["unit-b"] 'a' 2 ["A0", "A1", "B2", "B3"],
-    unitMod conf ["unit-b"] "Bug" "unit-main" bugContent,
-    unitMod conf ["unit-a", "unit-b"] "Main" "unit-main" (mainContent [
-      ('a', 0),
-      ('a', 2),
-      ('b', 1)
-    ])
+    UnitSpec {
+      name = "unit-b",
+      deps = [],
+      modules = [
+        ModuleSpec "Err" errContent,
+        modType1 'b' 1 [],
+        modType1 'b' 2 [],
+        modType1 'b' 3 []
+      ]
+    },
+    UnitSpec {
+      name = "unit-a",
+      deps = ["unit-b"],
+      modules = [
+        modType1 'a' 0 ["B2"],
+        modType2 'a' 1 ["B1"] ["b1"],
+        modType1 'a' 2 ["A0", "A1", "B2", "B3"]
+      ]
+    },
+    UnitSpec {
+      name = "unit-main",
+      deps = ["unit-a", "unit-b"],
+      modules = [
+        ModuleSpec "Bug" bugContent,
+        ModuleSpec "Main" (mainContent [
+          ('a', 0),
+          ('a', 2),
+          ('b', 1)
+        ])
+      ]
+    }
   ]
-  where
-    m1 = modType1 conf []
-
-    m1d = modType1 conf
 
 removeGhcTmpDir :: Conf -> IO ()
 removeGhcTmpDir conf = do
@@ -329,21 +349,41 @@ removeGhcTmpDir conf = do
     let ghcTmp = conf.tmp </> "tmp" </> ghcTmpRel
     liftIO $ removeDirectoryRecursive ghcTmp
 
-testWorker :: (Conf -> NonEmpty UnitMod) -> IO ()
-testWorker mkTargets =
-  withProject (pure . mkTargets) \ conf units targets ->
-    flip evalStateT Set.empty do
-      traverse_ (makeModule conf units) targets
-      -- Simulate the case of Buck deleting the temp dir and recompiling a module, which goes unnoticed by GHC because
-      -- it tracks all created temp dirs in an @IORef@ that the worker shares across sessions.
-      -- When initializing a new module session, all dirs already present in the state are assumed to exist on disk and
-      -- not recreated.
-      -- As a consequence, it will try to write the assembly files @ghc_1.s@ to a nonexistent directory, so we have to
-      -- ensure that each session gets its own @TmpFs@.
-      liftIO (removeGhcTmpDir conf)
-      makeModule conf units (NonEmpty.last targets)
+data TestStep =
+  StepMetadata Unit [Unit]
+  |
+  StepCompile Module
+
+testSteps :: NonEmpty Unit -> NonEmpty TestStep
+testSteps units = do
+  unit@Unit {..} <- units
+  StepMetadata unit (catMaybes [byName !? dep | dep <- deps]) :| (StepCompile <$> NonEmpty.toList modules)
+  where
+    byName = Map.fromList [(unit.name, unit) | unit <- NonEmpty.toList units]
+
+runStep :: Conf -> TestStep -> IO ()
+runStep conf = \case
+  StepMetadata unit deps -> stepMetadata conf unit deps
+  StepCompile module_ -> stepCompile conf module_
+
+testWorker :: (Conf -> NonEmpty UnitSpec) -> IO ()
+testWorker mkSpecs = do
+  log <- newLog True
+  logMemStats "initial" log
+  withProject (pure . mkSpecs) \ conf units -> do
+    let steps = testSteps units
+    traverse_ (runStep conf) steps
+    -- Simulate the case of Buck deleting the temp dir and recompiling a module, which goes unnoticed by GHC because
+    -- it tracks all created temp dirs in an @IORef@ that the worker shares across sessions.
+    -- When initializing a new module session, all dirs already present in the state are assumed to exist on disk and
+    -- not recreated.
+    -- As a consequence, it will try to write the assembly files @ghc_1.s@ to a nonexistent directory, so we have to
+    -- ensure that each session gets its own @TmpFs@.
+    liftIO (removeGhcTmpDir conf)
+    runStep conf (NonEmpty.last steps)
+    dbgs =<< listDirectory (conf.tmp </> "out")
 
 -- | A very simple test consisting of two home units, using a transitive TH dependency across unit boundaries.
 test_compileHpt :: IO ()
 test_compileHpt =
-  testWorker targets1
+  testWorker (const targets1)
