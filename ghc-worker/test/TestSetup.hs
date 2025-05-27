@@ -3,15 +3,15 @@ module TestSetup where
 import Control.Concurrent (MVar)
 import Data.Foldable (for_, toList)
 import Data.Functor ((<&>))
-import qualified Data.List.NonEmpty as NonEmpty
 import Data.List.NonEmpty (NonEmpty (..))
-import GHC.Unit (UnitId, stringToUnitId)
+import Data.Traversable (for)
+import GHC.Unit (UnitId, stringToUnitId, unitIdString)
 import Internal.Cache (Cache (..), CacheFeatures (..), emptyCacheWith)
 import Internal.Log (dbg)
 import Prelude hiding (log)
 import System.Directory (createDirectoryIfMissing, listDirectory)
 import System.Environment (getEnv)
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process.Typed (proc, runProcess_)
 import Types.Args (Args (..))
@@ -36,19 +36,10 @@ data Conf =
   }
 
 -- | Config for a single test module.
-data UnitMod =
-  UnitMod {
+data ModuleSpec =
+  ModuleSpec {
     -- | Module name.
     name :: String,
-
-    -- | Path to the source file.
-    src :: FilePath,
-
-    -- | Home unit to which this module belongs.
-    unit :: String,
-
-    -- | Names of home units on which this module depends.
-    deps :: [String],
 
     -- | The module's source code.
     content :: String
@@ -56,18 +47,81 @@ data UnitMod =
   deriving stock (Eq, Show)
 
 -- | Config for a single test home unit.
-data UnitConf =
-  UnitConf {
+data UnitSpec =
+  UnitSpec {
+    -- | Unit ID.
+    name :: String,
+
+    -- | Names of home units on which this unit depends.
+    deps :: [String],
+
+    -- | The modules belonging to this unit.
+    modules :: NonEmpty ModuleSpec
+  }
+  deriving stock (Eq, Show)
+
+-- | Generated data for a test module.
+data Module =
+  Module {
+    -- | Module name.
+    name :: String,
+
+    -- | Path to the source file.
+    src :: FilePath,
+
+    -- | Home unit to which this module belongs.
+    unit :: String
+  }
+  deriving stock (Eq, Show)
+
+-- | Generated data for a test unit.
+data Unit =
+  Unit {
     -- | Unit ID.
     uid :: UnitId,
+
+    -- | Unit ID.
+    name :: String,
+
+    -- | Root source directory of this unit.
+    dir :: FilePath,
+
+    -- | Names of home units on which this unit depends.
+    deps :: [String],
 
     -- | Path to the dummy package DB created for the metadata step, analogous to what's created by Buck.
     db :: FilePath,
 
     -- | The modules belonging to this unit.
-    mods :: NonEmpty UnitMod
+    modules :: NonEmpty Module
   }
   deriving stock (Eq)
+
+instance Show Unit where
+  showsPrec d Unit {..} =
+    showParen (d > 5) (
+      showString "Unit { uid = "
+      .
+      showsPrec 5 (unitIdString uid)
+      .
+      showString ", name = "
+      .
+      showsPrec 5 name
+      .
+      showString ", dir = "
+      .
+      showsPrec 5 dir
+      .
+      showString ", db = "
+      .
+      showsPrec 5 db
+      .
+      showString ", modules = "
+      .
+      showsPrec 5 modules
+      .
+      showString " }"
+    )
 
 -- | General CLI args used by each module job.
 baseArgs :: FilePath -> FilePath -> Args
@@ -103,20 +157,19 @@ baseArgs topdir tmp =
     artifactDir a = ["-" ++ a ++ "dir", tmp </> "out"]
 
 -- | A package DB config file for the given unit.
-dbConf :: String -> String -> [UnitMod] -> String
-dbConf srcDir unit mods =
-  unlines $ [
+dbConf :: FilePath -> String -> NonEmpty Module -> String
+dbConf srcDir unit modules =
+  unlines [
     "name: " ++ unit,
     "version: 1.0",
     "id: " ++ unit,
     "key: " ++ unit,
     "import-dirs: " ++ srcDir,
     "exposed: True",
-    "exposed-modules:"
-  ] ++
-  exposed
+    "exposed-modules:" ++ unwords exposed
+  ]
   where
-    exposed = [name | UnitMod {name} <- mods]
+    exposed = [name | Module {name} <- toList modules]
 
 -- | Write a fresh package DB without a library to the specified directory, using @ghc-pkg@ from the directory in
 -- 'Conf'.
@@ -131,45 +184,54 @@ createDb conf dir confFile = do
     db = dir </> "package.conf.d"
     ghcPkg = conf.ghcDir </> "bin/ghc-pkg"
 
--- | Create a package DB for a set of 'UnitMod' and assemble everything into a 'UnitConf'.
-createDbUnitMod :: Conf -> NonEmpty UnitMod -> IO UnitConf
-createDbUnitMod conf mods@(mod0 :| _) = do
-  let uid = stringToUnitId mod0.unit
-  writeFile confFile (dbConf dir mod0.unit (toList mods))
-  db <- createDb conf dir confFile
-  pure UnitConf {..}
+-- | Create a package DB for a set of 'ModuleSpec' and assemble everything into a 'Unit'.
+createDbForUnit :: Conf -> UnitSpec -> FilePath -> NonEmpty Module -> IO FilePath
+createDbForUnit conf unit dir modules = do
+  writeFile confFile (dbConf dir unit.name modules)
+  createDb conf dir confFile
   where
-    confFile = dir </> (mod0.unit ++ ".conf")
-    dir = takeDirectory mod0.src
+    confFile = dir </> unit.name <.> "conf"
 
 -- | Set up an environment with dummy package DBs for the set of modules returned by the first argument, then run the
 -- second argument with the resulting unit configurations.
 withProject ::
-  (Conf -> IO (NonEmpty UnitMod)) ->
-  (Conf -> [UnitConf] -> NonEmpty UnitMod -> IO a) ->
+  (Conf -> IO (NonEmpty UnitSpec)) ->
+  (Conf -> NonEmpty Unit -> IO a) ->
   IO a
 withProject mkTargets use =
   withSystemTempDirectory "buck-worker-test" \ tmp -> do
-    for_ @[] ["src", "tmp", "out"] \ dir ->
-      createDirectoryIfMissing False (tmp </> dir)
-    cache <- emptyCacheWith CacheFeatures {
-      hpt = True,
-      loader = False,
-      enable = True,
-      names = False,
-      finder = True,
-      eps = False
-    }
-    ghcDir <- getEnv "ghc_dir"
-    libPath <- listDirectory (ghcDir </> "lib") <&> \case
-      [d] -> "lib" </> d </> "lib"
-      ds -> error ("weird GHC lib dir contains /= 1 entries: " ++ show ds)
-    let topdir = ghcDir </> libPath
-        conf = Conf {tmp, cache, args0 = baseArgs topdir tmp, ..}
-    targets <- mkTargets conf
-    for_ targets \ UnitMod {src, content} -> do
-      createDirectoryIfMissing False (takeDirectory src)
-      writeFile src content
-    let unitMods = NonEmpty.groupAllWith (.unit) (toList targets)
-    units <- traverse (createDbUnitMod conf) unitMods
-    use conf units targets
+    withCurrentDirectory tmp do
+      for_ @[] ["src", "tmp", "out"] \ dir ->
+        createDirectoryIfMissing False (tmp </> dir)
+      cache <- emptyCacheWith CacheFeatures {
+        hpt = True,
+        loader = False,
+        enable = True,
+        names = False,
+        finder = False,
+        eps = False
+      }
+      ghcDir <- getEnv "ghc_dir"
+      libPath <- listDirectory (ghcDir </> "lib") <&> \case
+        [d] -> "lib" </> d </> "lib"
+        ds -> error ("weird GHC lib dir contains /= 1 entries: " ++ show ds)
+      let topdir = ghcDir </> libPath
+          conf = Conf {tmp, cache, args0 = baseArgs topdir tmp, ..}
+      targets <- mkTargets conf
+      units <- for targets \ unit -> do
+        let dir = tmp </> "src" </> unit.name
+        createDirectoryIfMissing False dir
+        modules <- for unit.modules \ ModuleSpec {name, content} -> do
+          let src = dir </> name <.> "hs"
+          writeFile src content
+          pure Module {unit = unit.name, ..}
+        db <- createDbForUnit conf unit dir modules
+        pure Unit {
+          uid = stringToUnitId unit.name,
+          name = unit.name,
+          deps = unit.deps,
+          dir,
+          db,
+          modules
+        }
+      use conf units
