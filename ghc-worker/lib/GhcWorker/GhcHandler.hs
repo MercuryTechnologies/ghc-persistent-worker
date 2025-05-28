@@ -10,17 +10,18 @@ import GHC (DynFlags (..), Ghc, getSession)
 import GHC.Driver.DynFlags (GhcMode (..))
 import GHC.Driver.Env (hscUpdateFlags)
 import GHC.Driver.Monad (modifySession)
-import GhcWorker.BuckArgs (CompileResult (..), writeResult)
+import GhcWorker.BuckArgs (CompileResult (..), writeCloseOutput, writeResult)
 import GhcWorker.Grpc (GrpcHandler (..))
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Cache (Cache (..), ModuleArtifacts (..), Target (..))
 import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
-import Internal.Log (LogName (..), logFlush, newLog)
+import Internal.Log (LogName (..), dbg, logFlush, newLog)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Prelude hiding (log)
+import System.Exit (exitSuccess)
 import System.FilePath (takeBaseName)
 import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
@@ -68,6 +69,10 @@ dispatch workerMode hooks env args =
         True -> 0
         False -> 1
       pure (code, Just (Target "metadata"))
+    Just ModeClose -> do
+      dbg "in dispatch. Mode Close"
+      _ <- writeCloseOutput args
+      exitSuccess
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
   where
