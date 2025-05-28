@@ -807,3 +807,62 @@ withCache logVar workerId cacheVar target prog = do
     finalize art =
       withSession \ hsc_env ->
         liftIO (modifyMVar_ cacheVar (finalizeCache logVar workerId hsc_env target art))
+
+------------------------------------------------------------------------------------------------------------------------
+
+logMemStats :: String -> MVar Log -> IO ()
+logMemStats step logVar = do
+  s <- liftIO getRTSStats
+  let logMem desc value = logd logVar (text (desc ++ ":") <+> doublePrec 2 (fromIntegral value / 1_000_000) <+> text "MB")
+  logd logVar (text ("-------------- " ++ step))
+  logMem "Mem in use" s.gc.gcdetails_mem_in_use_bytes
+  logMem "Max mem in use" s.max_mem_in_use_bytes
+  logMem "Max live bytes" s.max_live_bytes
+
+-- | Restore the shared state used by @compileHpt@ from the cache, consisting of the module graph and the HPT.
+-- The module graph is only modified by @computeMetadata@, so it will not be written back to the cache after
+-- compilation.
+loadCacheMake ::
+  MVar Log ->
+  HscEnv ->
+  Cache ->
+  IO (Cache, (HscEnv, ()))
+loadCacheMake logVar hsc_env cache = do
+  logMemStats "load cache" logVar
+  pure (cache, (restoreModuleGraph (restoreHug hsc_env), ()))
+  where
+    restoreModuleGraph =
+      maybe id (\ mg e -> e {hsc_mod_graph = mg}) cache.moduleGraph
+
+    restoreHug =
+      maybe id (\ hug e -> e {hsc_unit_env = e.hsc_unit_env {ue_home_unit_graph = hug}}) cache.hug
+
+-- | Store the changes made to the HUG by @compileHpt@ in the cache, which usually consists of adding a single
+-- 'HomeModInfo'.
+storeCacheMake ::
+  MVar Log ->
+  HscEnv ->
+  Cache ->
+  IO Cache
+storeCacheMake logVar hsc_env cache = do
+  logMemStats "store cache" logVar
+  storeHug hsc_env cache
+
+-- | This reduced version of 'withCache' is tailored specifically to make mode, only restoring the HUG and module graph
+-- from the cache, since those are the only two components modified by the worker that aren't already shared by the base
+-- session.
+--
+-- The mechanisms in in 'withCache' are partially legacy experiments whose purpose was to explore which data can be
+-- shared manually in oneshot mode, so this variant will be improved more deliberately.
+withCacheMake ::
+  MVar Log ->
+  MVar Cache ->
+  Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
+  Ghc (Maybe (Maybe ModuleArtifacts, a))
+withCacheMake logVar cacheVar prog = do
+  _ <- withSessionM restore
+  prog <* withSession store
+  where
+    restore hsc_env = modifyMVar cacheVar (loadCacheMake logVar hsc_env)
+
+    store hsc_env = liftIO (modifyMVar_ cacheVar (storeCacheMake logVar hsc_env))
