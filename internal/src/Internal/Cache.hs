@@ -248,7 +248,6 @@ data CacheFeatures =
 newCacheFeatures :: CacheFeatures
 newCacheFeatures = CacheFeatures {enable = True, loader = True, names = True, finder = True, eps = True, hpt = False}
 
--- TODO the name cache could in principle be shared directly – try it out
 data Cache =
   Cache {
     features :: CacheFeatures,
@@ -338,7 +337,6 @@ basicSymbolsStats base update =
     new = sizeUFM (minusUFM update.get base.get)
   }
 
--- TODO complicated
 basicNamesStats :: OrigNameCache -> OrigNameCache -> NamesStats
 basicNamesStats _ _ =
   NamesStats {
@@ -425,7 +423,6 @@ restoreCache target initialLoaderState initialSymbolCache initialNames cache
   | otherwise
   = pure (initialNames, (initialSymbolCache, (initialLoaderState, cache)))
 
--- TODO filter all cached items to include only external Names if possible
 initCache ::
   LoaderState ->
   SymbolCache ->
@@ -728,9 +725,6 @@ prepareCache cacheVar target hsc_env0 cache0 = do
   let (hsc_env1, cache1) = fromMaybe (hsc_env0, cache0 {features = cache0.features {loader = False}}) result
   pure (cache1, (hsc_env1, cache1.features.enable))
 
-storeIface :: HscEnv -> ModIface -> IO ()
-storeIface _ _ =
-  pure ()
 
 storeHug :: HscEnv -> Cache -> IO Cache
 storeHug hsc_env cache = do
@@ -758,7 +752,7 @@ finalizeCache ::
   Maybe ModuleArtifacts ->
   Cache ->
   IO Cache
-finalizeCache logVar workerId hsc_env target artifacts cache0 = do
+finalizeCache logVar workerId hsc_env target _ cache0 = do
   cache1 <-
     if cache0.features.enable
     then do
@@ -776,8 +770,6 @@ finalizeCache logVar workerId hsc_env target artifacts cache0 = do
         then do
           storeHug hsc_env cache1
         else pure cache1
-      for_ artifacts \ ModuleArtifacts {iface} ->
-        storeIface hsc_env iface
       pure cache2
     else pure cache0
   report logVar workerId target cache1
