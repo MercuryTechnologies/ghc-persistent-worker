@@ -126,7 +126,8 @@ initGhc dflags0 logger fileish_args dynamicFlagWarnings = do
 -- In a Buck compile step these should always be a single path, but in the metadata step they enumerate an entire unit.
 withGhcInSession :: Env -> ([(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
 withGhcInSession env prog argv = do
-  pushLogHookM (const (logToState env.log))
+  let !log = env.log
+  pushLogHookM (const (logToState log))
   cache <- liftIO $ readMVar env.cache
   (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags (argv ++ map instrumentLocation (words cache.options.extraGhcOptions))
   prettyPrintGhcErrors logger do
