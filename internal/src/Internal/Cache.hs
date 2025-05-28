@@ -1,4 +1,5 @@
 {-# language CPP, NoFieldSelectors #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Internal.Cache where
 
@@ -247,7 +248,6 @@ data CacheFeatures =
 newCacheFeatures :: CacheFeatures
 newCacheFeatures = CacheFeatures {enable = True, loader = True, names = True, finder = True, eps = True, hpt = False}
 
--- TODO the name cache could in principle be shared directly – try it out
 data Cache =
   Cache {
     features :: CacheFeatures,
@@ -337,7 +337,6 @@ basicSymbolsStats base update =
     new = sizeUFM (minusUFM update.get base.get)
   }
 
--- TODO complicated
 basicNamesStats :: OrigNameCache -> OrigNameCache -> NamesStats
 basicNamesStats _ _ =
   NamesStats {
@@ -424,7 +423,6 @@ restoreCache target initialLoaderState initialSymbolCache initialNames cache
   | otherwise
   = pure (initialNames, (initialSymbolCache, (initialLoaderState, cache)))
 
--- TODO filter all cached items to include only external Names if possible
 initCache ::
   LoaderState ->
   SymbolCache ->
@@ -587,9 +585,10 @@ newFinderCache cacheVar Cache {finder = FinderState {modules, files}} target = d
       lookupFinderCache key = do
         c <- readIORef modules
         let result = lookupInstalledModuleEnv c key
-        case result of
-          Just _ -> cacheHit key
-          Nothing -> cacheMiss key
+        when True do
+          case result of
+            Just _ -> cacheHit key
+            Nothing -> cacheMiss key
         pure $! result
 
       lookupFileCache :: FilePath -> IO Fingerprint
@@ -757,7 +756,7 @@ finalizeCache ::
   Maybe ModuleArtifacts ->
   Cache ->
   IO Cache
-finalizeCache logVar workerId hsc_env target artifacts cache0 = do
+finalizeCache logVar workerId hsc_env target _ cache0 = do
   cache1 <-
     if cache0.features.enable
     then do
@@ -775,8 +774,6 @@ finalizeCache logVar workerId hsc_env target artifacts cache0 = do
         then do
           storeHug hsc_env cache1
         else pure cache1
-      for_ artifacts \ ModuleArtifacts {iface} ->
-        storeIface hsc_env iface
       pure cache2
     else pure cache0
   report logVar workerId target cache1
