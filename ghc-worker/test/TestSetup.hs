@@ -6,7 +6,6 @@ import Data.Functor ((<&>))
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.List.NonEmpty (NonEmpty (..))
 import GHC.Unit (UnitId, stringToUnitId)
-import Internal.Args (Args (..))
 import Internal.Cache (Cache (..), CacheFeatures (..), emptyCacheWith)
 import Internal.Log (dbg)
 import Prelude hiding (log)
@@ -15,6 +14,7 @@ import System.Environment (getEnv)
 import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process.Typed (proc, runProcess_)
+import Types.Args (Args (..))
 
 -- | Global configuration for a worker compilation test.
 data Conf =

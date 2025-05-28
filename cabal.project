@@ -1,5 +1,6 @@
 packages: ./buck-multiplex-worker
           ./buck-proxy
+          ./common
           ./ghc-worker
           ./instrument
           ./internal
