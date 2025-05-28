@@ -18,15 +18,17 @@ import Internal.Session (Env (..), runSession, withDynFlags)
 
 -- | Copy the cached unit env and module graph to the given session.
 restoreEnv :: Cache -> HscEnv -> HscEnv
-restoreEnv cache hsc_env = do
-  maybe id restoreMg cache.moduleGraph $ maybe hsc_env restore cache.hug
+restoreEnv cache hsc_env =
+  maybe id restoreMg cache.moduleGraph withHug
   where
-    restoreMg new e = e {hsc_mod_graph = new}
+    !withHug = maybe hsc_env restore cache.hug
+
+    restoreMg !new e = e {hsc_mod_graph = new}
 
     restore hug =
       hsc_env {hsc_unit_env = hsc_env.hsc_unit_env {ue_home_unit_graph = unitEnv_union mergeHugs hug current}}
 
-    current = hsc_env.hsc_unit_env.ue_home_unit_graph
+    !current = hsc_env.hsc_unit_env.ue_home_unit_graph
 
 -- | 'doMkDependHS' needs this to be enabled.
 metadataTempSession :: HscEnv -> HscEnv

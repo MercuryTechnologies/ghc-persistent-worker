@@ -4,11 +4,11 @@
 module Internal.Cache where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
+import Control.DeepSeq (rnf)
 import Control.Monad (join)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
-import Data.Foldable (for_)
 import Data.IORef (readIORef)
 import Data.List (sortBy)
 import qualified Data.Map.Strict as Map
@@ -18,9 +18,9 @@ import Data.Ord (comparing)
 import qualified Data.Set as Set
 import Data.Set (Set, (\\))
 import Data.Traversable (for)
-import GHC (Ghc, ModIface, ModuleName, mi_module, moduleName, moduleNameString, setSession)
+import GHC (Ghc, ModIface, ModLocation (..), ModuleName, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Data.FastString (FastString)
-import GHC.Driver.Env (HscEnv (..))
+import GHC.Driver.Env (HscEnv (..), hscEPS)
 import GHC.Driver.Monad (withSession)
 import GHC.Linker.Types (Linkable, LinkerEnv (..), Loader (..), LoaderState (..))
 import GHC.Ptr (Ptr)
@@ -29,33 +29,50 @@ import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import GHC.Types.Name.Cache (NameCache (..), OrigNameCache)
 import GHC.Types.Unique.DFM (plusUDFM)
 import GHC.Types.Unique.FM (UniqFM, minusUFM, nonDetEltsUFM, sizeUFM)
+import GHC.Unit (UnitId (..))
 import GHC.Unit.Env (
   HomeUnitEnv (..),
   HomeUnitGraph,
   UnitEnv (..),
+  unitEnv_elts,
   unitEnv_insert,
   unitEnv_lookup,
   unitEnv_singleton,
   unitEnv_union,
   )
-import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
+import GHC.Unit.External (ExternalPackageState (..), ExternalUnitCache (..), initExternalUnitCache)
 import GHC.Unit.Finder (InstalledFindResult (..))
 import GHC.Unit.Finder.Types (FinderCache (..))
+import GHC.Unit.Home.ModInfo (HomeModInfo (..), eltsHpt)
 import GHC.Unit.Module.Env (InstalledModuleEnv, emptyModuleEnv, moduleEnvKeys, plusModuleEnv)
 import GHC.Unit.Module.Graph (ModuleGraph)
 import qualified GHC.Utils.Outputable as Outputable
-import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
+import GHC.Utils.Outputable (
+  Outputable,
+  SDoc,
+  comma,
+  doublePrec,
+  fsep,
+  hang,
+  nest,
+  ppr,
+  punctuate,
+  text,
+  vcat,
+  ($$),
+  (<+>),
+  )
 import Internal.Log (Log, logd)
 import System.Environment (lookupEnv)
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 
+import Control.Exception (evaluate)
 import Data.IORef (IORef, newIORef)
 import qualified Data.Map.Lazy as LazyMap
 import GHC.Fingerprint (Fingerprint, getFileHash)
 import GHC.IORef (atomicModifyIORef')
 import GHC.Unit (InstalledModule, emptyInstalledModuleEnv, extendInstalledModuleEnv, lookupInstalledModuleEnv)
-import GHC.Unit.Finder (FinderCache (..), InstalledFindResult (..))
 import GHC.Utils.Panic (panic)
 
 #else
@@ -196,7 +213,7 @@ data BinPath =
   }
   deriving stock (Eq, Show)
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 
 data FinderState =
   FinderState {
@@ -562,7 +579,41 @@ report logVar workerId target cache = do
 
     workerDesc wid = text (" (" ++ wid ++ ")")
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+showEps :: MVar Log -> HscEnv -> IO ()
+showEps logVar hsc_env = do
+  eps <- hscEPS hsc_env
+  logd logVar (text "EPS:" <+> ppr (moduleEnvKeys eps.eps_PIT))
+
+forceLocation :: ModLocation -> ()
+forceLocation ModLocation {..} =
+  rnf (
+    ml_hs_file,
+    ml_hi_file,
+    ml_dyn_hi_file,
+    ml_obj_file,
+    ml_dyn_obj_file,
+    ml_hie_file
+  )
+
+forceUnitId :: UnitId -> ()
+forceUnitId (UnitId s) = rnf s
+
+forceInstalledFindResult :: InstalledFindResult -> ()
+forceInstalledFindResult = \case
+  InstalledFound loc m -> rnf (forceLocation loc, m)
+  InstalledNoPackage uid -> rnf (forceUnitId uid)
+  InstalledNotFound path uid -> rnf (path, (forceUnitId <$> uid))
+
+pprInstalledFindResult :: InstalledFindResult -> SDoc
+pprInstalledFindResult = \case
+  InstalledFound _ m -> ppr m
+  InstalledNoPackage _ -> text "no package"
+  InstalledNotFound _ _ -> text "not found"
+
+instance Outputable InstalledFindResult where
+  ppr = pprInstalledFindResult
+
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 
 -- | This replacement of the Finder implementation has the sole purpose of recording some cache stats, for now.
 -- While its mutable state is allocated separately and shared across sessions, this doesn't really make a difference at
@@ -575,7 +626,8 @@ newFinderCache cacheVar Cache {finder = FinderState {modules, files}} target = d
       flushFinderCaches _ = panic "GHC attempted to flush finder caches, which shouldn't happen in worker mode"
 
       addToFinderCache :: InstalledModule -> InstalledFindResult -> IO ()
-      addToFinderCache key val =
+      addToFinderCache key val = do
+        !() <- evaluate (forceInstalledFindResult val)
         atomicModifyIORef' modules $ \c ->
           case (lookupInstalledModuleEnv c key, val) of
             (Just InstalledFound{}, InstalledNotFound{}) -> (c, ())
@@ -688,7 +740,8 @@ updateModuleGraph :: MVar Cache -> ModuleGraph -> IO ()
 updateModuleGraph cacheVar new =
   modifyMVar_ cacheVar \ cache -> do
 #if defined(MWB)
-    pure cache {moduleGraph = Just (maybe new merge cache.moduleGraph)}
+    let !merged = maybe new merge cache.moduleGraph
+    pure cache {moduleGraph = Just merged}
   where
     merge old =
       mkModuleGraph (Map.elems (Map.unionWith mergeNodes oldMap newMap))
@@ -726,15 +779,21 @@ prepareCache cacheVar target hsc_env0 cache0 = do
   let (hsc_env1, cache1) = fromMaybe (hsc_env0, cache0 {features = cache0.features {loader = False}}) result
   pure (cache1, (hsc_env1, cache1.features.enable))
 
-storeIface :: HscEnv -> ModIface -> IO ()
-storeIface _ _ =
-  pure ()
+forceHug :: HomeUnitGraph -> HomeUnitGraph
+forceHug hug =
+  seq (sum (forceHue <$> unitEnv_elts hug)) hug
+  where
+    forceHue (_, HomeUnitEnv {..}) =
+      sum (forceHmi <$> eltsHpt homeUnitEnv_hpt)
+
+    forceHmi HomeModInfo {..} =
+      seq hm_details (1 :: Int)
 
 storeHug :: HscEnv -> Cache -> IO Cache
 storeHug hsc_env cache = do
+  let !new = hsc_env.hsc_unit_env.ue_home_unit_graph
+      !merged = forceHug (maybe id (unitEnv_union mergeHugs) cache.hug new)
   pure cache {hug = Just merged}
-  where
-    merged = maybe id (unitEnv_union mergeHugs) cache.hug hsc_env.hsc_unit_env.ue_home_unit_graph
 
 -- | Extract the unit env of the currently active unit and store it in the cache.
 -- This is used by the make mode worker after the metadata step has initialized the new unit.
