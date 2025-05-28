@@ -209,14 +209,14 @@ runOrProxyCentralGhc socketDir runServer = do
 
 -- | Start a gRPC server that either runs GHC (primary server) or a proxy that forwards requests to the primary.
 serveOrProxyCentralGhc :: CreateMethods -> ServerSocketPath -> IO ()
-serveOrProxyCentralGhc mode socket = do
+serveOrProxyCentralGhc methods socket = do
   runOrProxyCentralGhc socketDir run >>= \case
     Right (_, thread) -> onException (wait thread) (cancel thread)
     Left primary -> proxyServer primary socket
   where
     run primaryFile = do
       let primary = PrimarySocketPath socket.path
-      thread <- async (runCentralGhc mode primaryFile socket instr)
+      thread <- async (runCentralGhc methods primaryFile socket instr)
       waitPoll primary
       pure (primary, thread)
 
