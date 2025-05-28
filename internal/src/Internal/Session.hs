@@ -104,6 +104,22 @@ parseFlags argv = do
   (dflags, fileish_args, dynamicFlagWarnings) <- parseDynamicFlags logger2 dflags1 argv
   pure (dflags, setLogFlags logger2 (initLogFlags dflags), fileish_args, dynamicFlagWarnings)
 
+-- | Parse CLI args and initialize 'DynFlags'.
+-- Returns the subset of args that have not been recognized as options.
+initDynFlags ::
+  DynFlags ->
+  Logger ->
+  [Located String] ->
+  DriverMessages ->
+  Ghc (DynFlags, [(String, Maybe Phase)])
+initDynFlags dflags0 logger fileish_args dynamicFlagWarnings = do
+  liftIO $ printOrThrowDiagnostics logger (initPrintConfig dflags0) (initDiagOpts dflags0) flagWarnings'
+  let (dflags1, srcs, objs) = parseTargetFiles dflags0 (map unLoc fileish_args)
+  unless (null objs) $ throwGhcException (UsageError ("Targets contain object files: " ++ show objs))
+  pure (dflags1, srcs)
+  where
+    flagWarnings' = GhcDriverMessage <$> dynamicFlagWarnings
+
 -- | Parse CLI args and set up the GHC session.
 -- Returns the subset of args that have not been recognized as options.
 initGhc ::
@@ -113,28 +129,34 @@ initGhc ::
   DriverMessages ->
   Ghc [(String, Maybe Phase)]
 initGhc dflags0 logger fileish_args dynamicFlagWarnings = do
-  liftIO $ printOrThrowDiagnostics logger (initPrintConfig dflags0) (initDiagOpts dflags0) flagWarnings'
-  let (dflags1, srcs, objs) = parseTargetFiles dflags0 (map unLoc fileish_args)
-  unless (null objs) $ throwGhcException (UsageError ("Targets contain object files: " ++ show objs))
+  (dflags1, srcs) <- initDynFlags dflags0 logger fileish_args dynamicFlagWarnings
   setSessionDynFlags dflags1
   pure srcs
-  where
-    flagWarnings' = GhcDriverMessage <$> dynamicFlagWarnings
+
+-- | Run a program with fresh 'DynFlags' constructed from command line args.
+-- Passes the flags and the unprocessed args to the callback, which usually consist of the file or module names intended
+-- for compilation.
+-- In a Buck compile step these should always be a single path, but in the metadata step they enumerate an entire unit.
+withDynFlags :: Env -> (DynFlags -> [(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
+withDynFlags env prog argv = do
+  let !log = env.log
+  pushLogHookM (const (logToState log))
+  cache <- liftIO $ readMVar env.cache
+  (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags (argv ++ map instrumentLocation (words cache.options.extraGhcOptions))
+  result <- prettyPrintGhcErrors logger do
+    (dflags, srcs) <- initDynFlags dflags0 logger fileish_args dynamicFlagWarnings
+    prog dflags srcs
+  result <$ popLogHookM
 
 -- | Run a program with a fresh session constructed from command line args.
 -- Passes the unprocessed args to the callback, which usually consist of the file or module names intended for
 -- compilation.
 -- In a Buck compile step these should always be a single path, but in the metadata step they enumerate an entire unit.
 withGhcInSession :: Env -> ([(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
-withGhcInSession env prog argv = do
-  let !log = env.log
-  pushLogHookM (const (logToState log))
-  cache <- liftIO $ readMVar env.cache
-  (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags (argv ++ map instrumentLocation (words cache.options.extraGhcOptions))
-  result <- prettyPrintGhcErrors logger do
-    srcs <- initGhc dflags0 logger fileish_args dynamicFlagWarnings
+withGhcInSession env prog =
+  withDynFlags env \ dflags srcs -> do
+    setSessionDynFlags dflags
     prog srcs
-  result <$ popLogHookM
 
 -- | Create a base session and store it in the cache.
 -- On subsequent calls, return the cached session, unless the cache is disabled or @reuse@ is true.
