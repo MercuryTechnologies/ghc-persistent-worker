@@ -27,7 +27,7 @@ import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.Cache (Target (..), logMemStats)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (dbg, dbgp, dbgs, newLog)
-import Internal.Metadata (computeMetadata, computeMetadataInSession)
+import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhcMhu)
 import Prelude hiding (log)
 import System.Directory (createDirectoryIfMissing, listDirectory, removeDirectoryRecursive)
@@ -85,13 +85,6 @@ initUnit specific = do
   setUnitDynFlags current dflags
   modifySession (hscSetActiveUnitId current)
 
--- | Approximate synthetic reproduction of what happens when the metadata step is performed by the worker.
-loadModuleGraph :: Env -> Unit -> [String] -> Ghc (Maybe Bool)
-loadModuleGraph env Unit {dir} specific = do
-  names <- liftIO $ listDirectory dir
-  let srcs = [dir </> name | name <- names, takeExtension name == ".hs"]
-  computeMetadataInSession (initUnit specific) env srcs
-
 stepMetadata :: Conf -> Unit -> [Unit] -> IO ()
 stepMetadata Conf {cache, tmp, args0} unit deps = do
   log <- newLog True
@@ -104,13 +97,12 @@ stepMetadata Conf {cache, tmp, args0} unit deps = do
   unless success do
     liftIO $ throwGhcExceptionIO (ProgramError "Metadata failed")
   where
-
     args srcs = args0 {
       ghcOptions = mkDependArgs ++ unitDepArgs ++ args0.ghcOptions ++ srcs,
       tempDir = Just sessionTmpDir
     }
 
-    unitDepArgs = concat [["-package-db", db, "-package-id", name]  | Unit {name, db} <- deps]
+    unitDepArgs = concat [["-package-id", name]  | Unit {name} <- deps]
 
     mkDependArgs = [
       "-i",
