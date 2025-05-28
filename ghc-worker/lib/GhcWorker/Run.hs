@@ -84,7 +84,7 @@ runWorker CliOptions {workerMode, serve} = do
           loader = False,
           enable = True,
           names = False,
-          finder = True,
+          finder = False,
           eps = False
         }
       WorkerOneshotMode -> emptyCache True
