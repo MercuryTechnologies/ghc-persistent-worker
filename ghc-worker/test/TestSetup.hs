@@ -129,7 +129,6 @@ baseArgs topdir tmp =
   Args {
     topdir = Just topdir,
     workerTargetId = Just "test",
-    env = mempty,
     binPath = [],
     tempDir = Nothing,
     ghcPath = Nothing,
