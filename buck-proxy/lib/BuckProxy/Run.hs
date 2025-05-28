@@ -4,6 +4,7 @@ import BuckProxy.Orchestration (
   WorkerExe (..),
   proxyServer,
   )
+import BuckProxy.Util (dbg)
 import Control.Concurrent.MVar (newMVar)
 import Control.Exception (throwIO)
 import Data.Map.Strict qualified as Map
@@ -58,4 +59,5 @@ run ::
   IO ()
 run socket CliOptions {workerMode, workerExe} = do
   workerMap <- newMVar (Map.empty)
+  dbg ("run: workerMode = " ++ show workerMode)
   proxyServer workerMap workerExe workerMode socket
