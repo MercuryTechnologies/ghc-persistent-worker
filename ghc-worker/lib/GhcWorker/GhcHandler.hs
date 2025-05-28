@@ -108,4 +108,4 @@ ghcHandler cache workerMode =
       do
         liftIO $ hooks.compileFinish Nothing
     where
-      logName (Target target) = LogName (takeBaseName target)
+      logName (Target target) = LogName target
