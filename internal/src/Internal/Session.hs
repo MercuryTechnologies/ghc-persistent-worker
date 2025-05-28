@@ -192,8 +192,8 @@ runSession reuse Env {log, args, state} prog = do
       flip unGhc session do
         hsc_env <- getSession
         liftIO $ unless (gopt Opt_KeepTmpFiles (hsc_dflags hsc_env)) do
-          let tmpfs = hsc_tmpfs hsc_env
-              logger = hsc_logger hsc_env
+          let !tmpfs = hsc_tmpfs hsc_env
+              !logger = hsc_logger hsc_env
           cleanTempFiles logger tmpfs
           cleanTempDirs logger tmpfs
 

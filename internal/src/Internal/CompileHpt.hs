@@ -14,6 +14,7 @@ import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
 import Internal.State (ModuleArtifacts (..))
+import Internal.Debug (forceSummary)
 import Internal.Error (eitherMessages)
 import Types.State (Target (Target))
 
@@ -28,7 +29,6 @@ setHiLocation HscEnv {hsc_dflags = DynFlags {outputHi = Just ml_hi_file, outputF
   summ {ms_location = summ.ms_location {ml_hi_file, ml_obj_file}}
 setHiLocation _ summ = summ
 
--- | Not used yet.
 cleanCurrentModuleTempFilesMaybe :: MonadIO m => Logger -> TmpFs -> DynFlags -> m ()
 cleanCurrentModuleTempFilesMaybe logger tmpfs dflags =
   if gopt Opt_KeepTmpFiles dflags
@@ -56,8 +56,11 @@ compileModuleWithDepsInHpt (Target src) = do
   hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
     summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
     summary <- setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
-    result <- compileOne hsc_env summary 1 100000 Nothing (HomeModLinkable Nothing Nothing)
+    result <- forceSummary summary `seq` compileOne hsc_env summary 1 1 Nothing (HomeModLinkable Nothing Nothing)
     cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts
     pure result
+  -- !() <- liftIO $ evaluate (forceHmi hmi)
   modifySession (addDepsToHscEnv [hmi])
+  -- TODO ???
+  -- addToFinderCache
   pure (Just ModuleArtifacts {iface, bytecode = homeMod_bytecode hm_linkable})

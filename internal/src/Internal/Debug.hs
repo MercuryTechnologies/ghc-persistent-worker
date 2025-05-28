@@ -1,17 +1,24 @@
 {-# language OverloadedStrings, CPP #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Internal.Debug where
 
+import Control.DeepSeq (deepseq, rnf)
 import qualified Data.Map.Strict as Map
-import GHC (DynFlags (..), mi_module)
+import GHC (DynFlags (..), ModLocation (..), ModSummary (..), mi_module)
+import GHC.Linker.Types (Linkable (..), Unlinked (..))
+import GHC.Types.Name.Env (seqEltsNameEnv)
+import GHC.Types.TyThing (pprShortTyThing)
 import GHC.Types.Unique.DFM (udfmToList)
 import GHC.Types.Unique.Map (nonDetEltsUniqMap)
-import GHC.Unit (UnitDatabase (..), UnitId, UnitState (..), homeUnitId, moduleEnvToList, unitPackageId)
-import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), UnitEnvGraph (..))
+import GHC.Unit (UnitDatabase (..), UnitId (..), UnitState (..), homeUnitId, moduleEnvToList, unitPackageId)
+import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), UnitEnvGraph (..), unitEnv_elts)
 import GHC.Unit.External (ExternalPackageState (..), eucEPS)
-import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomePackageTable, hm_iface)
+import GHC.Unit.Finder (InstalledFindResult (..))
+import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..), HomePackageTable, eltsHpt, hm_iface)
 import GHC.Unit.Module.Graph (ModuleGraph)
-import GHC.Utils.Outputable (Outputable, SDoc, comma, hang, hcat, ppr, punctuate, text, vcat, (<+>))
+import GHC.Unit.Module.ModDetails (ModDetails (..))
+import GHC.Utils.Outputable (Outputable, SDoc, comma, hang, hcat, ppr, punctuate, showPprUnsafe, text, vcat, (<+>))
 import System.FilePath (takeDirectory, takeFileName)
 
 #if !MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) && !defined(MWB)
@@ -121,3 +128,59 @@ showUnitEnv UnitEnv {..} = do
     ("hug", showHug ue_home_unit_graph),
     ("current_unit", ppr ue_current_unit)
     ]
+
+forceLocation :: ModLocation -> ()
+forceLocation ModLocation {..} =
+  rnf (
+    ml_hs_file,
+    ml_hi_file,
+    ml_dyn_hi_file,
+    ml_obj_file,
+    ml_dyn_obj_file,
+    ml_hie_file
+  )
+
+forceUnitId :: UnitId -> ()
+forceUnitId (UnitId s) = rnf s
+
+forceInstalledFindResult :: InstalledFindResult -> ()
+forceInstalledFindResult = \case
+  InstalledFound loc m -> rnf (forceLocation loc, m)
+  InstalledNoPackage uid -> rnf (forceUnitId uid)
+  InstalledNotFound path uid -> rnf (path, (forceUnitId <$> uid))
+
+pprInstalledFindResult :: InstalledFindResult -> SDoc
+pprInstalledFindResult = \case
+  InstalledFound _ m -> ppr m
+  InstalledNoPackage _ -> text "no package"
+  InstalledNotFound _ _ -> text "not found"
+
+instance Outputable InstalledFindResult where
+  ppr = pprInstalledFindResult
+
+forceSummary :: ModSummary -> ()
+forceSummary ModSummary {ms_location} =
+  forceLocation ms_location `seq` ()
+
+forceBytecode :: Linkable -> ()
+forceBytecode LM {linkableUnlinked} =
+  rnf (sum (forceUnlinked <$> linkableUnlinked))
+  where
+    forceUnlinked = \case
+      BCOs cbc _ -> seq cbc (1 :: Int)
+      _ -> 1
+
+forceHmi :: HomeModInfo -> ()
+forceHmi HomeModInfo {hm_details, hm_linkable} =
+  seq (maybe () forceBytecode hm_linkable.homeMod_bytecode) $
+  seq (seqEltsNameEnv (\ a -> deepseq (showPprUnsafe (pprShortTyThing a)) ()) hm_details.md_types) ()
+
+forceHug :: HomeUnitGraph -> HomeUnitGraph
+forceHug hug =
+  seq (sum (forceHue <$> unitEnv_elts hug)) hug
+  where
+    forceHue (_, HomeUnitEnv {..}) =
+      sum (hmi <$> eltsHpt homeUnitEnv_hpt)
+
+    hmi i =
+      seq (forceHmi i) (1 :: Int)
