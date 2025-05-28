@@ -1,6 +1,6 @@
 module GhcWorker.GhcHandler where
 
-import Control.Concurrent (MVar)
+import Control.Concurrent (MVar, forkIO, threadDelay)
 import Control.Exception (throwIO)
 import Control.Monad.Catch (onException)
 import Control.Monad.IO.Class (liftIO)
@@ -21,8 +21,9 @@ import Internal.Log (LogName (..), dbg, logFlush, newLog)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Prelude hiding (log)
-import System.Exit (exitSuccess)
+import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (takeBaseName)
+import System.Posix.Process (exitImmediately)
 import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
 import Types.GhcHandler (WorkerMode (..))
@@ -72,7 +73,10 @@ dispatch workerMode hooks env args =
     Just ModeClose -> do
       dbg "in dispatch. Mode Close"
       _ <- writeCloseOutput args
-      exitSuccess
+      _ <- forkIO $ do
+        threadDelay 1_000_000
+        exitImmediately ExitSuccess
+      pure (0, Nothing)
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
   where
