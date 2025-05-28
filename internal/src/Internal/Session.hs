@@ -19,6 +19,7 @@ import GHC (
   getSessionDynFlags,
   parseDynamicFlags,
   parseTargetFiles,
+  popLogHookM,
   prettyPrintGhcErrors,
   pushLogHookM,
   setSessionDynFlags,
@@ -136,12 +137,14 @@ initGhc dflags0 logger fileish_args dynamicFlagWarnings = do
 -- In a Buck compile step these should always be a single path, but in the metadata step they enumerate an entire unit.
 withDynFlags :: Env -> (DynFlags -> [(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
 withDynFlags env prog argv = do
-  pushLogHookM (const (logToState env.log))
+  let !log = env.log
+  pushLogHookM (const (logToState log))
   cache <- liftIO $ readMVar env.cache
   (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags (argv ++ map instrumentLocation (words cache.options.extraGhcOptions))
-  prettyPrintGhcErrors logger do
+  result <- prettyPrintGhcErrors logger do
     (dflags, srcs) <- initDynFlags dflags0 logger fileish_args dynamicFlagWarnings
     prog dflags srcs
+  result <$ popLogHookM
 
 -- | Run a program with a fresh session constructed from command line args.
 -- Passes the unprocessed args to the callback, which usually consist of the file or module names intended for
