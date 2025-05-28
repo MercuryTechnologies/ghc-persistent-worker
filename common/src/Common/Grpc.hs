@@ -94,4 +94,3 @@ fromGrpcHandler handler =
   simpleMethods
     (mkClientStreaming streamingNotImplemented)
     (mkNonStreaming (execute handler))
-
