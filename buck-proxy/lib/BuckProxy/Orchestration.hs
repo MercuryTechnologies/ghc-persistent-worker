@@ -1,12 +1,12 @@
 module BuckProxy.Orchestration where
 
+import BuckProxy.Util (dbg)
 import qualified BuckWorker as Worker
 import BuckWorker (ExecuteCommand, ExecuteResponse)
 import Control.Concurrent (threadDelay)
 import Control.DeepSeq (force)
 import Control.Exception (bracket_, throwIO, try)
 import Control.Monad (void, when)
-import Control.Monad.IO.Class (MonadIO (..))
 import Data.Maybe (isJust)
 import GHC.IO.Handle.Lock (LockMode (..), hLock, hUnlock)
 import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
@@ -19,7 +19,7 @@ import Proto.Worker (ExecuteEvent, Worker (..))
 import Proto.Worker_Fields qualified as Fields
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
-import System.IO (IOMode (..), hGetLine, hPutStr, hPutStrLn, stderr, withFile)
+import System.IO (IOMode (..), hGetLine, hPutStr, withFile)
 import System.Process (ProcessHandle, getProcessExitCode, spawnProcess)
 import Types.GhcHandler (WorkerMode (..))
 import Types.Orchestration (
@@ -38,9 +38,6 @@ import Types.Orchestration (
 newtype WorkerExe =
   WorkerExe { path :: FilePath }
   deriving stock (Eq, Show)
-
-dbg :: MonadIO m => String -> m ()
-dbg = liftIO . hPutStrLn stderr
 
 -- | The worker protocol is intended to support streaming events, but we're not using that yet.
 streamingNotImplemented :: IO (NextElem (Proto ExecuteEvent)) -> IO (Proto ExecuteResponse)
