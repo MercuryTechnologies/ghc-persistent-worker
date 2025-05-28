@@ -1,5 +1,6 @@
 module GhcWorker.GhcHandler where
 
+import Common.Grpc (GrpcHandler (..))
 import Control.Concurrent (MVar, forkIO, threadDelay)
 import Control.Exception (throwIO)
 import Control.Monad.Catch (onException)
@@ -11,7 +12,6 @@ import GHC.Driver.DynFlags (GhcMode (..))
 import GHC.Driver.Env (hscUpdateFlags)
 import GHC.Driver.Monad (modifySession)
 import GhcWorker.BuckArgs (CompileResult (..), writeCloseOutput, writeResult)
-import GhcWorker.Grpc (GrpcHandler (..))
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Cache (Cache (..), ModuleArtifacts (..), Target (..))

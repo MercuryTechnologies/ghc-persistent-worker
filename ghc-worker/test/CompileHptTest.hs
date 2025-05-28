@@ -22,7 +22,6 @@ import GHC.Unit (UnitId, UnitState (..), stringToUnitId, unitIdString)
 import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), UnitEnvGraph (..), unitEnv_lookup_maybe)
 import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.Panic (throwGhcExceptionIO)
-import Internal.Args (Args (..))
 import Internal.Cache (Target (..))
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (dbg, dbgs, newLog)
@@ -32,6 +31,7 @@ import Prelude hiding (log)
 import System.Directory (createDirectoryIfMissing, listDirectory, removeDirectoryRecursive)
 import System.FilePath (dropExtension, takeBaseName, takeDirectory, takeExtension, takeFileName, (</>))
 import TestSetup (Conf (..), UnitConf (..), UnitMod (..), withProject)
+import Types.Args (Args (..))
 
 debugState :: Bool
 debugState = False
