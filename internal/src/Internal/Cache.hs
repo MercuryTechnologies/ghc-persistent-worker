@@ -806,3 +806,49 @@ withCache logVar workerId cacheVar target prog = do
     finalize art =
       withSession \ hsc_env ->
         liftIO (modifyMVar_ cacheVar (finalizeCache logVar workerId hsc_env target art))
+
+------------------------------------------------------------------------------------------------------------------------
+
+prepareSimple :: HscEnv -> Cache -> IO (Cache, (HscEnv, ()))
+prepareSimple hsc_env0 cache = do
+  pure (cache, (hsc_env2, ()))
+  where
+    hsc_env1 =
+      maybe hsc_env0 (\ hug -> hsc_env0 {hsc_unit_env = hsc_env0.hsc_unit_env {ue_home_unit_graph = hug}}) cache.hug
+
+    hsc_env2 =
+      maybe id restoreModuleGraph cache.moduleGraph hsc_env1
+
+    restoreModuleGraph mg e =
+      e {hsc_mod_graph = mg}
+
+logMemStats :: String -> MVar Log -> IO ()
+logMemStats step logVar = do
+  s <- liftIO getRTSStats
+  let logMem desc value = logd logVar (text (desc ++ ":") <+> doublePrec 2 (fromIntegral value / 1_000_000) <+> text "MB")
+  logd logVar (text ("-------------- " ++ step))
+  logMem "Mem in use" s.gc.gcdetails_mem_in_use_bytes
+  logMem "Max mem in use" s.max_mem_in_use_bytes
+  logMem "Max live bytes" s.max_live_bytes
+
+finalizeSimple ::
+  MVar Log ->
+  HscEnv ->
+  Cache ->
+  IO Cache
+finalizeSimple logVar hsc_env cache = do
+  logMemStats "finalize" logVar
+  storeHug hsc_env cache
+
+withCacheSimple ::
+  MVar Log ->
+  MVar Cache ->
+  Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
+  Ghc (Maybe (Maybe ModuleArtifacts, a))
+withCacheSimple logVar cacheVar prog = do
+  liftIO $ logMemStats "cache" logVar
+  _ <- withSessionM \ hsc_env -> modifyMVar cacheVar (prepareSimple hsc_env)
+  result <- prog
+  withSession \ hsc_env ->
+    liftIO (modifyMVar_ cacheVar (finalizeSimple logVar hsc_env))
+  pure result

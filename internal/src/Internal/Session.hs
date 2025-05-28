@@ -35,7 +35,7 @@ import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
 import GHC.Utils.TmpFs (TempDir (..), initTmpFs, cleanTempFiles, cleanTempDirs)
-import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Options (..), Target (..), withCache)
+import Internal.Cache (BinPath (..), Cache (..), CacheFeatures (..), ModuleArtifacts, Options (..), Target (..), withCache, withCacheSimple)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log (..), logToState)
 import Prelude hiding (log)
@@ -287,11 +287,11 @@ withGhcUsingCacheMhu cacheHandler env prog =
 
 -- | Like @withGhcUsingCacheMhu@, using the default cache handler @withCache@.
 withGhcMhu :: Env -> ([String] -> Target -> Ghc (Maybe a)) -> IO (Maybe a)
-withGhcMhu env =
-  withGhcUsingCacheMhu cacheHandler env
+withGhcMhu env f =
+  withGhcUsingCacheMhu cacheHandler env f
   where
-    cacheHandler target prog = do
-      result <- withCache env.log env.args.workerTargetId env.cache target do
+    cacheHandler _ prog = do
+      result <- withCacheSimple env.log env.cache do
         res <- prog
         pure do
           a <- res
