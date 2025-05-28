@@ -61,13 +61,16 @@ spawnedSocketDirectory server =
   SocketDirectory (takeDirectory server.path)
 
 -- | For project socket, use the trace id extracted from server socket path.
-projectSocketDirectory :: Orchestration -> ServerSocketPath -> SocketDirectory
-projectSocketDirectory omode server =
-  case omode of
-    Multi -> SocketDirectory (root </> server.traceId ++ "-" ++ server.workerSpecId)
-    Single -> SocketDirectory (root </> server.traceId)
+projectSocketDirectory ::
+  -- | base path
+  FilePath ->
+  -- | target id. TODO: Make a newtype.
+  String ->
+  SocketDirectory
+projectSocketDirectory base targetId = SocketDirectory (root </> workerBase)
   where
     root = "/tmp/ghc-persistent-worker"
+    workerBase = base ++ "_" ++ targetId
 
 -- | The file system path of the socket on which the primary worker running the GHC server is listening.
 newtype PrimarySocketPath =
