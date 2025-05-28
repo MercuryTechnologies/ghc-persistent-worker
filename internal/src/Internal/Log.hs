@@ -7,8 +7,22 @@ import Data.ByteString (ByteString)
 import Data.Foldable (traverse_)
 import Data.Text (pack)
 import Data.Text.Encoding (encodeUtf8)
-import GHC (Severity (SevIgnore))
-import GHC.Types.Error (MessageClass (..), getCaretDiagnostic, mkLocMessageWarningGroups)
+import GHC (Ghc, Severity (SevIgnore), noSrcSpan)
+import GHC.Driver.Config.Diagnostic (initDiagOpts)
+import GHC.Driver.DynFlags (getDynFlags)
+import GHC.Driver.Errors.Types (DriverMessage (..), GhcMessage(GhcDriverMessage))
+import GHC.Driver.Monad qualified as GHC (logDiagnostics)
+import GHC.Types.Error (
+  DiagnosticReason (WarningWithoutFlag),
+  MessageClass (..),
+  getCaretDiagnostic,
+  mkLocMessageWarningGroups,
+  mkPlainDiagnostic,
+  mkSimpleUnknownDiagnostic,
+  noHints,
+  singleMessage,
+  )
+import GHC.Utils.Error (mkPlainMsgEnvelope)
 import GHC.Utils.Logger (LogAction, LogFlags (..))
 import GHC.Utils.Outputable (
   Outputable,
@@ -151,3 +165,17 @@ logd ::
   SDoc ->
   m ()
 logd = logp
+
+
+ghcLogd :: SDoc -> Ghc ()
+ghcLogd doc = do
+  dflags <- getDynFlags
+  let diagOpts = initDiagOpts dflags
+      reason = WarningWithoutFlag
+      msg =
+        DriverUnknownMessage $
+          mkSimpleUnknownDiagnostic $
+          mkPlainDiagnostic reason noHints $
+          doc
+      msgs = singleMessage (mkPlainMsgEnvelope diagOpts noSrcSpan msg)
+  GHC.logDiagnostics (GhcDriverMessage <$> msgs)
