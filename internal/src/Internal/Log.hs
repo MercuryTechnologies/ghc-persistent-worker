@@ -4,7 +4,7 @@ import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.ByteString (ByteString)
-import Data.Coerce (coerce)
+import Data.Foldable (traverse_)
 import Data.Text (pack)
 import Data.Text.Encoding (encodeUtf8)
 import GHC (Severity (SevIgnore))
@@ -24,8 +24,9 @@ import GHC.Utils.Outputable (
   ($+$),
   )
 import System.Directory (createDirectoryIfMissing, doesPathExist)
-import System.FilePath (takeDirectory, (</>), addExtension)
+import System.FilePath (addExtension, takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
+import System.IO.Error (tryIOError)
 
 -- | Name of the current session's target for the log file path.
 newtype LogName =
@@ -74,22 +75,26 @@ logDir =
 --
 -- If the session fails before the target could be determined, this is 'Nothing', so we choose @unknown@ for the file
 -- name.
-writeLogFile :: Maybe LogName -> [String] -> IO ()
-writeLogFile logName logLines = do
-  createDirectoryIfMissing True (takeDirectory path)
-  exists <- doesPathExist path
-  unless exists do
-    writeFile path ""
-  appendFile path (unlines logLines)
+writeLogFile :: [String] -> LogName -> IO ()
+writeLogFile logLines (LogName logName) =
+  either warn pure =<< tryIOError do
+    createDirectoryIfMissing True (takeDirectory path)
+    exists <- doesPathExist path
+    unless exists do
+      writeFile path ""
+    appendFile path (unlines logLines)
   where
-    path = logDir </> addExtension (maybe "unknown" coerce logName) "log"
+    path = logDir </> addExtension logName "log"
+
+    warn err = dbg ("Failed to write log file for " ++ logName ++ ": " ++ show err)
 
 -- | Write the current session's log to a file, clear the fields in the 'MVar' and return the log lines.
 logFlush :: Maybe LogName -> MVar Log -> IO [String]
 logFlush logName var = do
-  logLines <- modifyMVar var \ Log {..} -> pure (Log {diagnostics = [], other = [], debug}, reverse (other ++ diagnostics))
-  writeLogFile logName logLines
-  pure logLines
+  modifyMVar var \ Log {..} -> do
+    let logLines = reverse (other ++ diagnostics)
+    traverse_ (writeLogFile logLines) logName
+    pure (Log {diagnostics = [], other = [], debug}, logLines)
 
 logFlushBytes :: MVar Log -> IO ByteString
 logFlushBytes var = do
