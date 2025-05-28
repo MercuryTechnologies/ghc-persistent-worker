@@ -10,7 +10,6 @@ data Args =
   Args {
     topdir :: Maybe String,
     workerTargetId :: Maybe TargetId,
-    env :: Map String String,
     binPath :: [String],
     tempDir :: Maybe String,
     ghcPath :: Maybe String,
@@ -23,7 +22,6 @@ emptyArgs env =
   Args {
     topdir = Nothing,
     workerTargetId = Nothing,
-    env,
     binPath = [],
     tempDir = env !? "TMPDIR",
     ghcPath = Nothing,
