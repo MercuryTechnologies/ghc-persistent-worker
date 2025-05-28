@@ -2,6 +2,7 @@ module GhcWorker.Orchestration where
 
 import qualified BuckWorker as Worker
 import BuckWorker (ExecuteCommand, ExecuteResponse)
+import Common.Grpc (streamingNotImplemented)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel, wait)
 import Control.DeepSeq (force)
@@ -11,7 +12,6 @@ import Data.List (dropWhileEnd)
 import Data.Maybe (isJust)
 import Data.Traversable (for)
 import GHC.IO.Handle.Lock (LockMode (..), hLock, hUnlock)
-import GhcWorker.Grpc (streamingNotImplemented)
 import Internal.Log (dbg)
 import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
 import Network.GRPC.Common (Proxy (..), def)
