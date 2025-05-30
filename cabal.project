@@ -1,5 +1,4 @@
-packages: ./buck-multiplex-worker
-          ./buck-proxy
+packages: ./buck-proxy
           ./common
           ./ghc-worker
           ./instrument
@@ -11,9 +10,6 @@ packages: ./buck-multiplex-worker
 -- flags: +mwb
 
 package ghc-worker
-  executable-dynamic: true
-
-package buck-multiplex-worker
   executable-dynamic: true
 
 allow-newer:
