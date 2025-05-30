@@ -9,7 +9,7 @@ import qualified BuckWorker as Worker
 import BuckWorker (ExecuteCommand, ExecuteResponse)
 import Common.Grpc (commandEnv, streamingNotImplemented)
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.MVar (MVar, putMVar, takeMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar)
 import Control.Exception (throwIO, try)
 import Control.Monad (void, when)
 import Data.Map.Strict (Map)
@@ -80,20 +80,18 @@ proxyHandler workerMap exe wmode basePath req = do
   case mtargetId of
     Nothing -> throwIO (userError "No --worker-target-id passed")
     Just targetId -> do
-      wmap <- takeMVar workerMap
       primary <-
-        case Map.lookup targetId wmap of
-          Nothing -> do
-            let workerSocketDir = projectSocketDirectory basePath targetId
-            void $ try @IOError (createDirectoryIfMissing True workerSocketDir.path)
-            primary <- spawnGhcWorker exe wmode workerSocketDir
-            putMVar workerMap (Map.insert targetId primary wmap)
-            dbg $ "No primary socket for " ++ show targetId ++ ", so created it on " ++ primary.path
-            pure primary
-          Just primary -> do
-            putMVar workerMap wmap
-            dbg $ "Primary socket for " ++ show targetId ++ ": " ++ primary.path
-            pure primary
+        modifyMVar workerMap \wmap -> do
+          case Map.lookup targetId wmap of
+            Nothing -> do
+              let workerSocketDir = projectSocketDirectory basePath targetId
+              void $ try @IOError (createDirectoryIfMissing True workerSocketDir.path)
+              primary <- spawnGhcWorker exe wmode workerSocketDir
+              dbg $ "No primary socket for " ++ show targetId ++ ", so created it on " ++ primary.path
+              pure (Map.insert targetId primary wmap, primary)
+            Just primary -> do
+              dbg $ "Primary socket for " ++ show targetId ++ ": " ++ primary.path
+              pure (wmap, primary)
       withConnection def (ServerUnix primary.path) \connection ->
         forwardRequest connection req
 
