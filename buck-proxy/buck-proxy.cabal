@@ -52,4 +52,5 @@ executable buck-proxy
   build-depends:
     base ==4.*,
     buck-proxy,
-    buck-worker-types
+    buck-worker-types,
+    unix
