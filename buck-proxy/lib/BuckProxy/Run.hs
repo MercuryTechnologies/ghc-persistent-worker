@@ -2,11 +2,14 @@ module BuckProxy.Run where
 
 import BuckProxy.Orchestration (
   WorkerExe (..),
+  WorkerResource (..),
   proxyServer,
   )
-import Control.Concurrent.MVar (newMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar, readMVar)
 import Control.Exception (throwIO)
+import Data.Foldable (for_)
 import Data.Map.Strict qualified as Map
+import System.Process (terminateProcess)
 import Types.GhcHandler (WorkerMode (..))
 import Types.Orchestration (
   Orchestration (Multi, Single),
@@ -55,7 +58,13 @@ run ::
   -- | This is WORKER_SOCKET
   ServerSocketPath ->
   CliOptions ->
+  MVar (IO ()) ->
   IO ()
-run socket CliOptions {workerMode, workerExe} = do
-  workerMap <- newMVar (Map.empty)
-  proxyServer workerMap workerExe workerMode socket
+run socket CliOptions {workerMode, workerExe} refHandler = do
+  refWorkerMap <- newMVar (Map.empty)
+  -- SIGTERM Handler
+  modifyMVar_ refHandler \_ -> pure do
+    wmap <- readMVar refWorkerMap
+    for_ wmap \resource ->
+      terminateProcess resource.processHandle
+  proxyServer refWorkerMap workerExe workerMode socket

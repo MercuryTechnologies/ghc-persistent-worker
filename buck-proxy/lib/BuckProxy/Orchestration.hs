@@ -1,5 +1,6 @@
 module BuckProxy.Orchestration (
   WorkerExe (..),
+  WorkerResource (..),
   proxyServer,
   spawnGhcWorker,
 ) where

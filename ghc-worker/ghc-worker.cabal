@@ -1,7 +1,7 @@
 cabal-version: 2.2
 name: ghc-worker
 version: 0.1
-synopsis: Buck2 GHC persistent worker
+synopsis: GHC persistent worker through gRPC connection
 license: MIT
 license-file: LICENSE
 build-type: Simple
