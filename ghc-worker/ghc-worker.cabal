@@ -38,7 +38,7 @@ library
     GhcWorker.Run
   build-depends:
     async,
-    buck-worker-common,
+    buck-worker-grpc,
     buck-worker-internal,
     buck-worker-proto,
     buck-worker-types,
