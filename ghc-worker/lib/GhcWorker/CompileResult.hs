@@ -1,4 +1,4 @@
-module GhcWorker.BuckArgs where
+module GhcWorker.CompileResult where
 
 import Data.Foldable (for_)
 import Data.Int (Int32)
