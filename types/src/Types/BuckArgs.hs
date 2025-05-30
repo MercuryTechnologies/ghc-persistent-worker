@@ -7,7 +7,7 @@ import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict ((!?))
 import Data.Maybe (fromMaybe)
-import Types.Args (Args (Args))
+import Types.Args (Args (Args), TargetId (..))
 import qualified Types.Args
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
 import System.FilePath (takeDirectory)
@@ -39,7 +39,7 @@ data BuckArgs =
     buck2Dep :: Maybe String,
     buck2PackageDb :: [String],
     buck2PackageDbDep :: Maybe String,
-    workerTargetId :: Maybe String,
+    workerTargetId :: Maybe TargetId,
     pluginDb :: Maybe String,
     env :: Map String String,
     binPath :: [String],
@@ -89,7 +89,7 @@ options =
     withArg "--buck2-packagedb-dep" \ z a -> z {buck2PackageDbDep = Just a},
     withArg "--extra-env-key" \ z a -> z {envKey = Just a},
     withArgErr "--extra-env-value" \ z a -> addEnv z a,
-    withArg "--worker-target-id" \ z a -> z {workerTargetId = Just a},
+    withArg "--worker-target-id" \ z a -> z {workerTargetId = Just (TargetId a)},
     withArg "--worker-socket" const,
     withArg "--plugin-db" \ z a -> z {pluginDb = Just a},
     withArg "--ghc" \ z a -> z {ghcOptions = [], ghcPath = Just a},
@@ -109,8 +109,6 @@ options =
     addEnv z a = case z.envKey of
       Just key -> Right z {env = Map.insert key a z.env, envKey = Nothing}
       Nothing -> Left ("--extra-env-value used without preceding --extra-env-key (arg: " ++ a ++ ")")
-
-    skip name = (name, \ rest z -> Right (rest, z))
 
     flag name f = (name, \ rest z -> Right (rest, f z))
 
