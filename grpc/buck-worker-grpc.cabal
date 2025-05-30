@@ -1,5 +1,5 @@
 cabal-version: 2.2
-name: buck-worker-common
+name: buck-worker-grpc
 version: 0.1
 synopsis: Buck2 GHC persistent worker
 license: MIT

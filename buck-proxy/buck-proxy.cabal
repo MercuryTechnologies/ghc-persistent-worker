@@ -34,7 +34,7 @@ library
     BuckProxy.Run
     BuckProxy.Util
   build-depends:
-    buck-worker-common,
+    buck-worker-grpc,
     buck-worker-proto,
     buck-worker-types,
     containers,

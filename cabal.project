@@ -1,6 +1,6 @@
 packages: ./buck-proxy
-          ./common
           ./ghc-worker
+          ./grpc
           ./instrument
           ./internal
           ./proto
