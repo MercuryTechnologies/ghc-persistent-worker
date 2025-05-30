@@ -4,6 +4,7 @@ import Data.List (intersperse)
 import Data.List.Split (splitOn)
 import System.Environment (getEnv)
 import System.FilePath (splitDirectories, takeDirectory, (</>))
+import Types.Args (TargetId (..))
 
 -- | Determine how GHC servers should be started in relation to Buck worker processes.
 data Orchestration =
@@ -64,13 +65,13 @@ spawnedSocketDirectory server =
 projectSocketDirectory ::
   -- | base path
   FilePath ->
-  -- | target id. TODO: Make a newtype.
-  String ->
+  -- | target id.
+  TargetId ->
   SocketDirectory
 projectSocketDirectory base targetId = SocketDirectory (root </> workerBase)
   where
     root = "/tmp/ghc-persistent-worker"
-    workerBase = base ++ "_" ++ targetId
+    workerBase = base ++ "_" ++ unTargetId targetId
 
 -- | The file system path of the socket on which the primary worker running the GHC server is listening.
 newtype PrimarySocketPath =

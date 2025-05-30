@@ -1,4 +1,4 @@
-{-# language CPP, NoFieldSelectors #-}
+{-# LANGUAGE CPP, NoFieldSelectors #-}
 
 module Internal.Cache where
 
@@ -46,6 +46,7 @@ import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
 import Internal.Log (Log, logd)
 import System.Environment (lookupEnv)
+import Types.Args (TargetId (..))
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
@@ -551,7 +552,7 @@ report ::
   MonadIO m =>
   MVar Log ->
   -- | A description of the current worker process.
-  Maybe String ->
+  Maybe TargetId ->
   Target ->
   Cache ->
   m ()
@@ -562,7 +563,7 @@ report logVar workerId target cache = do
   where
     header = text target.get Outputable.<> maybe (text "") workerDesc workerId Outputable.<> text ":"
 
-    workerDesc wid = text (" (" ++ wid ++ ")")
+    workerDesc wid = text (" (" ++ unTargetId wid ++ ")")
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
@@ -751,7 +752,7 @@ insertUnitEnv hsc_env cache =
 finalizeCache ::
   MVar Log ->
   -- | A description of the current worker process.
-  Maybe String ->
+  Maybe TargetId ->
   HscEnv ->
   Target ->
   Maybe ModuleArtifacts ->
@@ -792,7 +793,7 @@ withSessionM use =
 withCache ::
   MVar Log ->
   -- | A description of the current worker process.
-  Maybe String ->
+  Maybe TargetId ->
   MVar Cache ->
   Target ->
   Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
