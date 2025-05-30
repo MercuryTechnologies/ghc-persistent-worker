@@ -51,6 +51,12 @@ newtype WorkerExe =
   WorkerExe { path :: FilePath }
   deriving stock (Eq, Show)
 
+data WorkerResource =
+  WorkerResource {
+    primarySocket :: PrimarySocketPath,
+    processHandle :: ProcessHandle
+  }
+
 -- | Forward a request received from a client to another gRPC server and forward the response back,
 -- prefixing the error messages so we know where the error originated.
 forwardRequest ::
@@ -66,7 +72,7 @@ forwardRequest connection req = withRPC connection def (Proxy @(Protobuf Worker 
       %~ ("gRPC client error: " <>)
 
 proxyHandler ::
-  MVar (Map String PrimarySocketPath) ->
+  MVar (Map String WorkerResource) ->
   WorkerExe ->
   WorkerMode ->
   FilePath ->
@@ -76,23 +82,22 @@ proxyHandler workerMap exe wmode basePath req = do
   let cmdEnv = commandEnv req.env
       argv = Text.unpack . decodeUtf8Lenient <$> req.argv
   buckArgs <- either (throwIO . userError) pure (parseBuckArgs cmdEnv (RequestArgs argv))
-  let mtargetId = buckArgs.workerTargetId
-  case mtargetId of
+  case buckArgs.workerTargetId of
     Nothing -> throwIO (userError "No --worker-target-id passed")
     Just targetId -> do
-      primary <-
+      resource <-
         modifyMVar workerMap \wmap -> do
           case Map.lookup targetId wmap of
             Nothing -> do
               let workerSocketDir = projectSocketDirectory basePath targetId
               void $ try @IOError (createDirectoryIfMissing True workerSocketDir.path)
-              primary <- spawnGhcWorker exe wmode workerSocketDir
-              dbg $ "No primary socket for " ++ show targetId ++ ", so created it on " ++ primary.path
-              pure (Map.insert targetId primary wmap, primary)
-            Just primary -> do
-              dbg $ "Primary socket for " ++ show targetId ++ ": " ++ primary.path
-              pure (wmap, primary)
-      withConnection def (ServerUnix primary.path) \connection ->
+              resource <- spawnGhcWorker exe wmode workerSocketDir
+              dbg $ "No primary socket for " ++ show targetId ++ ", so created it on " ++ resource.primarySocket.path
+              pure (Map.insert targetId resource wmap, resource)
+            Just resource -> do
+              dbg $ "Primary socket for " ++ show targetId ++ ": " ++ resource.primarySocket.path
+              pure (wmap, resource)
+      withConnection def (ServerUnix resource.primarySocket.path) \connection ->
         forwardRequest connection req
 
 grpcServerConfig :: FilePath -> ServerConfig
@@ -105,7 +110,7 @@ grpcServerConfig socketPath =
 -- | Start a worker gRPC server that forwards requests received from a client (here Buck) to ghc-worker
 proxyServer ::
   -- | mutable worker map (we spawn a new ghc-worker as a new target id arrives)
-  MVar (Map String PrimarySocketPath) ->
+  MVar (Map String WorkerResource) ->
   WorkerExe ->
   WorkerMode ->
   ServerSocketPath ->
@@ -172,7 +177,7 @@ spawnGhcWorker ::
   WorkerExe ->
   WorkerMode ->
   SocketDirectory ->
-  IO PrimarySocketPath
+  IO WorkerResource
 spawnGhcWorker exe mode socketDir = do
   dbg ("Forking GHC server at " ++ primary.path)
   let workerModeFlag = case mode of
@@ -180,6 +185,6 @@ spawnGhcWorker exe mode socketDir = do
         WorkerMakeMode -> ["--make"]
   proc <- spawnProcess exe.path (workerModeFlag ++ ["--serve", primary.path])
   waitForGhcWorker proc primary
-  pure primary
+  pure WorkerResource {primarySocket = primary, processHandle = proc}
   where
     primary = primarySocketIn socketDir
