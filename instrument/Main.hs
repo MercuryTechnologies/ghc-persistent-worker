@@ -22,6 +22,8 @@ import System.Directory (doesPathExist, getModificationTime, listDirectory)
 import System.Environment (lookupEnv)
 import System.FSNotify (Event(..), watchTree, withManager)
 import UI qualified
+import UI.SessionSelector qualified as SS
+import UI.Session qualified as Session
 
 newtype WorkerPath
   = WorkerPath {path :: FilePath}
@@ -35,7 +37,7 @@ listen eventChan instrPath = do
   void $ forkIO $ go 5
  where
   go :: Int -> IO ()
-  go 0 = getCurrentTime >>= writeBChan eventChan . UI.SessionEvent instrPath . UI.EndSession
+  go 0 = getCurrentTime >>= writeBChan eventChan . UI.SessionSelectorEvent . SS.EndSession instrPath
   go n =
     catch @SomeException
       ( withConnection def (ServerUnix instrPath) $ \conn -> do
@@ -45,8 +47,9 @@ listen eventChan instrPath = do
                     mkOptions options
           serverStreaming conn (rpc @(Protobuf Instrument "notifyMe")) defMessage $ \recv -> do
             time <- getModificationTime instrPath
-            writeBChan eventChan $ UI.SessionEvent instrPath $ UI.StartSession time sendOptions
-            whileNext_ recv $ writeBChan eventChan . UI.SessionEvent instrPath . UI.InstrEvent
+            writeBChan eventChan $ UI.SessionSelectorEvent $ SS.StartSession instrPath time sendOptions
+            writeBChan eventChan UI.SendOptions
+            whileNext_ recv $ writeBChan eventChan . UI.SessionSelectorEvent . SS.SessionEvent instrPath . Session.InstrEvent
       )
       (const $ threadDelay 100_000 >> go (n - 1))
   mkOptions :: Options -> Proto Instr.Options
