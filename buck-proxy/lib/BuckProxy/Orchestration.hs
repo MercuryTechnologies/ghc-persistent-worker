@@ -33,6 +33,7 @@ import Proto.Worker_Fields qualified as Fields
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
 import System.Process (ProcessHandle, getProcessExitCode, spawnProcess)
+import Types.Args (TargetId)
 import Types.BuckArgs (BuckArgs (workerTargetId), parseBuckArgs)
 import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (RequestArgs (..))
@@ -72,7 +73,7 @@ forwardRequest connection req = withRPC connection def (Proxy @(Protobuf Worker 
       %~ ("gRPC client error: " <>)
 
 proxyHandler ::
-  MVar (Map String WorkerResource) ->
+  MVar (Map TargetId WorkerResource) ->
   WorkerExe ->
   WorkerMode ->
   FilePath ->
@@ -110,7 +111,7 @@ grpcServerConfig socketPath =
 -- | Start a worker gRPC server that forwards requests received from a client (here Buck) to ghc-worker
 proxyServer ::
   -- | mutable worker map (we spawn a new ghc-worker as a new target id arrives)
-  MVar (Map String WorkerResource) ->
+  MVar (Map TargetId WorkerResource) ->
   WorkerExe ->
   WorkerMode ->
   ServerSocketPath ->
