@@ -8,7 +8,14 @@ build-type: Simple
 executable instrument
   main-is: Main.hs
   hs-source-dirs: .
-  other-modules: UI
+  other-modules:
+    UI
+    UI.ActiveTasks
+    UI.ModuleSelector
+    UI.Session
+    UI.SessionSelector
+    UI.Types
+    UI.Utils
   ghc-options:
     -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages
     -threaded -rtsopts -with-rtsopts=-N -O2
