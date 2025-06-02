@@ -135,7 +135,7 @@ stepCompile Conf {cache, tmp, args0} Module {unit, src} = do
     dbg (">>> compiling " ++ takeFileName target.get)
     modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
     cache' <- liftIO $ readMVar env.cache
-    compileModuleWithDepsInHpt cache'.counter target
+    compileModuleWithDepsInHpt target
   when (isNothing result) do
       liftIO $ throwGhcExceptionIO (ProgramError "Compile failed")
   dbgs result
