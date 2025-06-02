@@ -21,6 +21,7 @@ import GHC (
   gopt,
   parseDynamicFlags,
   parseTargetFiles,
+  popLogHookM,
   prettyPrintGhcErrors,
   pushLogHookM,
   setSessionDynFlags,
@@ -130,9 +131,10 @@ withGhcInSession env prog argv = do
   pushLogHookM (const (logToState log))
   cache <- liftIO $ readMVar env.cache
   (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags (argv ++ map instrumentLocation (words cache.options.extraGhcOptions))
-  prettyPrintGhcErrors logger do
+  result <- prettyPrintGhcErrors logger do
     srcs <- initGhc dflags0 logger fileish_args dynamicFlagWarnings
     prog srcs
+  result <$ popLogHookM
 
 -- | Create a base session and store it in the cache.
 -- On subsequent calls, return the cached session, unless the cache is disabled or @reuse@ is true.
