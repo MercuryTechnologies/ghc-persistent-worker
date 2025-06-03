@@ -1,6 +1,5 @@
 module CompileHptTest where
 
-import Control.Concurrent (readMVar, threadDelay)
 import Control.Monad (unless, when)
 import Data.Char (toUpper)
 import Data.Foldable (fold, for_, traverse_)
@@ -126,7 +125,6 @@ stepCompile Conf {cache, tmp, args0} Module {unit, src} = do
     dbg ""
     dbg (">>> compiling " ++ takeFileName target.get)
     modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
-    cache' <- liftIO $ readMVar env.cache
     compileModuleWithDepsInHpt target
   when (isNothing result) do
       liftIO $ throwGhcExceptionIO (ProgramError "Compile failed")

@@ -14,7 +14,7 @@ import System.Environment (getEnv)
 import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process.Typed (proc, runProcess_)
-import Types.Args (Args (..))
+import Types.Args (Args (..), TargetId (..))
 
 -- | Global configuration for a worker compilation test.
 data Conf =
@@ -128,7 +128,7 @@ baseArgs :: FilePath -> FilePath -> Args
 baseArgs topdir tmp =
   Args {
     topdir = Just topdir,
-    workerTargetId = Just "test",
+    workerTargetId = Just (TargetId "test"),
     env = mempty,
     binPath = [],
     tempDir = Nothing,
