@@ -23,7 +23,6 @@ import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Prelude hiding (log)
 import System.Exit (ExitCode (ExitSuccess))
-import System.FilePath (takeBaseName)
 import System.Posix.Process (exitImmediately)
 import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
