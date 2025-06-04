@@ -20,7 +20,7 @@ import Data.Traversable (for)
 import GHC (Ghc, ModIface, ModuleName, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Data.FastString (FastString)
 import GHC.Driver.Env (HscEnv (..))
-import GHC.Driver.Monad (withSession)
+import GHC.Driver.Monad (modifySessionM, withSession)
 import GHC.Linker.Types (Linkable, LinkerEnv (..), Loader (..), LoaderState (..))
 import GHC.Ptr (Ptr)
 import GHC.Runtime.Interpreter (Interp (..))
@@ -251,7 +251,7 @@ newCacheFeatures = CacheFeatures {enable = True, loader = True, names = True, fi
 data Cache =
   Cache {
     features :: CacheFeatures,
-    interp :: Maybe InterpCache,
+    interpCache :: Maybe InterpCache,
     names :: OrigNameCache,
     stats :: Map Target CacheStats,
     path :: BinPath,
@@ -259,6 +259,7 @@ data Cache =
     eps :: ExternalUnitCache,
     hug :: Maybe HomeUnitGraph,
     moduleGraph :: Maybe ModuleGraph,
+    interp :: Maybe Interp,
     baseSession :: Maybe HscEnv,
     options :: Options
   }
@@ -275,7 +276,7 @@ emptyCacheWith features = do
   eps <- initExternalUnitCache
   newMVar Cache {
     features,
-    interp = Nothing,
+    interpCache = Nothing,
     names = emptyModuleEnv,
     stats = mempty,
     path = BinPath {
@@ -286,6 +287,7 @@ emptyCacheWith features = do
     eps,
     hug = Nothing,
     moduleGraph = Nothing,
+    interp = Nothing,
     baseSession = Nothing,
     options = defaultOptions
   }
@@ -403,7 +405,7 @@ restoreCache ::
   Cache ->
   IO (OrigNameCache, (SymbolCache, (Maybe LoaderState, Cache)))
 restoreCache target initialLoaderState initialSymbolCache initialNames cache
-  | Just InterpCache {..} <- cache.interp
+  | Just InterpCache {..} <- cache.interpCache
   = do
     (restoredLs, loaderStats) <- case initialLoaderState of
       Just sessionLs ->
@@ -430,7 +432,7 @@ initCache ::
   Cache ->
   IO Cache
 initCache loaderState symbols names Cache {names = _, ..} =
-  pure Cache {interp = Just InterpCache {..}, ..}
+  pure Cache {interpCache = Just InterpCache {..}, ..}
 
 updateLinkerEnv :: LinkerEnv -> LinkerEnv -> (LinkerEnv, LinkerStats)
 updateLinkerEnv cached session =
@@ -483,7 +485,7 @@ updateCache ::
 updateCache target InterpCache {..} newLoaderState newSymbols newNames cache = do
   (updatedLs, stats) <- updateLoaderState loaderState newLoaderState
   pure $ pushStats False target stats symbolsStats namesStats cache {
-    interp = Just InterpCache {
+    interpCache = Just InterpCache {
       loaderState = updatedLs,
       symbols = symbols <> newSymbols
     },
@@ -763,7 +765,7 @@ finalizeCache logVar workerId hsc_env target _ cache0 = do
             readMVar loaderStateVar >>= traverse \ newLoaderState -> do
               newSymbols <- readMVar symbolCacheVar
               newNames <- readMVar nsNames
-              maybe initCache (updateCache target) cache0.interp newLoaderState (SymbolCache newSymbols) newNames cache0
+              maybe initCache (updateCache target) cache0.interpCache newLoaderState (SymbolCache newSymbols) newNames cache0
         else pure cache0
       cache2 <-
         if cache0.features.hpt
@@ -811,18 +813,34 @@ logMemStats step logVar = do
   logMem "Max mem in use" s.max_mem_in_use_bytes
   logMem "Max live bytes" s.max_live_bytes
 
--- | Restore the shared state used by @compileHpt@ from the cache, consisting of the module graph and the HPT.
+-- | Restore the shared state used by @compileHpt@ from the cache, consisting of the module graph, the HPT, and the
+-- loader state and symbol cache that's contained in 'Interp'.
 -- The module graph is only modified by @computeMetadata@, so it will not be written back to the cache after
 -- compilation.
+--
+-- Managing 'Interp' is a bit difficult: The field 'hsc_interp' isn't initialized with everything else in 'newHscEnv',
+-- but only after parsing the command line arguments in 'setTopSessionDynFlags', since it needs to know the Ways of the
+-- session if an external interpreter is used.
+-- Therefore we grab the 'Interp' from the session when the cached value is absent, which amounts to the first
+-- compilation session of the build.
+-- When the cached value is present, on the other hand, we instead restore it into the session, making all subsequent
+-- sessions share the first one's 'Interp'.
+-- Both fields of 'Interp' are 'MVar's, so the state is shared immediately and concurrently.
 loadCacheMake ::
   MVar Log ->
   HscEnv ->
   Cache ->
-  IO (Cache, (HscEnv, ()))
+  IO (Cache, HscEnv)
 loadCacheMake logVar hsc_env cache = do
   logMemStats "load cache" logVar
-  pure (cache, (restoreModuleGraph (restoreHug hsc_env), ()))
+  pure (restoreModuleGraph . restoreHug <$> ensureInterp)
   where
+    ensureInterp = maybe storeInterp restoreInterp cache.interp
+
+    storeInterp = (cache {interp = hsc_env.hsc_interp}, hsc_env)
+
+    restoreInterp interp = (cache, hsc_env {hsc_interp = Just interp})
+
     restoreModuleGraph =
       maybe id (\ mg e -> e {hsc_mod_graph = mg}) cache.moduleGraph
 
@@ -852,9 +870,9 @@ withCacheMake ::
   Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
   Ghc (Maybe (Maybe ModuleArtifacts, a))
 withCacheMake logVar cacheVar prog = do
-  _ <- withSessionM restore
+  modifySessionM restore
   prog <* withSession store
   where
-    restore hsc_env = modifyMVar cacheVar (loadCacheMake logVar hsc_env)
+    restore hsc_env = liftIO (modifyMVar cacheVar (loadCacheMake logVar hsc_env))
 
     store hsc_env = liftIO (modifyMVar_ cacheVar (storeCacheMake logVar hsc_env))
