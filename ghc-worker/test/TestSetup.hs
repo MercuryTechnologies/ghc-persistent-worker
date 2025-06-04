@@ -6,8 +6,9 @@ import Data.Functor ((<&>))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Traversable (for)
 import GHC.Unit (UnitId, stringToUnitId, unitIdString)
-import Internal.Cache (Cache (..), CacheFeatures (..), emptyCacheWith)
+import Internal.Cache (Cache (..), emptyCacheWith)
 import Internal.Log (dbg)
+import Internal.State.Oneshot (OneshotCacheFeatures (..))
 import Prelude hiding (log)
 import System.Directory (createDirectoryIfMissing, listDirectory, withCurrentDirectory)
 import System.Environment (getEnv)
@@ -202,8 +203,7 @@ withProject mkTargets use =
     withCurrentDirectory tmp do
       for_ @[] ["src", "tmp", "out"] \ dir ->
         createDirectoryIfMissing False (tmp </> dir)
-      cache <- emptyCacheWith CacheFeatures {
-        hpt = True,
+      cache <- emptyCacheWith OneshotCacheFeatures {
         loader = False,
         enable = True,
         names = False,

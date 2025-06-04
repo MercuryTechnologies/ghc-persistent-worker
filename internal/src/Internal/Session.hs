@@ -38,18 +38,11 @@ import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
-import GHC.Utils.TmpFs (TempDir (..), initTmpFs, cleanTempFiles, cleanTempDirs)
-import Internal.Cache (
-  BinPath (..),
-  Cache (..),
-  CacheFeatures (..),
-  ModuleArtifacts,
-  Options (..),
-  withCache,
-  withCacheMake,
-  )
+import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
+import Internal.Cache (BinPath (..), Cache (..), ModuleArtifacts, Options (..), withCacheMake, withCacheOneshot)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log (..), logToState)
+import Internal.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 import Prelude hiding (log)
 import System.Environment (setEnv)
 import Types.Args (Args (..))
@@ -167,7 +160,7 @@ withGhcInSession env prog =
 ensureSession :: Bool -> MVar Cache -> Args -> IO HscEnv
 ensureSession reuse cacheVar args =
   modifyMVar cacheVar \ cache -> do
-    if cache.features.enable && reuse
+    if cache.oneshot.features.enable && reuse
     then do
       newEnv <- maybe (initHscEnv args.topdir) prepReused cache.baseSession
       pure (cache {baseSession = Just newEnv}, newEnv)
@@ -229,7 +222,7 @@ withGhc env =
   withGhcUsingCache cacheHandler env
   where
     cacheHandler target prog = do
-      result <- withCache env.log env.args.workerTargetId env.cache target do
+      result <- withCacheOneshot env.log env.args.workerTargetId env.cache target do
         res <- prog
         pure do
           a <- res
@@ -240,7 +233,7 @@ withGhc env =
 -- Return the interface and bytecode.
 withGhcDefault :: Env -> (Target -> Ghc (Maybe (Maybe ModuleArtifacts, a))) -> IO (Maybe (Maybe ModuleArtifacts, a))
 withGhcDefault env =
-  withGhcUsingCache (withCache env.log env.args.workerTargetId env.cache) env
+  withGhcUsingCache (withCacheOneshot env.log env.args.workerTargetId env.cache) env
 
 -- | Command line args that have to be stored in the current home unit env.
 -- These are specified as a single program argument with their option argument, without whitespace in between.

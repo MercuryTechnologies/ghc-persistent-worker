@@ -9,11 +9,9 @@ import Control.Exception (throwIO)
 import GhcWorker.GhcHandler (LockState (..), ghcHandler)
 import GhcWorker.Grpc (instrumentMethods)
 import GhcWorker.Instrumentation (WorkerStatus (..), toGrpcHandler)
-import GhcWorker.Orchestration (
-  CreateMethods (..),
-  runCentralGhcSpawned,
-  )
-import Internal.Cache (Cache (..), CacheFeatures (..), emptyCache, emptyCacheWith)
+import GhcWorker.Orchestration (CreateMethods (..), runCentralGhcSpawned)
+import Internal.Cache (Cache (..), emptyCache, emptyCacheWith)
+import Internal.State.Oneshot (OneshotCacheFeatures (..))
 import Network.GRPC.Common.Protobuf (Proto)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
 import Network.GRPC.Server.StreamType (Methods)
@@ -79,8 +77,7 @@ runWorker CliOptions {workerMode, serve} = do
   cache <-
     case workerMode of
       WorkerMakeMode ->
-        emptyCacheWith CacheFeatures {
-          hpt = True,
+        emptyCacheWith OneshotCacheFeatures {
           loader = False,
           enable = True,
           names = False,
