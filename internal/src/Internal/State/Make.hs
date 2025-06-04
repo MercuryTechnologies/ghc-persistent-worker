@@ -3,15 +3,13 @@
 module Internal.State.Make where
 
 import Control.Concurrent.MVar (MVar)
-import Control.Monad.IO.Class (liftIO)
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Runtime.Interpreter (Interp (..))
-import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import GHC.Types.Unique.DFM (plusUDFM)
 import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), unitEnv_insert, unitEnv_lookup, unitEnv_union)
 import GHC.Unit.Module.Graph (ModuleGraph)
-import GHC.Utils.Outputable (doublePrec, text, (<+>))
-import Internal.Log (Log, logd)
+import Internal.Log (Log)
+import Internal.State.Stats (logMemStats)
 
 #if defined(MWB)
 
@@ -47,15 +45,6 @@ data MakeState =
     -- state for consistency.
     interp :: Maybe Interp
   }
-
-logMemStats :: String -> MVar Log -> IO ()
-logMemStats step logVar = do
-  s <- liftIO getRTSStats
-  let logMem desc value = logd logVar (text (desc ++ ":") <+> doublePrec 2 (fromIntegral value / 1_000_000) <+> text "MB")
-  logd logVar (text ("-------------- " ++ step))
-  logMem "Mem in use" s.gc.gcdetails_mem_in_use_bytes
-  logMem "Max mem in use" s.max_mem_in_use_bytes
-  logMem "Max live bytes" s.max_live_bytes
 
 -- | Restore the shared state used by both @computeMetadata@ and @compileHpt@ from the cache.
 -- See 'loadCacheMakeCompile' for details.

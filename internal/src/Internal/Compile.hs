@@ -28,8 +28,9 @@ import GHC.Types.SourceFile (HscSource)
 import GHC.Unit.Home.ModInfo (HomeModLinkable (..))
 import GHC.Utils.Monad (MonadIO (..), unlessM)
 import GHC.Utils.Panic (panic, throwGhcExceptionIO)
-import Internal.Cache (ModuleArtifacts (..), Target (..))
+import Internal.Cache (ModuleArtifacts (..))
 import System.Directory (doesFileExist)
+import Types.State (Target (Target))
 
 type P m = TPipelineClass TPhase m
 

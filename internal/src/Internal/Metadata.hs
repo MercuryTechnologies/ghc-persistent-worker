@@ -15,7 +15,8 @@ import GHC.Unit.Home.ModInfo (emptyHomePackageTable)
 import Internal.Cache (Cache (..), updateMakeStateVar)
 import Internal.MakeFile (doMkDependHS)
 import Internal.Session (Env (..), runSession, withDynFlags)
-import Internal.State.Make (insertUnitEnv, loadState, logMemStats, storeModuleGraph)
+import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
+import Internal.State.Stats (logMemStats)
 
 -- | 'doMkDependHS' needs this to be enabled.
 metadataTempSession :: HscEnv -> HscEnv

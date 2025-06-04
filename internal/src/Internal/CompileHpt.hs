@@ -13,8 +13,9 @@ import GHC.Unit.Env (addHomeModInfoToHug, ue_unsafeHomeUnit)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
-import Internal.Cache (ModuleArtifacts (..), Target (..))
+import Internal.Cache (ModuleArtifacts (..))
 import Internal.Error (eitherMessages)
+import Types.State (Target (Target))
 
 -- | Insert a compilation result into the current unit's home package table, as it is done by upsweep.
 addDepsToHscEnv :: [HomeModInfo] -> HscEnv -> HscEnv

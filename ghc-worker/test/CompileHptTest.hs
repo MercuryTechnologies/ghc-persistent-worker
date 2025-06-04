@@ -19,16 +19,17 @@ import GHC.Driver.Session (parseDynamicFlagsCmdLine)
 import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
-import Internal.Cache (Target (..), logMemStats)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (dbg, dbgp, dbgs, newLog)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhcMhu)
+import Internal.State.Stats (logMemStats)
 import Prelude hiding (log)
 import System.Directory (createDirectoryIfMissing, listDirectory, removeDirectoryRecursive)
 import System.FilePath (dropExtension, takeBaseName, takeExtension, takeFileName, (</>))
 import TestSetup (Conf (..), Module (..), ModuleSpec (..), Unit (..), UnitSpec (..), withProject)
 import Types.Args (Args (..))
+import Types.State (Target (..))
 
 -- | Parse command line flags, used to create unit-specific @DynFlags@.
 unitFlags :: [String] -> HscEnv -> Ghc DynFlags
@@ -76,7 +77,7 @@ stepCompile Conf {cache, tmp, args0} Module {unit, src} = do
   liftIO $ createDirectoryIfMissing False sessionTmpDir
   result <- liftIO $ withGhcMhu env \ _ target -> do
     dbg ""
-    dbg (">>> compiling " ++ takeFileName target.get)
+    dbg (">>> compiling " ++ takeFileName target.path)
     modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
     compileModuleWithDepsInHpt target
   when (isNothing result) do
