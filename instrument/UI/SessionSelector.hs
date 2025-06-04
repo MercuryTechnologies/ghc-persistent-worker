@@ -3,11 +3,12 @@ module UI.SessionSelector where
 import Brick.Types (EventM, Widget)
 import Brick.Widgets.Core (str)
 import Brick.Widgets.List (GenericList, list, listElementsL, listSelectedL, renderList)
+import Control.Monad.IO.Class (liftIO)
 import Data.Sequence qualified as Seq
-import Data.Time (UTCTime)
+import Data.Time (UTCTime, getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
 import Internal.Cache (Options)
-import Lens.Micro.Platform (Traversal', each, filtered, modifying, zoom, (.=), _2)
+import Lens.Micro.Platform (Traversal', each, filtered, modifying, preuse, zoom, (.=), _2)
 import UI.Session qualified as Session
 import UI.Types (Name (SessionSelector))
 import UI.Utils (popup)
@@ -15,9 +16,11 @@ import UI.Utils (popup)
 type State = GenericList Name Seq.Seq (Session.Id, Session.State)
 
 data Event
-  = StartSession Session.Id UTCTime (Options -> IO ())
-  | EndSession Session.Id UTCTime
+  = StartSession Session.Id UTCTime
+  | EndSession Session.Id
   | SessionEvent Session.Id Session.Event
+  | AddWorker Session.Id Session.WorkerId UTCTime (Options -> IO ())
+  | RemoveWorker Session.Id Session.WorkerId
 
 initialState :: State
 initialState = list SessionSelector Seq.empty 1
@@ -32,7 +35,8 @@ draw ss =
         [ if isSel then "> " else "  "
         , _title
         , " - "
-        , maybe "Running..." (take 19 . iso8601Show) _sesEndTime
+        , show (length _workers)
+        , " workers"
         ]
 
 sessionLens :: Session.Id -> Traversal' State (Session.State)
@@ -40,15 +44,26 @@ sessionLens sid =
   listElementsL . each . filtered ((== sid) . fst) . _2
 
 handleEvent :: Event -> EventM Name State ()
-handleEvent (StartSession sid start sendOpts) = do
+handleEvent (AddWorker sid wid time sendOpts) = do
+  session <- preuse (sessionLens sid)
+  case session of
+    Nothing -> handleEvent (StartSession sid time)
+    _ -> pure ()
+  zoom (sessionLens sid) $ do
+    modifying Session.workers (Session.Worker wid sendOpts mempty :)
+    modifying Session.sesStartTime (min time)
+handleEvent (RemoveWorker sid wid) = do
+  zoom (sessionLens sid) $ Session.removeWorker wid
+handleEvent (StartSession sid start) = do
   modifying
-    (listElementsL)
+    listElementsL
     ( \m ->
         let i = Seq.length m + 1
             stitle = "Session " ++ show i ++ "  " ++ take 19 (iso8601Show start)
-         in Seq.insertAt 0 (sid, Session.mkSession stitle start sendOpts) m
+         in Seq.insertAt 0 (sid, Session.mkSession stitle start) m
     )
   listSelectedL .= Just 0
-handleEvent (EndSession sid end) = do
+handleEvent (EndSession sid) = do
+  end <- liftIO getCurrentTime
   modifying (sessionLens sid . Session.sesEndTime) (const $ Just end)
 handleEvent (SessionEvent sid evt) = zoom (sessionLens sid) (Session.handleEvent evt)

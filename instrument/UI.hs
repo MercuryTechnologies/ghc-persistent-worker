@@ -13,6 +13,7 @@ import Brick.Widgets.Center (center)
 import Brick.Widgets.Core (joinBorders, modifyDefAttr, str, vBox, withBorderStyle, (<+>))
 import Brick.Widgets.Edit (editFocusedAttr)
 import Brick.Widgets.List (handleListEvent, listSelectedAttr, listSelectedElement, listSelectedElementL, listSelectedFocusedAttr)
+import Control.Exception (handle)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
 import Data.Text qualified as Text
@@ -20,7 +21,7 @@ import Data.Time (UTCTime (..), fromGregorian)
 import Graphics.Vty qualified as V
 import Graphics.Vty.Attributes.Color
 import Internal.Cache (Options (..), defaultOptions)
-import Lens.Micro.Platform (Lens', lens, makeLenses, packed, preuse, use, zoom, (.=), _2)
+import Lens.Micro.Platform (Lens', lens, makeLenses, packed, use, zoom, (.=), _2)
 import UI.ActiveTasks qualified as ActiveTasks
 import UI.ModuleSelector qualified as ModuleSelector
 import UI.Session qualified as Session
@@ -29,7 +30,7 @@ import UI.Types (Name (..))
 import UI.Utils (popup)
 
 data Event
-  = SendOptions
+  = SendOptions (Maybe Session.WorkerId)
   | SetTime UTCTime
   | SessionSelectorEvent SessionSelector.Event
 
@@ -90,11 +91,16 @@ drawOptionsEditor form = popup 50 "Session Options" $ renderForm form
 
 handleEvent :: BrickEvent Name Event -> EventM Name State ()
 handleEvent (AppEvent (SetTime t)) = currentTime .= t
-handleEvent (AppEvent SendOptions) = do
+handleEvent (AppEvent (SendOptions mwid)) = do
   opts <- use options
-  sendOpts <- preuse (sessions . listSelectedElementL)
-  for_ sendOpts $ \(_, s) -> do
-    liftIO $ Session._sendOptions s (formState opts)
+  workers <- use (sessions . listSelectedElementL . _2 . Session.workers)
+  let workers' = case mwid of
+        Nothing -> workers
+        Just wid -> filter (\w -> w._workerId == wid) workers
+  for_ workers' $ \worker -> do
+    liftIO $
+      handle @IOError (\_ -> pure ()) $
+        Session._sendOptions worker (formState opts)
 handleEvent (AppEvent (SessionSelectorEvent evt)) =
   zoom sessions (SessionSelector.handleEvent evt)
 handleEvent (VtyEvent evt) = do
@@ -110,7 +116,7 @@ handleEvent (VtyEvent evt) = do
     OptionsEditor -> do
       let hide = do
             currentFocus .= ModuleSelector
-            handleEvent (AppEvent SendOptions)
+            handleEvent (AppEvent (SendOptions Nothing))
       case evt of
         V.EvKey V.KEsc [] -> hide
         V.EvKey V.KEnter [] -> hide
