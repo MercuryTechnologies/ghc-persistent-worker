@@ -2,66 +2,24 @@
 
 module Internal.Cache where
 
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
-import Control.Monad (join)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Data.Bifunctor (first)
-import Data.Coerce (coerce)
-import Data.IORef (readIORef)
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
-import Data.Maybe (fromMaybe)
 import Data.Set (Set)
-import Data.Traversable (for)
 import GHC (Ghc, ModIface, emptyMG, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Monad (modifySessionM, withSession)
-import GHC.Linker.Types (Linkable, LinkerEnv (..), Loader (..), LoaderState (..))
-import GHC.Runtime.Interpreter (Interp (..))
-import GHC.Types.Name.Cache (NameCache (..), OrigNameCache)
-import GHC.Types.Unique.DFM (plusUDFM)
-import GHC.Unit.Env (UnitEnv (..), unitEnv_new)
-import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
-import GHC.Unit.Finder (InstalledFindResult (..))
-import GHC.Unit.Finder.Types (FinderCache (..))
-import GHC.Unit.Module.Env (InstalledModuleEnv, emptyModuleEnv, plusModuleEnv)
+import GHC.Linker.Types (Linkable)
+import GHC.Unit.Env (unitEnv_new)
 import GHC.Unit.Module.Graph (ModuleGraph)
 import Internal.Log (Log)
 import qualified Internal.State.Make as Make
 import Internal.State.Make (MakeState (..))
+import qualified Internal.State.Oneshot as Oneshot
+import Internal.State.Oneshot (OneshotCacheFeatures (..), OneshotState, newOneshotCacheFeatures, newOneshotStateWith)
 import qualified Internal.State.Stats as Stats
-import Internal.State.Stats (
-  CacheStats (..),
-  LinkerStats (..),
-  LoaderStats (..),
-  StatsUpdate (..),
-  SymbolsStats (..),
-  basicLinkerStats,
-  basicLoaderStats,
-  basicSymbolsStats,
-  emptyLinkerStats,
-  emptyStats,
-  )
 import System.Environment (lookupEnv)
 import Types.Args (TargetId (..))
-import Types.State (SymbolCache (..), SymbolMap, Target)
-
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
-
-import Data.IORef (IORef, newIORef)
-import qualified Data.Map.Lazy as LazyMap
-import GHC.Fingerprint (Fingerprint, getFileHash)
-import GHC.IORef (atomicModifyIORef')
-import GHC.Unit (InstalledModule, emptyInstalledModuleEnv, extendInstalledModuleEnv, lookupInstalledModuleEnv)
-import GHC.Unit.Finder (FinderCache (..), InstalledFindResult (..))
-import GHC.Utils.Panic (panic)
-import Internal.State.Stats (FinderStats (..))
-
-#else
-
-import GHC.Unit.Finder (initFinderCache)
-
-#endif
+import Types.State (Target)
 
 data ModuleArtifacts =
   ModuleArtifacts {
@@ -73,12 +31,6 @@ instance Show ModuleArtifacts where
   show ModuleArtifacts {iface} =
     "ModuleArtifacts { iface = " ++ moduleNameString (moduleName (mi_module iface)) ++ " }"
 
-data InterpCache =
-  InterpCache {
-    loaderState :: LoaderState,
-    symbols :: SymbolCache
-  }
-
 data BinPath =
   BinPath {
     initial :: Maybe String,
@@ -86,70 +38,13 @@ data BinPath =
   }
   deriving stock (Eq, Show)
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
-
-data FinderState =
-  FinderState {
-     modules :: IORef (InstalledModuleEnv InstalledFindResult),
-     files :: IORef (Map String Fingerprint)
-  }
-
-emptyFinderState :: MonadIO m => m FinderState
-emptyFinderState =
-  liftIO do
-    modules <- newIORef emptyInstalledModuleEnv
-    files <- newIORef LazyMap.empty
-    pure FinderState {modules, files}
-
-finderEnv :: FinderState -> IO (InstalledModuleEnv InstalledFindResult)
-finderEnv FinderState {modules} =
-  readIORef modules
-
-#else
-
-data FinderState =
-  FinderState {
-    cache :: FinderCache
-  }
-
-emptyFinderState :: MonadIO m => m FinderState
-emptyFinderState =
-  liftIO do
-    cache <- initFinderCache
-    pure FinderState {cache}
-
-finderEnv :: FinderState -> IO (InstalledModuleEnv InstalledFindResult)
-finderEnv FinderState {cache = FinderCache {fcModuleCache}} =
-  readIORef fcModuleCache
-
-#endif
-
-data CacheFeatures =
-  CacheFeatures {
-    enable :: Bool,
-    loader :: Bool,
-    names :: Bool,
-    finder :: Bool,
-    eps :: Bool,
-    hpt :: Bool
-  }
-  deriving stock (Eq, Show)
-
-newCacheFeatures :: CacheFeatures
-newCacheFeatures = CacheFeatures {enable = True, loader = True, names = True, finder = True, eps = True, hpt = False}
-
 data Cache =
   Cache {
-    features :: CacheFeatures,
-    interpCache :: Maybe InterpCache,
-    names :: OrigNameCache,
-    stats :: Map Target CacheStats,
     path :: BinPath,
-    finder :: FinderState,
-    eps :: ExternalUnitCache,
     baseSession :: Maybe HscEnv,
     options :: Options,
-    make :: MakeState
+    make :: MakeState,
+    oneshot :: OneshotState
   }
 
 data Options =
@@ -157,195 +52,47 @@ data Options =
     extraGhcOptions :: String
   }
 
-emptyCacheWith :: CacheFeatures -> IO (MVar Cache)
+emptyCacheWith :: OneshotCacheFeatures -> IO (MVar Cache)
 emptyCacheWith features = do
   initialPath <- lookupEnv "PATH"
-  finder <- emptyFinderState
-  eps <- initExternalUnitCache
+  oneshot <- newOneshotStateWith features
   newMVar Cache {
-    features,
-    interpCache = Nothing,
-    names = emptyModuleEnv,
-    stats = mempty,
     path = BinPath {
       initial = initialPath,
       extra = mempty
     },
-    finder,
-    eps,
     baseSession = Nothing,
     options = defaultOptions,
     make = MakeState {
       moduleGraph = emptyMG,
       hug = unitEnv_new mempty,
       interp = Nothing
-    }
+    },
+    oneshot
   }
 
 emptyCache :: Bool -> IO (MVar Cache)
 emptyCache enable = do
-  emptyCacheWith newCacheFeatures {enable}
+  emptyCacheWith newOneshotCacheFeatures {enable}
+
+-- | Update the 'MakeState' field in the 'Cache'.
+updateMakeState :: (MakeState -> MakeState) -> Cache -> Cache
+updateMakeState f cache = cache {make = f cache.make}
+
+updateMakeStateVar :: MVar Cache -> (MakeState -> MakeState) -> IO ()
+updateMakeStateVar var f = modifyMVar_ var (pure . updateMakeState f)
+
+updateOneshotState :: (OneshotState -> OneshotState) -> Cache -> Cache
+updateOneshotState f cache = cache {oneshot = f cache.oneshot}
+
+updateOneshotStateVar :: MVar Cache -> (OneshotState -> OneshotState) -> IO ()
+updateOneshotStateVar var f = modifyMVar_ var (pure . updateOneshotState f)
 
 defaultOptions :: Options
 defaultOptions =
   Options {
     extraGhcOptions = ""
   }
-
-restoreLinkerEnv :: LinkerEnv -> LinkerEnv -> (LinkerEnv, LinkerStats)
-restoreLinkerEnv cached session =
-  (merged, basicLinkerStats session cached)
-  where
-    merged =
-      LinkerEnv {
-        -- UniqFM, <> right-biased
-        closure_env =
-          cached.closure_env
-          <>
-          session.closure_env,
-        -- UniqFM, <> right-biased
-        itbl_env = cached.itbl_env <> session.itbl_env,
-        -- UniqFM, <> right-biased
-        addr_env = cached.addr_env <> session.addr_env
-      }
-
-restoreLoaderState ::
-  LoaderState ->
-  LoaderState ->
-  IO (LoaderState, Maybe LoaderStats)
-restoreLoaderState cached session =
-  pure (merged, Just (basicLoaderStats session cached linkerStats))
-  where
-    merged =
-      LoaderState {
-        linker_env,
-        -- ModuleEnv, left-biased
-        bcos_loaded = plusModuleEnv session.bcos_loaded cached.bcos_loaded,
-        -- ModuleEnv, left-biased
-        objs_loaded = plusModuleEnv session.objs_loaded cached.objs_loaded,
-        -- UniqDFM, depends on the elements in the maps
-        pkgs_loaded = plusUDFM cached.pkgs_loaded session.pkgs_loaded,
-        temp_sos = session.temp_sos
-      }
-
-    (linker_env, linkerStats) = restoreLinkerEnv cached.linker_env session.linker_env
--- | Update the 'MakeState' field in the 'Cache'.
-updateMakeState :: (MakeState -> MakeState) -> Cache -> Cache
-updateMakeState f cache = cache {make = f cache.make}
-
-modifyStats :: Target -> (CacheStats -> CacheStats) -> Cache -> Cache
-modifyStats target f cache =
-  cache {stats = Map.alter (Just . f . fromMaybe emptyStats) target cache.stats}
-updateMakeStateVar :: MVar Cache -> (MakeState -> MakeState) -> IO ()
-updateMakeStateVar var f = modifyMVar_ var (pure . updateMakeState f)
-
-pushStats :: Bool -> Target -> Maybe LoaderStats -> SymbolsStats -> Cache -> Cache
-pushStats restoring target (Just new) symbols =
-  modifyStats target add
-  where
-    add old | restoring = old {restore = old.restore {loaderStats = new, symbols}}
-            | otherwise = old {update = old.update {loaderStats = new, symbols}}
-pushStats _ _ _ _ =
-  id
-
-restoreCache ::
-  Target ->
-  Maybe LoaderState ->
-  SymbolCache ->
-  OrigNameCache ->
-  Cache ->
-  IO (OrigNameCache, (SymbolCache, (Maybe LoaderState, Cache)))
-restoreCache target initialLoaderState initialSymbolCache initialNames cache
-  | Just InterpCache {..} <- cache.interpCache
-  = do
-    (restoredLs, loaderStats) <- case initialLoaderState of
-      Just sessionLs ->
-        restoreLoaderState loaderState sessionLs
-      Nothing ->
-        pure (loaderState, Nothing)
-    let
-      newSymbols = initialSymbolCache <> symbols
-      symbolsStats = basicSymbolsStats initialSymbolCache symbols
-      newCache = pushStats True target loaderStats symbolsStats cache
-      -- this overwrites entire modules, since OrigNameCache is a three-level map.
-      -- eventually we'll want to merge properly.
-      names = plusModuleEnv initialNames cache.names
-    pure (names, (newSymbols, (Just restoredLs, newCache)))
-
-  | otherwise
-  = pure (initialNames, (initialSymbolCache, (initialLoaderState, cache)))
-
-initCache ::
-  LoaderState ->
-  SymbolCache ->
-  OrigNameCache ->
-  Cache ->
-  IO Cache
-initCache loaderState symbols names Cache {names = _, ..} =
-  pure Cache {interpCache = Just InterpCache {..}, ..}
-
-updateLinkerEnv :: LinkerEnv -> LinkerEnv -> (LinkerEnv, LinkerStats)
-updateLinkerEnv cached session =
-  (merged, basicLinkerStats cached session)
-  where
-    merged =
-      LinkerEnv {
-        -- UniqFM, <> right-biased
-        closure_env =
-          cached.closure_env
-          <>
-          session.closure_env,
-        -- UniqFM, <> right-biased
-        itbl_env = cached.itbl_env <> session.itbl_env,
-        -- UniqFM, <> right-biased
-        addr_env = cached.addr_env <> session.addr_env
-      }
-
-updateLoaderState ::
-  LoaderState ->
-  LoaderState ->
-  IO (LoaderState, Maybe LoaderStats)
-updateLoaderState cached session = do
-  pure (merged, Just stats {linker = linkerStats})
-  where
-    merged =
-      LoaderState {
-        linker_env,
-        -- ModuleEnv, left-biased
-        bcos_loaded = plusModuleEnv session.bcos_loaded cached.bcos_loaded,
-        -- ModuleEnv, left-biased
-        objs_loaded = plusModuleEnv session.objs_loaded cached.objs_loaded,
-        -- UniqDFM, depends on the elements in the maps
-        pkgs_loaded = plusUDFM cached.pkgs_loaded session.pkgs_loaded,
-        temp_sos = session.temp_sos
-      }
-
-    (linker_env, linkerStats) = updateLinkerEnv cached.linker_env session.linker_env
-
-    stats = basicLoaderStats cached session emptyLinkerStats
-
-updateCache ::
-  Target ->
-  InterpCache ->
-  LoaderState ->
-  SymbolCache ->
-  OrigNameCache ->
-  Cache ->
-  IO Cache
-updateCache target InterpCache {..} newLoaderState newSymbols newNames cache = do
-  (updatedLs, stats) <- updateLoaderState loaderState newLoaderState
-  pure $ pushStats False target stats symbolsStats cache {
-    interpCache = Just InterpCache {
-      loaderState = updatedLs,
-      symbols = symbols <> newSymbols
-    },
-    -- for now: when a module is compiled, its names are definitely complete, so when a downstream module uses it as a
-    -- dep, we don't want to overwrite the previous entry.
-    -- but when we recompile parts of the tree this is different, so wel'll want to merge properly.
-    names = plusModuleEnv newNames cache.names
-  }
-  where
-    symbolsStats = basicSymbolsStats symbols newSymbols
 
 -- | Log a report for a completed compilation, using 'reportMessages' to assemble the content.
 report ::
@@ -357,130 +104,13 @@ report ::
   Cache ->
   m ()
 report logVar workerId target cache = do
-  Stats.report logVar workerId target (if cache.features.enable then Just cache.stats else Nothing)
-
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
-
--- | This replacement of the Finder implementation has the sole purpose of recording some cache stats, for now.
--- While its mutable state is allocated separately and shared across sessions, this doesn't really make a difference at
--- the moment since we're also initializing each compilation session with a shared @HscEnv@.
--- Ultimately this might be used to exert some more control over what modules GHC is allowed to access by using Buck's
--- deps, or some additional optimization.
-newFinderCache :: MVar Cache -> Cache -> Target -> IO FinderCache
-newFinderCache cacheVar Cache {finder = FinderState {modules, files}} target = do
-  let flushFinderCaches :: UnitEnv -> IO ()
-      flushFinderCaches _ = panic "GHC attempted to flush finder caches, which shouldn't happen in worker mode"
-
-      addToFinderCache :: InstalledModule -> InstalledFindResult -> IO ()
-      addToFinderCache key val =
-        atomicModifyIORef' modules $ \c ->
-          case (lookupInstalledModuleEnv c key, val) of
-            (Just InstalledFound{}, InstalledNotFound{}) -> (c, ())
-            _ -> (extendInstalledModuleEnv c key val, ())
-
-      lookupFinderCache :: InstalledModule -> IO (Maybe InstalledFindResult)
-      lookupFinderCache key = do
-        c <- readIORef modules
-        let result = lookupInstalledModuleEnv c key
-        case result of
-          Just _ -> cacheHit key
-          Nothing -> cacheMiss key
-        pure $! result
-
-      lookupFileCache :: FilePath -> IO Fingerprint
-      lookupFileCache key = do
-         fc <- readIORef files
-         case LazyMap.lookup key fc of
-           Nothing -> do
-             hash <- getFileHash key
-             atomicModifyIORef' files $ \c -> (LazyMap.insert key hash c, ())
-             return hash
-           Just fp -> return fp
-  return FinderCache {..}
-  where
-    cacheHit m =
-      updateStats \ FinderStats {hits, ..} -> FinderStats {hits = incStat m hits, ..}
-
-    cacheMiss m =
-      updateStats \ FinderStats {misses, ..} -> FinderStats {misses = incStat m misses, ..}
-
-    incStat m = Map.alter (Just . succ . fromMaybe 0) (moduleName m)
-
-    updateStats f =
-      modifyMVar_ cacheVar $ pure . modifyStats target \ CacheStats {..} -> CacheStats {finder = f finder, ..}
-
-#else
-
-newFinderCache :: MVar Cache -> Cache -> Target -> IO FinderCache
-newFinderCache _ Cache {finder = FinderState {cache}} _ = pure cache
-
-#endif
-
-withHscState :: HscEnv -> (MVar OrigNameCache -> MVar (Maybe LoaderState) -> MVar SymbolMap -> IO a) -> IO (Maybe a)
-withHscState HscEnv {hsc_interp, hsc_NC = NameCache {nsNames}} use =
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
-  for hsc_interp \ Interp {interpLoader = Loader {loader_state}, interpLookupSymbolCache} ->
-    liftIO $ use nsNames loader_state interpLookupSymbolCache
-#else
-  for hsc_interp \ Interp {interpLoader = Loader {loader_state}} ->
-    liftIO do
-    symbolCacheVar <- newMVar mempty
-    use nsNames loader_state symbolCacheVar
-#endif
-
--- | Restore cache parts that depend on the 'Target'.
-setTarget :: MVar Cache -> Cache -> Target -> HscEnv -> IO HscEnv
-setTarget cacheVar cache target hsc_env = do
-  -- The Finder cache is already shared by the base session, but with this, we can additionally inject the target file
-  -- for stats collection.
-  -- Only has an effect if the patch that abstracts the 'FinderCache' interface is in GHC, so >= 9.12.
-  if cache.features.finder
-  then restoreFinderCache hsc_env
-  else pure hsc_env
-  where
-    restoreFinderCache e = do
-      hsc_FC <- newFinderCache cacheVar cache target
-      pure e {hsc_FC}
-
--- | Restore cache parts related to oneshot mode.
-restoreOneshotCache :: Cache -> HscEnv -> IO HscEnv
-restoreOneshotCache cache hsc_env = do
-  -- If the feature is enabled, restore the EPS.
-  -- This is only relevant for the oneshot worker, but even there the base session should already be sharing the EPS
-  -- across modules.
-  -- Might be removed soon.
-  pure
-    if cache.features.eps
-    then restoreCachedEps hsc_env
-    else hsc_env
-  where
-    restoreCachedEps e = e {hsc_unit_env = e.hsc_unit_env {ue_eps = cache.eps}}
+  Stats.report logVar workerId target (if cache.oneshot.features.enable then Just cache.oneshot.stats else Nothing)
 
 -- | Merge the given module graph into the cached graph.
 -- This is used by the make mode worker after the metadata step has computed the module graph.
 updateModuleGraph :: MVar Cache -> ModuleGraph -> IO ()
 updateModuleGraph cacheVar new =
   updateMakeStateVar cacheVar (Make.storeModuleGraph new)
-
-prepareCache :: MVar Cache -> Target -> HscEnv -> Cache -> IO (Cache, (HscEnv, Bool))
-prepareCache cacheVar target hsc_env0 cache0 = do
-  result <-
-    if cache0.features.enable
-    then do
-      hsc_env1 <- restoreOneshotCache cache0 =<< setTarget cacheVar cache0 target hsc_env0
-      if cache0.features.loader
-      then do
-        withHscState hsc_env1 \ nsNames loaderStateVar symbolCacheVar -> do
-          cache1 <- modifyMVar loaderStateVar \ initialLoaderState ->
-            modifyMVar symbolCacheVar \ initialSymbolCache ->
-              (first coerce) <$>
-              modifyMVar nsNames \ names ->
-                restoreCache target initialLoaderState (SymbolCache initialSymbolCache) names cache0
-          pure (hsc_env1, cache1)
-      else pure (Just (hsc_env1, cache0))
-    else pure Nothing
-  let (hsc_env1, cache1) = fromMaybe (hsc_env0, cache0 {features = cache0.features {loader = False}}) result
-  pure (cache1, (hsc_env1, cache1.features.enable))
 
 finalizeCache ::
   MVar Log ->
@@ -492,18 +122,8 @@ finalizeCache ::
   Cache ->
   IO Cache
 finalizeCache logVar workerId hsc_env target _ cache0 = do
-  cache1 <-
-    if cache0.features.enable
-    then do
-      if cache0.features.loader
-      then do
-        fromMaybe cache0 . join <$> withHscState hsc_env \ nsNames loaderStateVar symbolCacheVar ->
-          readMVar loaderStateVar >>= traverse \ newLoaderState -> do
-            newSymbols <- readMVar symbolCacheVar
-            newNames <- readMVar nsNames
-            maybe initCache (updateCache target) cache0.interpCache newLoaderState (SymbolCache newSymbols) newNames cache0
-      else pure cache0
-    else pure cache0
+  oneshot <- Oneshot.storeState hsc_env target cache0.oneshot
+  let cache1 = cache0 {oneshot}
   report logVar workerId target cache1
   pure cache1
 
@@ -514,7 +134,7 @@ withSessionM use =
     setSession new_env
     pure a
 
-withCache ::
+withCacheOneshot ::
   MVar Log ->
   -- | A description of the current worker process.
   Maybe TargetId ->
@@ -522,8 +142,10 @@ withCache ::
   Target ->
   Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
   Ghc (Maybe (Maybe ModuleArtifacts, a))
-withCache logVar workerId cacheVar target prog = do
-  _ <- withSessionM \ hsc_env -> modifyMVar cacheVar (prepareCache cacheVar target hsc_env)
+withCacheOneshot logVar workerId cacheVar target prog = do
+  _ <- withSessionM \ hsc_env -> modifyMVar cacheVar \ cache -> do
+    (oneshot, result) <- Oneshot.loadState (updateOneshotStateVar cacheVar) target hsc_env cache.oneshot
+    pure (cache {oneshot}, result)
   result <- prog
   finalize (fst =<< result)
   pure result
@@ -532,11 +154,11 @@ withCache logVar workerId cacheVar target prog = do
       withSession \ hsc_env ->
         liftIO (modifyMVar_ cacheVar (finalizeCache logVar workerId hsc_env target art))
 
--- | This reduced version of 'withCache' is tailored specifically to make mode, only restoring the HUG and module graph
--- from the cache, since those are the only two components modified by the worker that aren't already shared by the base
--- session.
+-- | This reduced version of 'withCache' is tailored specifically to make mode, only restoring the HUG, module graph and
+-- interpreter state from the cache, since those are the only two components modified by the worker that aren't already
+-- shared by the base session.
 --
--- The mechanisms in in 'withCache' are partially legacy experiments whose purpose was to explore which data can be
+-- The mechanisms in 'withCache' are partially legacy experiments whose purpose was to explore which data can be
 -- shared manually in oneshot mode, so this variant will be improved more deliberately.
 withCacheMake ::
   MVar Log ->
