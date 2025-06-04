@@ -336,11 +336,3 @@ withGhcMhu env f =
           a <- res
           pure (Nothing, a)
       pure (snd <$> result)
-
--- | Like @withGhcMhu@, specialized to @ModuleArtifacts@.
-withGhcMhuDefault ::
-  Env ->
-  ([String] -> Target -> Ghc (Maybe (Maybe ModuleArtifacts, a))) ->
-  IO (Maybe (Maybe ModuleArtifacts, a))
-withGhcMhuDefault env =
-  withGhcUsingCacheMhu (withCache env.log env.args.workerTargetId env.cache) env
