@@ -198,10 +198,6 @@ runSession reuse Env {log, args, cache} prog = do
     cleanup session =
       flip unGhc session do
         hsc_env <- getSession
-        liftIO $ modifyMVar_ cache \case
-          Cache {baseSession = Just cachedEnv@HscEnv {hsc_interp = Nothing}, ..} ->
-            pure Cache {baseSession = Just cachedEnv {hsc_interp = hsc_env.hsc_interp}, ..}
-          c -> pure c
         liftIO $ unless (gopt Opt_KeepTmpFiles (hsc_dflags hsc_env)) do
           let tmpfs = hsc_tmpfs hsc_env
               logger = hsc_logger hsc_env
