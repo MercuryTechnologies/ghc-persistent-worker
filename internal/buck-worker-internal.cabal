@@ -33,6 +33,7 @@ library
                       Internal.Metadata
                       Internal.Session
                       Internal.State.Make
+                      Internal.State.Oneshot
                       Internal.State.Stats
 
     if (impl(ghc >= 9.9))
