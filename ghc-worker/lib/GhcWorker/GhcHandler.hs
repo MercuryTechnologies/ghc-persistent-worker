@@ -15,7 +15,7 @@ import GHC.Driver.Monad (modifySession)
 import GhcWorker.CompileResult (CompileResult (..), writeCloseOutput, writeResult)
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
-import Internal.Cache (Cache (..), ModuleArtifacts (..), Target (..))
+import Internal.Cache (Cache (..), ModuleArtifacts (..))
 import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (LogName (..), dbg, logFlush, newLog)
@@ -27,6 +27,7 @@ import System.Posix.Process (exitImmediately)
 import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
 import Types.GhcHandler (WorkerMode (..))
+import Types.State (Target (Target))
 
 data LockState = LockStart | LockFreeze Int | LockThaw Int | LockEnd
   deriving stock (Eq, Show)

@@ -33,6 +33,7 @@ library
                       Internal.Metadata
                       Internal.Session
                       Internal.State.Make
+                      Internal.State.Stats
 
     if (impl(ghc >= 9.9))
         build-depends: base ^>=4.20
