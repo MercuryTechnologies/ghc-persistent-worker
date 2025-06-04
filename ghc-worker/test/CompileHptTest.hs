@@ -2,24 +2,20 @@ module CompileHptTest where
 
 import Control.Monad (unless, when)
 import Data.Char (toUpper)
-import Data.Foldable (fold, for_, traverse_)
+import Data.Foldable (for_, traverse_)
 import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict ((!?))
 import Data.Maybe (catMaybes, isNothing)
-import qualified Data.Set as Set
-import Data.Set (Set)
-import GHC (DynFlags (..), Ghc, GhcException (..), GhcMode (..), GhcMonad (..), mkGeneralLocated, setUnitDynFlags)
+import GHC (DynFlags (..), Ghc, GhcException (..), GhcMode (..), mkGeneralLocated)
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
-import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateFlags)
+import GHC.Driver.Env (HscEnv (..), hscUpdateFlags)
 import GHC.Driver.Errors (printOrThrowDiagnostics)
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Monad (modifySession)
 import GHC.Driver.Session (parseDynamicFlagsCmdLine)
-import GHC.Unit (UnitId, UnitState (..), stringToUnitId, unitIdString)
-import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..), UnitEnvGraph (..), unitEnv_lookup_maybe)
 import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
@@ -40,49 +36,6 @@ unitFlags args HscEnv {hsc_logger, hsc_dflags = dflags0} = do
   (dflags, _, warns) <- parseDynamicFlagsCmdLine dflags0 (map (mkGeneralLocated "no loc") args)
   liftIO $ printOrThrowDiagnostics hsc_logger (initPrintConfig dflags) (initDiagOpts dflags) (GhcDriverMessage <$> warns)
   pure dflags
-
--- | Turn each @-package@ argument in the given list into a @-package-id@ argument if the following package name refers
--- to a home unit, and create a set of all mentioned home unit names.
--- This is needed for GHC to recognize home unit dependencies.
-adaptHp :: HomeUnitGraph -> [String] -> (Set UnitId, [String])
-adaptHp (UnitEnvGraph ueg) =
-  spin mempty
-  where
-    spin seen = \case
-      "-package" : p : rest
-        | Map.member (stringToUnitId p) ueg
-        -> (["-package-id", p] ++) <$> spin (Set.insert (stringToUnitId p) seen) rest
-      arg : rest -> (arg :) <$> spin seen rest
-      [] -> (seen, [])
-
--- | Return the given unit's dependencies.
-homeUnitDeps :: HscEnv -> UnitId -> Maybe [UnitId]
-homeUnitDeps hsc_env target = do
-  HomeUnitEnv {homeUnitEnv_units = UnitState {homeUnitDepends}} <- unitEnv_lookup_maybe target hug
-  pure homeUnitDepends
-  where
-    hug = hsc_env.hsc_unit_env.ue_home_unit_graph
-
--- | Assemble @-package-id@ arguments for the current unit's dependencies, omitting those that are present in the
--- provided set, which are the current module's deps specified by Buck.
-homeUnitDepFlags :: HscEnv -> Set UnitId -> UnitId -> [String]
-homeUnitDepFlags hsc_env explicit target =
-  concat [["-package-id", unitIdString u] | u <- fold prev_deps, not (Set.member u explicit)]
-  where
-    prev_deps = homeUnitDeps hsc_env target
-
--- | Update the current unit's @DynFlags@ stored in the unit env, and reinitialize its unit state.
--- Since different modules in the same unit may have arbitrary subsets of the unit's package dependencies when Buck
--- compiles them, we take the union of existing and new dependencies.
-initUnit :: [String] -> Ghc ()
-initUnit specific = do
-  hsc_env0 <- getSession
-  let current = hsc_env0.hsc_unit_env.ue_current_unit
-      (explicit, withPackageId) = adaptHp hsc_env0.hsc_unit_env.ue_home_unit_graph specific
-      unitOptions = withPackageId ++ homeUnitDepFlags hsc_env0 explicit current
-  dflags <- unitFlags unitOptions hsc_env0
-  setUnitDynFlags current dflags
-  modifySession (hscSetActiveUnitId current)
 
 stepMetadata :: Conf -> Unit -> [Unit] -> IO ()
 stepMetadata Conf {cache, tmp, args0} unit deps = do
