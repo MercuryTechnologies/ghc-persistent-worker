@@ -10,27 +10,11 @@ import GHC.Driver.Session (updatePlatformConstants)
 import GHC.Platform.Ways (Way (WayDyn), addWay)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit (HomeUnit, UnitDatabase, UnitId, UnitState, initUnits)
-import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), unitEnv_insert, unitEnv_keys, unitEnv_union, updateHug)
+import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), unitEnv_insert, unitEnv_keys, updateHug)
 import GHC.Unit.Home.ModInfo (emptyHomePackageTable)
-import Internal.Cache (Cache (..), MakeState (..), insertUnitEnv, logMemStats, mergeHugs, updateModuleGraph)
+import Internal.Cache (insertUnitEnv, loadCacheMake, logMemStats, updateModuleGraph)
 import Internal.MakeFile (doMkDependHS)
 import Internal.Session (Env (..), runSession, withDynFlags)
-
--- | Copy the cached unit env and module graph to the given session.
-restoreEnv :: Cache -> HscEnv -> HscEnv
-restoreEnv cache hsc_env =
-  restoreMg cache.make.moduleGraph withHug
-  where
-    !withHug =
-      hsc_env {
-        hsc_unit_env = hsc_env.hsc_unit_env {
-          ue_home_unit_graph = unitEnv_union mergeHugs cache.make.hug current
-        }
-      }
-
-    restoreMg !new e = e {hsc_mod_graph = new}
-
-    !current = hsc_env.hsc_unit_env.ue_home_unit_graph
 
 -- | 'doMkDependHS' needs this to be enabled.
 metadataTempSession :: HscEnv -> HscEnv
@@ -90,7 +74,7 @@ addHomeUnit dflags = do
 prepareMetadataSession :: Env -> DynFlags -> Ghc ()
 prepareMetadataSession env dflags = do
   cache <- liftIO $ readMVar env.cache
-  modifySession (restoreEnv cache)
+  modifySessionM \ hsc_env -> liftIO (loadCacheMake env.log hsc_env cache)
   unit <- addHomeUnit dflags
   setActiveUnit unit
   storeNewUnit

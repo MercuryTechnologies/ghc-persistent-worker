@@ -813,6 +813,21 @@ logMemStats step logVar = do
   logMem "Max mem in use" s.max_mem_in_use_bytes
   logMem "Max live bytes" s.max_live_bytes
 
+-- | Restore the shared state used by both @computeMetadata@ and @compileHpt@ from the cache.
+-- See 'loadCacheMakeCompile' for details.
+loadCacheMake ::
+  MVar Log ->
+  HscEnv ->
+  Cache ->
+  IO HscEnv
+loadCacheMake logVar hsc_env cache = do
+  logMemStats "load cache" logVar
+  pure (restoreHug (restoreModuleGraph hsc_env))
+  where
+    restoreModuleGraph e = e {hsc_mod_graph = cache.make.moduleGraph}
+
+    restoreHug e = e {hsc_unit_env = e.hsc_unit_env {ue_home_unit_graph = cache.make.hug}}
+
 -- | Restore the shared state used by @compileHpt@ from the cache, consisting of the module graph, the HPT, and the
 -- loader state and symbol cache that's contained in 'Interp'.
 -- The module graph is only modified by @computeMetadata@, so it will not be written back to the cache after
@@ -826,24 +841,19 @@ logMemStats step logVar = do
 -- When the cached value is present, on the other hand, we instead restore it into the session, making all subsequent
 -- sessions share the first one's 'Interp'.
 -- Both fields of 'Interp' are 'MVar's, so the state is shared immediately and concurrently.
-loadCacheMake ::
+loadCacheMakeCompile ::
   MVar Log ->
   HscEnv ->
   Cache ->
   IO (Cache, HscEnv)
-loadCacheMake logVar hsc_env cache = do
-  logMemStats "load cache" logVar
-  pure (restoreModuleGraph . restoreHug <$> ensureInterp)
+loadCacheMakeCompile logVar hsc_env0 cache = do
+  ensureInterp <$> loadCacheMake logVar hsc_env0 cache
   where
     ensureInterp = maybe storeInterp restoreInterp cache.make.interp
 
-    storeInterp = (cache {make = cache.make {interp = hsc_env.hsc_interp}}, hsc_env)
+    storeInterp hsc_env = (cache {make = cache.make {interp = hsc_env.hsc_interp}}, hsc_env)
 
-    restoreInterp interp = (cache, hsc_env {hsc_interp = Just interp})
-
-    restoreModuleGraph e = e {hsc_mod_graph = cache.make.moduleGraph}
-
-    restoreHug e = e {hsc_unit_env = e.hsc_unit_env {ue_home_unit_graph = cache.make.hug}}
+    restoreInterp interp hsc_env = (cache, hsc_env {hsc_interp = Just interp})
 
 -- | Store the changes made to the HUG by @compileHpt@ in the cache, which usually consists of adding a single
 -- 'HomeModInfo'.
@@ -871,6 +881,6 @@ withCacheMake logVar cacheVar prog = do
   modifySessionM restore
   prog <* withSession store
   where
-    restore hsc_env = liftIO (modifyMVar cacheVar (loadCacheMake logVar hsc_env))
+    restore hsc_env = liftIO (modifyMVar cacheVar (loadCacheMakeCompile logVar hsc_env))
 
     store hsc_env = liftIO (modifyMVar_ cacheVar (storeCacheMake logVar hsc_env))
