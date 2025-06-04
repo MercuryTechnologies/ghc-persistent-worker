@@ -2,7 +2,6 @@
 
 module Internal.CompileHpt where
 
-import Control.Monad (when)
 import GHC (DynFlags (..), GeneralFlag (..), Ghc, GhcMonad (..), Logger, ModLocation (..), ModSummary (..), gopt)
 import GHC.Driver.Env (HscEnv (..), hscUpdateHUG)
 import GHC.Driver.Errors.Types (GhcMessage (..))
@@ -57,9 +56,7 @@ compileModuleWithDepsInHpt (Target src) = do
     summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
     summary <- setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
     result <- compileOne hsc_env summary 1 100000 Nothing (HomeModLinkable Nothing Nothing)
-    -- This deletes assembly files too early
-    when False do
-      cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts
+    cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts
     pure result
   modifySession (addDepsToHscEnv [hmi])
   pure (Just ModuleArtifacts {iface, bytecode = homeMod_bytecode hm_linkable})
