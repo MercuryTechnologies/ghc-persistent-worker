@@ -29,8 +29,10 @@ library
     Types.GhcHandler
     Types.Grpc
     Types.Orchestration
+    Types.State
   build-depends:
     base ==4.*,
     containers,
     filepath,
+    ghc,
     split

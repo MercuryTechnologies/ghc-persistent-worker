@@ -8,12 +8,13 @@ import Data.Foldable (traverse_)
 import Data.Int (Int32)
 import Data.Text qualified as Text
 import GhcWorker.Grpc (mkStats)
-import Internal.Cache (Cache, Target (..))
+import Internal.Cache (Cache)
 import Internal.Log (dbg)
 import Network.GRPC.Common.Protobuf (Proto, defMessage, (&), (.~))
 import Prelude hiding (log)
 import qualified Proto.Instrument as Instr
 import Proto.Instrument_Fields qualified as Instr
+import Types.State (Target (..))
 
 -- | Rudimentary dummy state for instrumentation, counting concurrently compiling sessions.
 data WorkerStatus =
@@ -111,12 +112,12 @@ withInstrumentation instrChan status cacheVar handler =
         writeChan instrChan $
           defMessage &
             Instr.compileStart .~
-              messageCompileStart target.get
+              messageCompileStart target.path
 
     -- Note: This is WIP.
     compileFinish =
       traverse_ \ (target, output, exitCode) -> do
-        let tgt = maybe "" (.get) target
+        let tgt = maybe "" (.path) target
         writeChan instrChan $
           defMessage &
             Instr.compileEnd .~

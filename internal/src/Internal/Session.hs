@@ -45,7 +45,6 @@ import Internal.Cache (
   CacheFeatures (..),
   ModuleArtifacts,
   Options (..),
-  Target (..),
   withCache,
   withCacheMake,
   )
@@ -54,6 +53,7 @@ import Internal.Log (Log (..), logToState)
 import Prelude hiding (log)
 import System.Environment (setEnv)
 import Types.Args (Args (..))
+import Types.State (Target (Target))
 
 -- | Worker state.
 data Env =

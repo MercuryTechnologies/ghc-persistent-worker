@@ -8,38 +8,43 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
 import Data.IORef (readIORef)
-import Data.List (sortBy)
 import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map, (!?))
+import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe)
-import Data.Ord (comparing)
-import qualified Data.Set as Set
-import Data.Set (Set, (\\))
+import Data.Set (Set)
 import Data.Traversable (for)
-import GHC (Ghc, ModIface, ModuleName, emptyMG, mi_module, moduleName, moduleNameString, setSession)
-import GHC.Data.FastString (FastString)
+import GHC (Ghc, ModIface, emptyMG, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Monad (modifySessionM, withSession)
 import GHC.Linker.Types (Linkable, LinkerEnv (..), Loader (..), LoaderState (..))
-import GHC.Ptr (Ptr)
 import GHC.Runtime.Interpreter (Interp (..))
-import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import GHC.Types.Name.Cache (NameCache (..), OrigNameCache)
 import GHC.Types.Unique.DFM (plusUDFM)
-import GHC.Types.Unique.FM (UniqFM, minusUFM, nonDetEltsUFM, sizeUFM)
 import GHC.Unit.Env (UnitEnv (..), unitEnv_new)
 import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
 import GHC.Unit.Finder (InstalledFindResult (..))
 import GHC.Unit.Finder.Types (FinderCache (..))
-import GHC.Unit.Module.Env (InstalledModuleEnv, emptyModuleEnv, moduleEnvKeys, plusModuleEnv)
+import GHC.Unit.Module.Env (InstalledModuleEnv, emptyModuleEnv, plusModuleEnv)
 import GHC.Unit.Module.Graph (ModuleGraph)
-import qualified GHC.Utils.Outputable as Outputable
-import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
-import Internal.Log (Log, logd)
+import Internal.Log (Log)
 import qualified Internal.State.Make as Make
 import Internal.State.Make (MakeState (..))
+import qualified Internal.State.Stats as Stats
+import Internal.State.Stats (
+  CacheStats (..),
+  LinkerStats (..),
+  LoaderStats (..),
+  StatsUpdate (..),
+  SymbolsStats (..),
+  basicLinkerStats,
+  basicLoaderStats,
+  basicSymbolsStats,
+  emptyLinkerStats,
+  emptyStats,
+  )
 import System.Environment (lookupEnv)
 import Types.Args (TargetId (..))
+import Types.State (SymbolCache (..), SymbolMap, Target)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
@@ -50,6 +55,7 @@ import GHC.IORef (atomicModifyIORef')
 import GHC.Unit (InstalledModule, emptyInstalledModuleEnv, extendInstalledModuleEnv, lookupInstalledModuleEnv)
 import GHC.Unit.Finder (FinderCache (..), InstalledFindResult (..))
 import GHC.Utils.Panic (panic)
+import Internal.State.Stats (FinderStats (..))
 
 #else
 
@@ -67,110 +73,11 @@ instance Show ModuleArtifacts where
   show ModuleArtifacts {iface} =
     "ModuleArtifacts { iface = " ++ moduleNameString (moduleName (mi_module iface)) ++ " }"
 
-type SymbolMap = UniqFM FastString (Ptr ())
-
-newtype SymbolCache =
-  SymbolCache { get :: SymbolMap }
-  deriving newtype (Semigroup, Monoid)
-
-data LinkerStats =
-  LinkerStats {
-    newClosures :: Int,
-    newItables :: Int
-  }
-  deriving stock (Eq, Show)
-
-emptyLinkerStats :: LinkerStats
-emptyLinkerStats =
-  LinkerStats {
-    newClosures = 0,
-    newItables = 0
-  }
-
-data LoaderStats =
-  LoaderStats {
-    newBcos :: [String],
-    sameBcos :: Int,
-    linker :: LinkerStats
-  }
-  deriving stock (Eq, Show)
-
-emptyLoaderStats :: LoaderStats
-emptyLoaderStats =
-  LoaderStats {
-    newBcos = mempty,
-    sameBcos = 0,
-    linker = emptyLinkerStats
-  }
-
-data SymbolsStats =
-  SymbolsStats {
-    new :: Int
-  }
-  deriving stock (Eq, Show)
-
-data NamesStats =
-  NamesStats {
-    new :: Int
-  }
-  deriving stock (Eq, Show)
-
-data StatsUpdate =
-  StatsUpdate {
-    loaderStats :: LoaderStats,
-    symbols :: SymbolsStats,
-    names :: NamesStats
-  }
-  deriving stock (Eq, Show)
-
-emptyStatsUpdate :: StatsUpdate
-emptyStatsUpdate =
-  StatsUpdate {
-    loaderStats = emptyLoaderStats,
-    symbols = SymbolsStats {new = 0},
-    names = NamesStats {new = 0}
-  }
-
-data FinderStats =
-  FinderStats {
-    hits :: Map ModuleName Int,
-    misses :: Map ModuleName Int
-  }
-  deriving stock (Eq, Show)
-
-emptyFinderStats :: FinderStats
-emptyFinderStats =
-  FinderStats {
-    hits = mempty,
-    misses = mempty
-  }
-
-data CacheStats =
-  CacheStats {
-    restore :: StatsUpdate,
-    update :: StatsUpdate,
-    finder :: FinderStats
-  }
-  deriving stock (Eq, Show)
-
-emptyStats :: CacheStats
-emptyStats =
-  CacheStats {
-    restore = emptyStatsUpdate,
-    update = emptyStatsUpdate,
-    finder = emptyFinderStats
-  }
-
 data InterpCache =
   InterpCache {
     loaderState :: LoaderState,
     symbols :: SymbolCache
   }
-
-newtype Target =
-  Target { get :: String }
-  deriving stock (Eq, Show)
-  deriving newtype (Ord)
 
 data BinPath =
   BinPath {
@@ -285,50 +192,6 @@ defaultOptions =
     extraGhcOptions = ""
   }
 
-basicLinkerStats :: LinkerEnv -> LinkerEnv -> LinkerStats
-basicLinkerStats base update =
-  LinkerStats {
-    newClosures = Set.size (updateClosures \\ baseClosures),
-    newItables = Set.size (updateItables \\ baseItables)
-  }
-  where
-    updateClosures = names update.closure_env
-    baseClosures = names base.closure_env
-    updateItables = names update.itbl_env
-    baseItables = names base.itbl_env
-
-    names = Set.fromList . fmap fst . nonDetEltsUFM
-
-basicLoaderStats ::
-  LoaderState ->
-  LoaderState ->
-  LinkerStats ->
-  LoaderStats
-basicLoaderStats base update linker =
-  LoaderStats {
-    newBcos = modStr <$> Set.toList (updateBcos \\ baseBcos),
-    sameBcos = Set.size bcoSame,
-    linker
-  }
-  where
-    modStr = moduleNameString . moduleName
-    bcoSame = Set.intersection updateBcos baseBcos
-    updateBcos = Set.fromList (moduleEnvKeys update.bcos_loaded)
-    baseBcos = Set.fromList (moduleEnvKeys base.bcos_loaded)
-
-basicSymbolsStats :: SymbolCache -> SymbolCache -> SymbolsStats
-basicSymbolsStats base update =
-  SymbolsStats {
-    new = sizeUFM (minusUFM update.get base.get)
-  }
-
-basicNamesStats :: OrigNameCache -> OrigNameCache -> NamesStats
-basicNamesStats _ _ =
-  NamesStats {
-    new = 0
-  }
-  where
-
 restoreLinkerEnv :: LinkerEnv -> LinkerEnv -> (LinkerEnv, LinkerStats)
 restoreLinkerEnv cached session =
   (merged, basicLinkerStats session cached)
@@ -376,13 +239,13 @@ modifyStats target f cache =
 updateMakeStateVar :: MVar Cache -> (MakeState -> MakeState) -> IO ()
 updateMakeStateVar var f = modifyMVar_ var (pure . updateMakeState f)
 
-pushStats :: Bool -> Target -> Maybe LoaderStats -> SymbolsStats -> NamesStats -> Cache -> Cache
-pushStats restoring target (Just new) symbols names =
+pushStats :: Bool -> Target -> Maybe LoaderStats -> SymbolsStats -> Cache -> Cache
+pushStats restoring target (Just new) symbols =
   modifyStats target add
   where
-    add old | restoring = old {restore = old.restore {loaderStats = new, symbols, names}}
-            | otherwise = old {update = old.update {loaderStats = new, symbols, names}}
-pushStats _ _ _ _ _ =
+    add old | restoring = old {restore = old.restore {loaderStats = new, symbols}}
+            | otherwise = old {update = old.update {loaderStats = new, symbols}}
+pushStats _ _ _ _ =
   id
 
 restoreCache ::
@@ -403,8 +266,7 @@ restoreCache target initialLoaderState initialSymbolCache initialNames cache
     let
       newSymbols = initialSymbolCache <> symbols
       symbolsStats = basicSymbolsStats initialSymbolCache symbols
-      namesStats = basicNamesStats initialNames cache.names
-      newCache = pushStats True target loaderStats symbolsStats namesStats cache
+      newCache = pushStats True target loaderStats symbolsStats cache
       -- this overwrites entire modules, since OrigNameCache is a three-level map.
       -- eventually we'll want to merge properly.
       names = plusModuleEnv initialNames cache.names
@@ -472,7 +334,7 @@ updateCache ::
   IO Cache
 updateCache target InterpCache {..} newLoaderState newSymbols newNames cache = do
   (updatedLs, stats) <- updateLoaderState loaderState newLoaderState
-  pure $ pushStats False target stats symbolsStats namesStats cache {
+  pure $ pushStats False target stats symbolsStats cache {
     interpCache = Just InterpCache {
       loaderState = updatedLs,
       symbols = symbols <> newSymbols
@@ -484,55 +346,6 @@ updateCache target InterpCache {..} newLoaderState newSymbols newNames cache = d
   }
   where
     symbolsStats = basicSymbolsStats symbols newSymbols
-    namesStats = basicNamesStats cache.names newNames
-
-moduleColumns :: Show a => Map ModuleName a -> SDoc
-moduleColumns m =
-  vcat [text n Outputable.<> text ":" $$ nest offset (text (show h)) | (n, h) <- kvs]
-  where
-    offset = length (fst (last kvs)) + 2
-    kvs = sortBy (comparing (length . fst)) (first moduleNameString <$> Map.toList m)
-
--- | Assemble log messages about cache statistics.
-statsMessages :: CacheStats -> SDoc
-statsMessages CacheStats {restore, update, finder} =
-  hang (text "Restore:") 2 restoreStats $$
-  hang (text "Update:") 2 updateStats $$
-  hang (text "Finder:") 2 finderStats
-  where
-      restoreStats =
-        text (show (length restore.loaderStats.newBcos)) <+> text "BCOs" $$
-        text (show restore.loaderStats.linker.newClosures) <+> text "closures" $$
-        text (show restore.symbols.new) <+> text "symbols" $$
-        text (show restore.loaderStats.sameBcos) <+> text "BCOs already in cache"
-
-      newBcos = text <$> update.loaderStats.newBcos
-
-      updateStats =
-        (if null newBcos then text "No new BCOs" else text "New BCOs:" <+> fsep (punctuate comma newBcos)) $$
-        text (show update.loaderStats.linker.newClosures) <+> text "new closures" $$
-        text (show update.symbols.new) <+> text "new symbols" $$
-        text (show update.loaderStats.sameBcos) <+> text "BCOs already in cache"
-
-      finderStats =
-        hang (text "Hits:") 2 (moduleColumns finder.hits) $$
-        hang (text "Misses:") 2 (moduleColumns finder.misses)
-
--- | Assemble report messages, consisting of:
---
--- - Cache statistics, if the feature is enabled
--- - Current RTS memory usage
-reportMessages :: Target -> Cache -> Double -> SDoc
-reportMessages target Cache {stats, features} memory =
-  statsPart $$
-  memoryPart
-  where
-    statsPart =
-      if features.enable
-      then maybe (text "Cache unused for this module.") statsMessages (stats !? target)
-      else text "Cache disabled."
-
-    memoryPart = text "Memory:" <+> doublePrec 2 memory <+> text "MB"
 
 -- | Log a report for a completed compilation, using 'reportMessages' to assemble the content.
 report ::
@@ -544,13 +357,7 @@ report ::
   Cache ->
   m ()
 report logVar workerId target cache = do
-  s <- liftIO getRTSStats
-  let memory = fromIntegral (s.gc.gcdetails_mem_in_use_bytes) / 1000000
-  logd logVar (hang header 2 (reportMessages target cache memory))
-  where
-    header = text target.get Outputable.<> maybe (text "") workerDesc workerId Outputable.<> text ":"
-
-    workerDesc wid = text (" (" ++ wid.string ++ ")")
+  Stats.report logVar workerId target (if cache.features.enable then Just cache.stats else Nothing)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
