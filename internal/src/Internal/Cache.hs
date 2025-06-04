@@ -7,7 +7,6 @@ import Control.Monad (join)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
-import Data.Foldable (for_)
 import Data.IORef (readIORef)
 import Data.List (sortBy)
 import qualified Data.Map.Strict as Map
@@ -17,7 +16,7 @@ import Data.Ord (comparing)
 import qualified Data.Set as Set
 import Data.Set (Set, (\\))
 import Data.Traversable (for)
-import GHC (Ghc, ModIface, ModuleName, mi_module, moduleName, moduleNameString, setSession)
+import GHC (Ghc, ModIface, ModuleName, emptyMG, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Data.FastString (FastString)
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Monad (modifySessionM, withSession)
@@ -34,7 +33,7 @@ import GHC.Unit.Env (
   UnitEnv (..),
   unitEnv_insert,
   unitEnv_lookup,
-  unitEnv_singleton,
+  unitEnv_new,
   unitEnv_union,
   )
 import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
@@ -234,6 +233,29 @@ finderEnv FinderState {cache = FinderCache {fcModuleCache}} =
 
 #endif
 
+-- | Data extracted from 'HscEnv' for the purpose of persisting it across sessions.
+--
+-- While many parts of the session are either contained in mutable variables or trivially reinitialized, some components
+-- must be handled explicitly: The module graph and home unit graph are pure fields that need to be shared, and the
+-- interpreter state for TH execution is only initialized when the flags are parsed.
+data MakeState =
+  MakeState {
+    -- | The module graph for a specific unit is computed in its metadata step, after which it's extracted and merged
+    -- into the existing graph.
+    moduleGraph :: ModuleGraph,
+
+    -- | The unit environment for a specific unit is inserted into the shared home unit graph at the beginning of the
+    -- metadata step, constructed from the dependency specifications provided by Buck.
+    -- After compilation of a module, its 'HomeUnitInfo' is inserted into the home package table contained in its unit's
+    -- unit environment.
+    hug :: HomeUnitGraph,
+
+    -- | While the interpreter state contains a mutable variable that would be shared across sessions, it isn't
+    -- initialized properly until the first module compilation's flags have been parsed, so we store it in the shared
+    -- state for consistency.
+    interp :: Maybe Interp
+  }
+
 data CacheFeatures =
   CacheFeatures {
     enable :: Bool,
@@ -257,11 +279,9 @@ data Cache =
     path :: BinPath,
     finder :: FinderState,
     eps :: ExternalUnitCache,
-    hug :: Maybe HomeUnitGraph,
-    moduleGraph :: Maybe ModuleGraph,
-    interp :: Maybe Interp,
     baseSession :: Maybe HscEnv,
-    options :: Options
+    options :: Options,
+    make :: MakeState
   }
 
 data Options =
@@ -285,11 +305,13 @@ emptyCacheWith features = do
     },
     finder,
     eps,
-    hug = Nothing,
-    moduleGraph = Nothing,
-    interp = Nothing,
     baseSession = Nothing,
-    options = defaultOptions
+    options = defaultOptions,
+    make = MakeState {
+      moduleGraph = emptyMG,
+      hug = unitEnv_new mempty,
+      interp = Nothing
+    }
   }
 
 emptyCache :: Bool -> IO (MVar Cache)
@@ -654,21 +676,6 @@ setTarget cacheVar cache target hsc_env = do
       hsc_FC <- newFinderCache cacheVar cache target
       pure e {hsc_FC}
 
--- | Restore cache parts related to make mode.
-restoreHptCache :: Cache -> HscEnv -> IO HscEnv
-restoreHptCache cache hsc_env = do
-  let
-    -- If the cache contains a module graph stored by @compileModuleWithDepsInHpt@, restore it
-    hsc_env1 = maybe id restoreHug cache.hug hsc_env
-
-    -- If the cache contains a module graph stored by @computeMetadata@, restore it
-    hsc_env2 = maybe id restoreModuleGraph cache.moduleGraph hsc_env1
-  pure hsc_env2
-  where
-    restoreModuleGraph mg e = e {hsc_mod_graph = mg}
-
-    restoreHug hug e = e {hsc_unit_env = e.hsc_unit_env {ue_home_unit_graph = hug}}
-
 -- | Restore cache parts related to oneshot mode.
 restoreOneshotCache :: Cache -> HscEnv -> IO HscEnv
 restoreOneshotCache cache hsc_env = do
@@ -689,7 +696,8 @@ updateModuleGraph :: MVar Cache -> ModuleGraph -> IO ()
 updateModuleGraph cacheVar new =
   modifyMVar_ cacheVar \ cache -> do
 #if defined(MWB)
-    pure cache {moduleGraph = Just (maybe new merge cache.moduleGraph)}
+    let !merged = merge cache.make.moduleGraph
+    pure cache {make = cache.make {moduleGraph = merged}}
   where
     merge old =
       mkModuleGraph (Map.elems (Map.unionWith mergeNodes oldMap newMap))
@@ -704,7 +712,7 @@ updateModuleGraph cacheVar new =
 
         newMap = Map.fromList $ [(mkNodeKey n, n) | n <- mgModSummaries' new]
 #else
-    pure cache {moduleGraph = Just (maybe id unionMG cache.moduleGraph new)}
+    pure cache {make = cache.make {moduleGraph = unionMG cache.make.moduleGraph new}}
 #endif
 
 prepareCache :: MVar Cache -> Target -> HscEnv -> Cache -> IO (Cache, (HscEnv, Bool))
@@ -712,7 +720,7 @@ prepareCache cacheVar target hsc_env0 cache0 = do
   result <-
     if cache0.features.enable
     then do
-      hsc_env1 <- restoreOneshotCache cache0 =<< restoreHptCache cache0 =<< setTarget cacheVar cache0 target hsc_env0
+      hsc_env1 <- restoreOneshotCache cache0 =<< setTarget cacheVar cache0 target hsc_env0
       if cache0.features.loader
       then do
         withHscState hsc_env1 \ nsNames loaderStateVar symbolCacheVar -> do
@@ -730,17 +738,16 @@ prepareCache cacheVar target hsc_env0 cache0 = do
 
 storeHug :: HscEnv -> Cache -> IO Cache
 storeHug hsc_env cache = do
-  pure cache {hug = Just merged}
-  where
-    merged = maybe id (unitEnv_union mergeHugs) cache.hug hsc_env.hsc_unit_env.ue_home_unit_graph
+  let !new = hsc_env.hsc_unit_env.ue_home_unit_graph
+      !hug = unitEnv_union mergeHugs cache.make.hug new
+  pure cache {make = cache.make {hug}}
 
 -- | Extract the unit env of the currently active unit and store it in the cache.
 -- This is used by the make mode worker after the metadata step has initialized the new unit.
 insertUnitEnv :: HscEnv -> Cache -> Cache
 insertUnitEnv hsc_env cache =
-  cache {hug = Just (maybe fresh update cache.hug)}
+  cache {make = cache.make {hug = update cache.make.hug}}
   where
-    fresh = unitEnv_singleton current ue
     ue = unitEnv_lookup current hsc_env.hsc_unit_env.ue_home_unit_graph
     current = hsc_env.hsc_unit_env.ue_current_unit
     update = unitEnv_insert current ue
@@ -758,21 +765,14 @@ finalizeCache logVar workerId hsc_env target _ cache0 = do
   cache1 <-
     if cache0.features.enable
     then do
-      cache1 <-
-        if cache0.features.loader
-        then do
-          fromMaybe cache0 . join <$> withHscState hsc_env \ nsNames loaderStateVar symbolCacheVar ->
-            readMVar loaderStateVar >>= traverse \ newLoaderState -> do
-              newSymbols <- readMVar symbolCacheVar
-              newNames <- readMVar nsNames
-              maybe initCache (updateCache target) cache0.interpCache newLoaderState (SymbolCache newSymbols) newNames cache0
-        else pure cache0
-      cache2 <-
-        if cache0.features.hpt
-        then do
-          storeHug hsc_env cache1
-        else pure cache1
-      pure cache2
+      if cache0.features.loader
+      then do
+        fromMaybe cache0 . join <$> withHscState hsc_env \ nsNames loaderStateVar symbolCacheVar ->
+          readMVar loaderStateVar >>= traverse \ newLoaderState -> do
+            newSymbols <- readMVar symbolCacheVar
+            newNames <- readMVar nsNames
+            maybe initCache (updateCache target) cache0.interpCache newLoaderState (SymbolCache newSymbols) newNames cache0
+      else pure cache0
     else pure cache0
   report logVar workerId target cache1
   pure cache1
@@ -835,17 +835,15 @@ loadCacheMake logVar hsc_env cache = do
   logMemStats "load cache" logVar
   pure (restoreModuleGraph . restoreHug <$> ensureInterp)
   where
-    ensureInterp = maybe storeInterp restoreInterp cache.interp
+    ensureInterp = maybe storeInterp restoreInterp cache.make.interp
 
-    storeInterp = (cache {interp = hsc_env.hsc_interp}, hsc_env)
+    storeInterp = (cache {make = cache.make {interp = hsc_env.hsc_interp}}, hsc_env)
 
     restoreInterp interp = (cache, hsc_env {hsc_interp = Just interp})
 
-    restoreModuleGraph =
-      maybe id (\ mg e -> e {hsc_mod_graph = mg}) cache.moduleGraph
+    restoreModuleGraph e = e {hsc_mod_graph = cache.make.moduleGraph}
 
-    restoreHug =
-      maybe id (\ hug e -> e {hsc_unit_env = e.hsc_unit_env {ue_home_unit_graph = hug}}) cache.hug
+    restoreHug e = e {hsc_unit_env = e.hsc_unit_env {ue_home_unit_graph = cache.make.hug}}
 
 -- | Store the changes made to the HUG by @compileHpt@ in the cache, which usually consists of adding a single
 -- 'HomeModInfo'.
