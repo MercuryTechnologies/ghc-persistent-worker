@@ -1,6 +1,6 @@
 module Internal.Metadata where
 
-import Control.Concurrent (modifyMVar_, readMVar)
+import Control.Concurrent (readMVar)
 import Control.Monad.IO.Class (liftIO)
 import Data.Maybe (isJust)
 import GHC (DynFlags (..), Ghc, GhcMode (..), Logger, ModuleGraph)
@@ -12,9 +12,10 @@ import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit (HomeUnit, UnitDatabase, UnitId, UnitState, initUnits)
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), unitEnv_insert, unitEnv_keys, updateHug)
 import GHC.Unit.Home.ModInfo (emptyHomePackageTable)
-import Internal.Cache (insertUnitEnv, loadCacheMake, logMemStats, updateModuleGraph)
+import Internal.Cache (Cache (..), updateMakeStateVar)
 import Internal.MakeFile (doMkDependHS)
 import Internal.Session (Env (..), runSession, withDynFlags)
+import Internal.State.Make (insertUnitEnv, loadState, logMemStats, storeModuleGraph)
 
 -- | 'doMkDependHS' needs this to be enabled.
 metadataTempSession :: HscEnv -> HscEnv
@@ -74,14 +75,14 @@ addHomeUnit dflags = do
 prepareMetadataSession :: Env -> DynFlags -> Ghc ()
 prepareMetadataSession env dflags = do
   cache <- liftIO $ readMVar env.cache
-  modifySessionM \ hsc_env -> liftIO (loadCacheMake env.log hsc_env cache)
+  modifySessionM \ hsc_env -> liftIO (loadState env.log hsc_env cache.make)
   unit <- addHomeUnit dflags
   setActiveUnit unit
   storeNewUnit
   where
     setActiveUnit unit = modifySession (hscUpdateLoggerFlags . hscSetActiveUnitId unit)
 
-    storeNewUnit = withSession \ hsc_env -> liftIO $ modifyMVar_ env.cache (pure . insertUnitEnv hsc_env)
+    storeNewUnit = withSession \ hsc_env -> liftIO $ updateMakeStateVar env.cache (insertUnitEnv hsc_env)
 
 -- | Run 'doMkDependHS' to write the metadata JSON file and exfiltrate the module graph.
 -- We need to use a temporary session because 'doMkDependHS' uses some custom settings that we don't want to leak,
@@ -107,7 +108,6 @@ computeMetadata env = do
   res <- fmap isJust $ runSession True env $ withDynFlags env \ dflags srcs -> do
     prepareMetadataSession env dflags
     module_graph <- writeMetadata (fst <$> srcs)
-    liftIO do
-      updateModuleGraph env.cache module_graph
+    liftIO $ updateMakeStateVar env.cache (storeModuleGraph module_graph)
     pure (Just ())
   res <$ logMemStats "after metadata" env.log
