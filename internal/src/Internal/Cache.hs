@@ -27,15 +27,7 @@ import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import GHC.Types.Name.Cache (NameCache (..), OrigNameCache)
 import GHC.Types.Unique.DFM (plusUDFM)
 import GHC.Types.Unique.FM (UniqFM, minusUFM, nonDetEltsUFM, sizeUFM)
-import GHC.Unit.Env (
-  HomeUnitEnv (..),
-  HomeUnitGraph,
-  UnitEnv (..),
-  unitEnv_insert,
-  unitEnv_lookup,
-  unitEnv_new,
-  unitEnv_union,
-  )
+import GHC.Unit.Env (UnitEnv (..), unitEnv_new)
 import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
 import GHC.Unit.Finder (InstalledFindResult (..))
 import GHC.Unit.Finder.Types (FinderCache (..))
@@ -44,6 +36,8 @@ import GHC.Unit.Module.Graph (ModuleGraph)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
 import Internal.Log (Log, logd)
+import qualified Internal.State.Make as Make
+import Internal.State.Make (MakeState (..))
 import System.Environment (lookupEnv)
 import Types.Args (TargetId (..))
 
@@ -60,16 +54,6 @@ import GHC.Utils.Panic (panic)
 #else
 
 import GHC.Unit.Finder (initFinderCache)
-
-#endif
-
-#if defined(MWB)
-
-import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries', mkModuleGraph, mkNodeKey)
-
-#else
-
-import GHC.Unit.Module.Graph (unionMG)
 
 #endif
 
@@ -233,29 +217,6 @@ finderEnv FinderState {cache = FinderCache {fcModuleCache}} =
 
 #endif
 
--- | Data extracted from 'HscEnv' for the purpose of persisting it across sessions.
---
--- While many parts of the session are either contained in mutable variables or trivially reinitialized, some components
--- must be handled explicitly: The module graph and home unit graph are pure fields that need to be shared, and the
--- interpreter state for TH execution is only initialized when the flags are parsed.
-data MakeState =
-  MakeState {
-    -- | The module graph for a specific unit is computed in its metadata step, after which it's extracted and merged
-    -- into the existing graph.
-    moduleGraph :: ModuleGraph,
-
-    -- | The unit environment for a specific unit is inserted into the shared home unit graph at the beginning of the
-    -- metadata step, constructed from the dependency specifications provided by Buck.
-    -- After compilation of a module, its 'HomeUnitInfo' is inserted into the home package table contained in its unit's
-    -- unit environment.
-    hug :: HomeUnitGraph,
-
-    -- | While the interpreter state contains a mutable variable that would be shared across sessions, it isn't
-    -- initialized properly until the first module compilation's flags have been parsed, so we store it in the shared
-    -- state for consistency.
-    interp :: Maybe Interp
-  }
-
 data CacheFeatures =
   CacheFeatures {
     enable :: Bool,
@@ -405,10 +366,15 @@ restoreLoaderState cached session =
       }
 
     (linker_env, linkerStats) = restoreLinkerEnv cached.linker_env session.linker_env
+-- | Update the 'MakeState' field in the 'Cache'.
+updateMakeState :: (MakeState -> MakeState) -> Cache -> Cache
+updateMakeState f cache = cache {make = f cache.make}
 
 modifyStats :: Target -> (CacheStats -> CacheStats) -> Cache -> Cache
 modifyStats target f cache =
   cache {stats = Map.alter (Just . f . fromMaybe emptyStats) target cache.stats}
+updateMakeStateVar :: MVar Cache -> (MakeState -> MakeState) -> IO ()
+updateMakeStateVar var f = modifyMVar_ var (pure . updateMakeState f)
 
 pushStats :: Bool -> Target -> Maybe LoaderStats -> SymbolsStats -> NamesStats -> Cache -> Cache
 pushStats restoring target (Just new) symbols names =
@@ -655,13 +621,6 @@ withHscState HscEnv {hsc_interp, hsc_NC = NameCache {nsNames}} use =
     use nsNames loader_state symbolCacheVar
 #endif
 
-mergeHugs ::
-  HomeUnitEnv ->
-  HomeUnitEnv ->
-  HomeUnitEnv
-mergeHugs old new =
-  new {homeUnitEnv_hpt = plusUDFM old.homeUnitEnv_hpt new.homeUnitEnv_hpt}
-
 -- | Restore cache parts that depend on the 'Target'.
 setTarget :: MVar Cache -> Cache -> Target -> HscEnv -> IO HscEnv
 setTarget cacheVar cache target hsc_env = do
@@ -690,30 +649,11 @@ restoreOneshotCache cache hsc_env = do
   where
     restoreCachedEps e = e {hsc_unit_env = e.hsc_unit_env {ue_eps = cache.eps}}
 
--- | Merge the given module graph into the cached graph, or initialize it it doesn't exist yet.
+-- | Merge the given module graph into the cached graph.
 -- This is used by the make mode worker after the metadata step has computed the module graph.
 updateModuleGraph :: MVar Cache -> ModuleGraph -> IO ()
 updateModuleGraph cacheVar new =
-  modifyMVar_ cacheVar \ cache -> do
-#if defined(MWB)
-    let !merged = merge cache.make.moduleGraph
-    pure cache {make = cache.make {moduleGraph = merged}}
-  where
-    merge old =
-      mkModuleGraph (Map.elems (Map.unionWith mergeNodes oldMap newMap))
-      where
-        mergeNodes = \cases
-          (ModuleNode oldDeps _) (ModuleNode newDeps summ) -> ModuleNode (mergeDeps oldDeps newDeps) summ
-          _ newNode -> newNode
-
-        mergeDeps oldDeps newDeps = Set.toList (Set.fromList oldDeps <> Set.fromList newDeps)
-
-        oldMap = Map.fromList $ [(mkNodeKey n, n) | n <- mgModSummaries' old]
-
-        newMap = Map.fromList $ [(mkNodeKey n, n) | n <- mgModSummaries' new]
-#else
-    pure cache {make = cache.make {moduleGraph = unionMG cache.make.moduleGraph new}}
-#endif
+  updateMakeStateVar cacheVar (Make.storeModuleGraph new)
 
 prepareCache :: MVar Cache -> Target -> HscEnv -> Cache -> IO (Cache, (HscEnv, Bool))
 prepareCache cacheVar target hsc_env0 cache0 = do
@@ -734,23 +674,6 @@ prepareCache cacheVar target hsc_env0 cache0 = do
     else pure Nothing
   let (hsc_env1, cache1) = fromMaybe (hsc_env0, cache0 {features = cache0.features {loader = False}}) result
   pure (cache1, (hsc_env1, cache1.features.enable))
-
-
-storeHug :: HscEnv -> Cache -> IO Cache
-storeHug hsc_env cache = do
-  let !new = hsc_env.hsc_unit_env.ue_home_unit_graph
-      !hug = unitEnv_union mergeHugs cache.make.hug new
-  pure cache {make = cache.make {hug}}
-
--- | Extract the unit env of the currently active unit and store it in the cache.
--- This is used by the make mode worker after the metadata step has initialized the new unit.
-insertUnitEnv :: HscEnv -> Cache -> Cache
-insertUnitEnv hsc_env cache =
-  cache {make = cache.make {hug = update cache.make.hug}}
-  where
-    ue = unitEnv_lookup current hsc_env.hsc_unit_env.ue_home_unit_graph
-    current = hsc_env.hsc_unit_env.ue_current_unit
-    update = unitEnv_insert current ue
 
 finalizeCache ::
   MVar Log ->
@@ -802,70 +725,6 @@ withCache logVar workerId cacheVar target prog = do
       withSession \ hsc_env ->
         liftIO (modifyMVar_ cacheVar (finalizeCache logVar workerId hsc_env target art))
 
-------------------------------------------------------------------------------------------------------------------------
-
-logMemStats :: String -> MVar Log -> IO ()
-logMemStats step logVar = do
-  s <- liftIO getRTSStats
-  let logMem desc value = logd logVar (text (desc ++ ":") <+> doublePrec 2 (fromIntegral value / 1_000_000) <+> text "MB")
-  logd logVar (text ("-------------- " ++ step))
-  logMem "Mem in use" s.gc.gcdetails_mem_in_use_bytes
-  logMem "Max mem in use" s.max_mem_in_use_bytes
-  logMem "Max live bytes" s.max_live_bytes
-
--- | Restore the shared state used by both @computeMetadata@ and @compileHpt@ from the cache.
--- See 'loadCacheMakeCompile' for details.
-loadCacheMake ::
-  MVar Log ->
-  HscEnv ->
-  Cache ->
-  IO HscEnv
-loadCacheMake logVar hsc_env cache = do
-  logMemStats "load cache" logVar
-  pure (restoreHug (restoreModuleGraph hsc_env))
-  where
-    restoreModuleGraph e = e {hsc_mod_graph = cache.make.moduleGraph}
-
-    restoreHug e = e {hsc_unit_env = e.hsc_unit_env {ue_home_unit_graph = cache.make.hug}}
-
--- | Restore the shared state used by @compileHpt@ from the cache, consisting of the module graph, the HPT, and the
--- loader state and symbol cache that's contained in 'Interp'.
--- The module graph is only modified by @computeMetadata@, so it will not be written back to the cache after
--- compilation.
---
--- Managing 'Interp' is a bit difficult: The field 'hsc_interp' isn't initialized with everything else in 'newHscEnv',
--- but only after parsing the command line arguments in 'setTopSessionDynFlags', since it needs to know the Ways of the
--- session if an external interpreter is used.
--- Therefore we grab the 'Interp' from the session when the cached value is absent, which amounts to the first
--- compilation session of the build.
--- When the cached value is present, on the other hand, we instead restore it into the session, making all subsequent
--- sessions share the first one's 'Interp'.
--- Both fields of 'Interp' are 'MVar's, so the state is shared immediately and concurrently.
-loadCacheMakeCompile ::
-  MVar Log ->
-  HscEnv ->
-  Cache ->
-  IO (Cache, HscEnv)
-loadCacheMakeCompile logVar hsc_env0 cache = do
-  ensureInterp <$> loadCacheMake logVar hsc_env0 cache
-  where
-    ensureInterp = maybe storeInterp restoreInterp cache.make.interp
-
-    storeInterp hsc_env = (cache {make = cache.make {interp = hsc_env.hsc_interp}}, hsc_env)
-
-    restoreInterp interp hsc_env = (cache, hsc_env {hsc_interp = Just interp})
-
--- | Store the changes made to the HUG by @compileHpt@ in the cache, which usually consists of adding a single
--- 'HomeModInfo'.
-storeCacheMake ::
-  MVar Log ->
-  HscEnv ->
-  Cache ->
-  IO Cache
-storeCacheMake logVar hsc_env cache = do
-  logMemStats "store cache" logVar
-  storeHug hsc_env cache
-
 -- | This reduced version of 'withCache' is tailored specifically to make mode, only restoring the HUG and module graph
 -- from the cache, since those are the only two components modified by the worker that aren't already shared by the base
 -- session.
@@ -881,6 +740,12 @@ withCacheMake logVar cacheVar prog = do
   modifySessionM restore
   prog <* withSession store
   where
-    restore hsc_env = liftIO (modifyMVar cacheVar (loadCacheMakeCompile logVar hsc_env))
+    restore hsc_env =
+      liftIO $ modifyMVar cacheVar \ cache -> do
+        (make, hsc_env1) <- Make.loadStateCompile logVar hsc_env cache.make
+        pure (cache {make}, hsc_env1)
 
-    store hsc_env = liftIO (modifyMVar_ cacheVar (storeCacheMake logVar hsc_env))
+    store hsc_env =
+      liftIO $ modifyMVar_ cacheVar \ cache -> do
+        make <- Make.storeState logVar hsc_env cache.make
+        pure cache {make}
