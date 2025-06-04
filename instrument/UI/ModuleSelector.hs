@@ -1,13 +1,13 @@
 module UI.ModuleSelector where
 
-import Brick.Types (Widget, EventM)
-import Brick.Widgets.Core (Padding (..), padRight, str, (<+>), vBox, strWrap)
-import Brick.Widgets.List (GenericList, list, renderList, listElementsL, listSelectedL)
-import Data.Fixed (Pico, Fixed (..))
+import Brick.Types (EventM, Widget)
+import Brick.Widgets.Core (Padding (..), padRight, str, strWrap, vBox, (<+>))
+import Brick.Widgets.List (GenericList, list, listElementsL, listSelectedL, renderList)
+import Data.Fixed (Fixed (..), Pico)
 import Data.Sequence qualified as Seq
-import Lens.Micro.Platform (use, modifying, (.=))
+import Lens.Micro.Platform (modifying, use, (.=))
 import UI.Types (Name (ModuleSelector))
-import UI.Utils (formatPico, popup, formatPs, upsertAscSeq)
+import UI.Utils (formatPico, formatPs, popup, upsertAscSeq)
 
 type State = GenericList Name Seq.Seq Module
 
@@ -35,6 +35,7 @@ drawModuleDetails Module{..} =
       ]
 
 addModule :: String -> String -> Maybe Pico -> EventM Name State ()
+addModule "" _ _ = pure () -- TODO: Filter out earlier
 addModule name content compileTime = do
   mods <- use listElementsL
   let (i, mods') = upsertAscSeq _modName (Module name content compileTime) mods
