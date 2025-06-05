@@ -7,7 +7,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Sequence qualified as Seq
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
-import Internal.Cache (Options)
+import Internal.State (Options)
 import Lens.Micro.Platform (Traversal', each, filtered, modifying, preuse, zoom, (.=), _2)
 import UI.Session qualified as Session
 import UI.Types (Name (SessionSelector))

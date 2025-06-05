@@ -39,7 +39,7 @@ import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
-import Internal.Cache (BinPath (..), Cache (..), ModuleArtifacts, Options (..), withCacheMake, withCacheOneshot)
+import Internal.State (BinPath (..), WorkerState (..), ModuleArtifacts, Options (..), withCacheMake, withCacheOneshot)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log (..), logToState)
 import Internal.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
@@ -48,14 +48,14 @@ import System.Environment (setEnv)
 import Types.Args (Args (..))
 import Types.State (Target (Target))
 
--- | Worker state.
+-- | Data used by a single worker request session, consisting of a logger, shared state, and request arguments.
 data Env =
   Env {
     -- | Logger used to receive messages from GHC and relay them to Buck.
     log :: MVar Log,
 
-    -- | Parts of @HscEnv@ we share between sessions.
-    cache :: MVar Cache,
+    -- | The entirety of the persistent state of a worker thats's shared across sessions.
+    state :: MVar WorkerState,
 
     -- | Preprocessed command line args from Buck.
     args :: Args
@@ -64,7 +64,7 @@ data Env =
 -- | Add all the directories passed by Buck in @--bin-path@ options to the global @$PATH@.
 -- Although Buck intends these to be module specific, all subsequent compile jobs will see all previous jobs' entries,
 -- since we only have one process environment.
-setupPath :: Args -> Cache -> IO Cache
+setupPath :: Args -> WorkerState -> IO WorkerState
 setupPath args old = do
   setEnv "PATH" (intercalate ":" (toList path.extra ++ maybeToList path.initial))
   pure new
@@ -134,8 +134,8 @@ withDynFlags :: Env -> (DynFlags -> [(String, Maybe Phase)] -> Ghc a) -> [Locate
 withDynFlags env prog argv = do
   let !log = env.log
   pushLogHookM (const (logToState log))
-  cache <- liftIO $ readMVar env.cache
-  (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags (argv ++ map instrumentLocation (words cache.options.extraGhcOptions))
+  state <- liftIO $ readMVar env.state
+  (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags (argv ++ map instrumentLocation (words state.options.extraGhcOptions))
   result <- prettyPrintGhcErrors logger do
     (dflags, srcs) <- initDynFlags dflags0 logger fileish_args dynamicFlagWarnings
     prog dflags srcs
@@ -157,16 +157,16 @@ withGhcInSession env prog =
 --
 -- When reusing the base session, create a new @TmpFs@ to avoid keeping old entries around after Buck deletes the
 -- directories.
-ensureSession :: Bool -> MVar Cache -> Args -> IO HscEnv
-ensureSession reuse cacheVar args =
-  modifyMVar cacheVar \ cache -> do
-    if cache.oneshot.features.enable && reuse
+ensureSession :: Bool -> MVar WorkerState -> Args -> IO HscEnv
+ensureSession reuse stateVar args =
+  modifyMVar stateVar \ state -> do
+    if state.oneshot.features.enable && reuse
     then do
-      newEnv <- maybe (initHscEnv args.topdir) prepReused cache.baseSession
-      pure (cache {baseSession = Just newEnv}, newEnv)
+      newEnv <- maybe (initHscEnv args.topdir) prepReused state.baseSession
+      pure (state {baseSession = Just newEnv}, newEnv)
     else do
       newEnv <- initHscEnv args.topdir
-      pure (cache, newEnv)
+      pure (state, newEnv)
   where
     prepReused hsc_env = do
       hsc_tmpfs <- initTmpFs
@@ -177,9 +177,9 @@ ensureSession reuse cacheVar args =
 --
 -- Delete all temporary files on completion.
 runSession :: Bool -> Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
-runSession reuse Env {log, args, cache} prog = do
-  modifyMVar_ cache (setupPath args)
-  hsc_env <- ensureSession reuse cache args
+runSession reuse Env {log, args, state} prog = do
+  modifyMVar_ state (setupPath args)
+  hsc_env <- ensureSession reuse state args
   session <- Session <$> newIORef hsc_env
   finally (run session) (cleanup session)
   where
@@ -222,7 +222,7 @@ withGhc env =
   withGhcUsingCache cacheHandler env
   where
     cacheHandler target prog = do
-      result <- withCacheOneshot env.log env.args.workerTargetId env.cache target do
+      result <- withCacheOneshot env.log env.args.workerTargetId env.state target do
         res <- prog
         pure do
           a <- res
@@ -233,7 +233,7 @@ withGhc env =
 -- Return the interface and bytecode.
 withGhcDefault :: Env -> (Target -> Ghc (Maybe (Maybe ModuleArtifacts, a))) -> IO (Maybe (Maybe ModuleArtifacts, a))
 withGhcDefault env =
-  withGhcUsingCache (withCacheOneshot env.log env.args.workerTargetId env.cache) env
+  withGhcUsingCache (withCacheOneshot env.log env.args.workerTargetId env.state) env
 
 -- | Command line args that have to be stored in the current home unit env.
 -- These are specified as a single program argument with their option argument, without whitespace in between.
@@ -323,7 +323,7 @@ withGhcMhu env f =
   withGhcUsingCacheMhu cacheHandler env f
   where
     cacheHandler _ prog = do
-      result <- withCacheMake env.log env.cache do
+      result <- withCacheMake env.log env.state do
         res <- prog
         pure do
           a <- res

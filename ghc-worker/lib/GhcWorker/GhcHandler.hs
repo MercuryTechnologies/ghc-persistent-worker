@@ -15,7 +15,7 @@ import GHC.Driver.Monad (modifySession)
 import GhcWorker.CompileResult (CompileResult (..), writeCloseOutput, writeResult)
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
-import Internal.Cache (Cache (..), ModuleArtifacts (..))
+import Internal.State (WorkerState (..), ModuleArtifacts (..))
 import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (LogName (..), dbg, logFlush, newLog)
@@ -126,15 +126,15 @@ dispatch lock workerMode hooks env args =
 ghcHandler ::
   -- | first req lock hack
   TVar LockState ->
-  MVar Cache ->
+  MVar WorkerState ->
   WorkerMode ->
   InstrumentedHandler
-ghcHandler lock cache workerMode =
+ghcHandler lock state workerMode =
   InstrumentedHandler \ hooks -> GrpcHandler \ commandEnv argv -> do
     buckArgs <- either (throwIO . userError) pure (parseBuckArgs commandEnv argv)
     args <- toGhcArgs buckArgs
     log <- newLog True
-    let env = Env {log, cache, args}
+    let env = Env {log, state, args}
     onException
       do
         (result, target) <- dispatch lock workerMode hooks env buckArgs

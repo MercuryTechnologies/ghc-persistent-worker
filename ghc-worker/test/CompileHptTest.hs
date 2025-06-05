@@ -39,12 +39,12 @@ unitFlags args HscEnv {hsc_logger, hsc_dflags = dflags0} = do
   pure dflags
 
 stepMetadata :: Conf -> Unit -> [Unit] -> IO ()
-stepMetadata Conf {cache, tmp, args0} unit deps = do
+stepMetadata Conf {state, tmp, args0} unit deps = do
   log <- newLog True
   createDirectoryIfMissing False sessionTmpDir
   names <- listDirectory unit.dir
   let srcs = [unit.dir </> name | name <- names, takeExtension name == ".hs"]
-      env = Env {log, cache, args = args srcs}
+      env = Env {log, state, args = args srcs}
   dbgp (text ">>> metadata for" <+> ppr unit.uid)
   success <- computeMetadata env
   unless success do
@@ -71,9 +71,9 @@ stepMetadata Conf {cache, tmp, args0} unit deps = do
     sessionTmpDir = tmp </> "tmp" </> unit.name
 
 stepCompile :: Conf -> Module -> IO ()
-stepCompile Conf {cache, tmp, args0} Module {unit, src} = do
+stepCompile Conf {state, tmp, args0} Module {unit, src} = do
   log <- newLog True
-  let env = Env {log, cache, args}
+  let env = Env {log, state, args}
   liftIO $ createDirectoryIfMissing False sessionTmpDir
   result <- liftIO $ withGhcMhu env \ _ target -> do
     dbg ""

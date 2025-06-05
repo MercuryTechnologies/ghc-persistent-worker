@@ -12,7 +12,7 @@ import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit (HomeUnit, UnitDatabase, UnitId, UnitState, initUnits)
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), unitEnv_insert, unitEnv_keys, updateHug)
 import GHC.Unit.Home.ModInfo (emptyHomePackageTable)
-import Internal.Cache (Cache (..), updateMakeStateVar)
+import Internal.State (WorkerState (..), updateMakeStateVar)
 import Internal.MakeFile (doMkDependHS)
 import Internal.Session (Env (..), runSession, withDynFlags)
 import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
@@ -75,15 +75,15 @@ addHomeUnit dflags = do
 -- the home unit in order to replicate what GHC does in @initMulti@.
 prepareMetadataSession :: Env -> DynFlags -> Ghc ()
 prepareMetadataSession env dflags = do
-  cache <- liftIO $ readMVar env.cache
-  modifySessionM \ hsc_env -> liftIO (loadState env.log hsc_env cache.make)
+  state <- liftIO $ readMVar env.state
+  modifySessionM \ hsc_env -> liftIO (loadState env.log hsc_env state.make)
   unit <- addHomeUnit dflags
   setActiveUnit unit
   storeNewUnit
   where
     setActiveUnit unit = modifySession (hscUpdateLoggerFlags . hscSetActiveUnitId unit)
 
-    storeNewUnit = withSession \ hsc_env -> liftIO $ updateMakeStateVar env.cache (insertUnitEnv hsc_env)
+    storeNewUnit = withSession \ hsc_env -> liftIO $ updateMakeStateVar env.state (insertUnitEnv hsc_env)
 
 -- | Run 'doMkDependHS' to write the metadata JSON file and exfiltrate the module graph.
 -- We need to use a temporary session because 'doMkDependHS' uses some custom settings that we don't want to leak,
@@ -109,6 +109,6 @@ computeMetadata env = do
   res <- fmap isJust $ runSession True env $ withDynFlags env \ dflags srcs -> do
     prepareMetadataSession env dflags
     module_graph <- writeMetadata (fst <$> srcs)
-    liftIO $ updateMakeStateVar env.cache (storeModuleGraph module_graph)
+    liftIO $ updateMakeStateVar env.state (storeModuleGraph module_graph)
     pure (Just ())
   res <$ logMemStats "after metadata" env.log
