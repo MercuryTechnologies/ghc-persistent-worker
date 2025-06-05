@@ -8,7 +8,7 @@ import Brick.Widgets.Core (str, vBox, vLimitPercent)
 import Data.Map qualified as Map
 import Data.Text qualified as Text
 import Data.Time (UTCTime, getCurrentTime, nominalDiffTimeToSeconds, diffUTCTime)
-import Internal.Cache (Options (..))
+import Internal.State (Options (..))
 import Lens.Micro.Platform (makeLenses, modifying, zoom)
 import Network.GRPC.Common.Protobuf (Proto, (^.))
 import Proto.Instrument qualified as Instr

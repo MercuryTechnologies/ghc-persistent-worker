@@ -7,7 +7,7 @@ import Control.Monad (forever)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
-import Internal.Cache (Cache (..), Options (..))
+import Internal.State (WorkerState (..), Options (..))
 import Network.GRPC.Common (NextElem (..))
 import Network.GRPC.Common.Protobuf (Proto, defMessage, (&), (.~))
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
@@ -22,7 +22,7 @@ import Proto.Instrument (Instrument)
 import Proto.Instrument_Fields qualified as Instr
 
 -- | Fetch statistics about the current state of the RTS for instrumentation.
-mkStats :: Cache -> IO (Proto Instr.Stats)
+mkStats :: WorkerState -> IO (Proto Instr.Stats)
 mkStats _ = do
   s <- getRTSStats
   pure $
@@ -36,14 +36,14 @@ mkStats _ = do
 -- | Implementation of a streaming grapesy handler that sends instrumentation statistics pulled from the provided
 -- channel to the client.
 notifyMe ::
-  MVar Cache ->
+  MVar WorkerState ->
   Chan (Proto Instr.Event) ->
   (NextElem (Proto Instr.Event) -> IO ()) ->
   IO ()
-notifyMe cacheVar chan callback = do
-  cache <- readMVar cacheVar
+notifyMe stateVar chan callback = do
+  state <- readMVar stateVar
   myChan <- dupChan chan
-  stats <- mkStats cache
+  stats <- mkStats state
   callback $ NextElem $
     defMessage
       & Instr.stats .~ stats
@@ -53,12 +53,12 @@ notifyMe cacheVar chan callback = do
 
 -- | Set the options for the server.
 setOptions ::
-  MVar Cache ->
+  MVar WorkerState ->
   Proto  Instr.Options ->
   IO (Proto Instr.Empty)
-setOptions cacheVar opts = do
-  modifyMVar_ cacheVar $ \cache ->
-    pure cache {
+setOptions stateVar opts = do
+  modifyMVar_ stateVar $ \state ->
+    pure state {
       options = Options {
         extraGhcOptions = Text.unpack opts.extraGhcOptions
       }
@@ -68,9 +68,9 @@ setOptions cacheVar opts = do
 -- | A grapesy server that streams instrumentation data from the provided channel.
 instrumentMethods ::
   Chan (Proto Instr.Event) ->
-  MVar Cache ->
+  MVar WorkerState ->
   Methods IO (ProtobufMethodsOf Instrument)
-instrumentMethods chan cacheVar =
+instrumentMethods chan stateVar =
   simpleMethods
-    (mkServerStreaming (const (notifyMe cacheVar chan)))
-    (mkNonStreaming (setOptions cacheVar))
+    (mkServerStreaming (const (notifyMe stateVar chan)))
+    (mkNonStreaming (setOptions stateVar))

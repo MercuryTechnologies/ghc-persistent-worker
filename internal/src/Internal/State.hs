@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP, NoFieldSelectors #-}
 
-module Internal.Cache where
+module Internal.State where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -38,8 +38,8 @@ data BinPath =
   }
   deriving stock (Eq, Show)
 
-data Cache =
-  Cache {
+data WorkerState =
+  WorkerState {
     path :: BinPath,
     baseSession :: Maybe HscEnv,
     options :: Options,
@@ -52,11 +52,11 @@ data Options =
     extraGhcOptions :: String
   }
 
-emptyCacheWith :: OneshotCacheFeatures -> IO (MVar Cache)
-emptyCacheWith features = do
+newStateWith :: OneshotCacheFeatures -> IO (MVar WorkerState)
+newStateWith features = do
   initialPath <- lookupEnv "PATH"
   oneshot <- newOneshotStateWith features
-  newMVar Cache {
+  newMVar WorkerState {
     path = BinPath {
       initial = initialPath,
       extra = mempty
@@ -71,21 +71,20 @@ emptyCacheWith features = do
     oneshot
   }
 
-emptyCache :: Bool -> IO (MVar Cache)
-emptyCache enable = do
-  emptyCacheWith newOneshotCacheFeatures {enable}
+newState :: Bool -> IO (MVar WorkerState)
+newState enable = newStateWith newOneshotCacheFeatures {enable}
 
--- | Update the 'MakeState' field in the 'Cache'.
-updateMakeState :: (MakeState -> MakeState) -> Cache -> Cache
-updateMakeState f cache = cache {make = f cache.make}
+-- | Update the 'MakeState' field in the 'WorkerState'.
+updateMakeState :: (MakeState -> MakeState) -> WorkerState -> WorkerState
+updateMakeState f state = state {make = f state.make}
 
-updateMakeStateVar :: MVar Cache -> (MakeState -> MakeState) -> IO ()
+updateMakeStateVar :: MVar WorkerState -> (MakeState -> MakeState) -> IO ()
 updateMakeStateVar var f = modifyMVar_ var (pure . updateMakeState f)
 
-updateOneshotState :: (OneshotState -> OneshotState) -> Cache -> Cache
-updateOneshotState f cache = cache {oneshot = f cache.oneshot}
+updateOneshotState :: (OneshotState -> OneshotState) -> WorkerState -> WorkerState
+updateOneshotState f state = state {oneshot = f state.oneshot}
 
-updateOneshotStateVar :: MVar Cache -> (OneshotState -> OneshotState) -> IO ()
+updateOneshotStateVar :: MVar WorkerState -> (OneshotState -> OneshotState) -> IO ()
 updateOneshotStateVar var f = modifyMVar_ var (pure . updateOneshotState f)
 
 defaultOptions :: Options
@@ -101,16 +100,16 @@ report ::
   -- | A description of the current worker process.
   Maybe TargetId ->
   Target ->
-  Cache ->
+  WorkerState ->
   m ()
-report logVar workerId target cache = do
-  Stats.report logVar workerId target (if cache.oneshot.features.enable then Just cache.oneshot.stats else Nothing)
+report logVar workerId target state = do
+  Stats.report logVar workerId target (if state.oneshot.features.enable then Just state.oneshot.stats else Nothing)
 
 -- | Merge the given module graph into the cached graph.
 -- This is used by the make mode worker after the metadata step has computed the module graph.
-updateModuleGraph :: MVar Cache -> ModuleGraph -> IO ()
-updateModuleGraph cacheVar new =
-  updateMakeStateVar cacheVar (Make.storeModuleGraph new)
+updateModuleGraph :: MVar WorkerState -> ModuleGraph -> IO ()
+updateModuleGraph stateVar new =
+  updateMakeStateVar stateVar (Make.storeModuleGraph new)
 
 finalizeCache ::
   MVar Log ->
@@ -119,8 +118,8 @@ finalizeCache ::
   HscEnv ->
   Target ->
   Maybe ModuleArtifacts ->
-  Cache ->
-  IO Cache
+  WorkerState ->
+  IO WorkerState
 finalizeCache logVar workerId hsc_env target _ cache0 = do
   oneshot <- Oneshot.storeState hsc_env target cache0.oneshot
   let cache1 = cache0 {oneshot}
@@ -138,21 +137,21 @@ withCacheOneshot ::
   MVar Log ->
   -- | A description of the current worker process.
   Maybe TargetId ->
-  MVar Cache ->
+  MVar WorkerState ->
   Target ->
   Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
   Ghc (Maybe (Maybe ModuleArtifacts, a))
-withCacheOneshot logVar workerId cacheVar target prog = do
-  _ <- withSessionM \ hsc_env -> modifyMVar cacheVar \ cache -> do
-    (oneshot, result) <- Oneshot.loadState (updateOneshotStateVar cacheVar) target hsc_env cache.oneshot
-    pure (cache {oneshot}, result)
+withCacheOneshot logVar workerId stateVar target prog = do
+  _ <- withSessionM \ hsc_env -> modifyMVar stateVar \ state -> do
+    (oneshot, result) <- Oneshot.loadState (updateOneshotStateVar stateVar) target hsc_env state.oneshot
+    pure (state {oneshot}, result)
   result <- prog
   finalize (fst =<< result)
   pure result
   where
     finalize art =
       withSession \ hsc_env ->
-        liftIO (modifyMVar_ cacheVar (finalizeCache logVar workerId hsc_env target art))
+        liftIO (modifyMVar_ stateVar (finalizeCache logVar workerId hsc_env target art))
 
 -- | This reduced version of 'withCache' is tailored specifically to make mode, only restoring the HUG, module graph and
 -- interpreter state from the cache, since those are the only two components modified by the worker that aren't already
@@ -162,19 +161,19 @@ withCacheOneshot logVar workerId cacheVar target prog = do
 -- shared manually in oneshot mode, so this variant will be improved more deliberately.
 withCacheMake ::
   MVar Log ->
-  MVar Cache ->
+  MVar WorkerState ->
   Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
   Ghc (Maybe (Maybe ModuleArtifacts, a))
-withCacheMake logVar cacheVar prog = do
+withCacheMake logVar stateVar prog = do
   modifySessionM restore
   prog <* withSession store
   where
     restore hsc_env =
-      liftIO $ modifyMVar cacheVar \ cache -> do
-        (make, hsc_env1) <- Make.loadStateCompile logVar hsc_env cache.make
-        pure (cache {make}, hsc_env1)
+      liftIO $ modifyMVar stateVar \ state -> do
+        (make, hsc_env1) <- Make.loadStateCompile logVar hsc_env state.make
+        pure (state {make}, hsc_env1)
 
     store hsc_env =
-      liftIO $ modifyMVar_ cacheVar \ cache -> do
-        make <- Make.storeState logVar hsc_env cache.make
-        pure cache {make}
+      liftIO $ modifyMVar_ stateVar \ state -> do
+        make <- Make.storeState logVar hsc_env state.make
+        pure state {make}

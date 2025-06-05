@@ -10,7 +10,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
 import Data.Time (getCurrentTime)
 import Graphics.Vty (Vty (shutdown))
-import Internal.Cache (Options (..))
+import Internal.State (Options (..))
 import Network.GRPC.Client (Server (ServerUnix), rpc, withConnection)
 import Network.GRPC.Client.StreamType.IO (nonStreaming, serverStreaming)
 import Network.GRPC.Common (def)

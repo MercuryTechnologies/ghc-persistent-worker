@@ -6,7 +6,7 @@ import Brick.Widgets.List (GenericList, list, listElementsL, listSelectedL, rend
 import Data.Sequence qualified as Seq
 import Data.Time (UTCTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
-import Internal.Cache (Options)
+import Internal.State (Options)
 import Lens.Micro.Platform (Traversal', each, filtered, modifying, zoom, (.=), _2)
 import UI.Session qualified as Session
 import UI.Types (Name (SessionSelector))

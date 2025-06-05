@@ -13,7 +13,7 @@ import GHC.Unit.Env (addHomeModInfoToHug, ue_unsafeHomeUnit)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
-import Internal.Cache (ModuleArtifacts (..))
+import Internal.State (ModuleArtifacts (..))
 import Internal.Error (eitherMessages)
 import Types.State (Target (Target))
 
