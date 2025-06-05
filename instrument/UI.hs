@@ -20,7 +20,7 @@ import Data.Text qualified as Text
 import Data.Time (UTCTime (..), fromGregorian)
 import Graphics.Vty qualified as V
 import Graphics.Vty.Attributes.Color
-import Internal.Cache (Options (..), defaultOptions)
+import Internal.State (Options (..), defaultOptions)
 import Lens.Micro.Platform (Lens', lens, makeLenses, packed, use, zoom, (.=), _2)
 import UI.ActiveTasks qualified as ActiveTasks
 import UI.ModuleSelector qualified as ModuleSelector

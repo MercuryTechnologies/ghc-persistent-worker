@@ -3,7 +3,7 @@ module GhcWorker.CompileResult where
 import Data.Foldable (for_)
 import Data.Int (Int32)
 import Internal.AbiHash (AbiHash (..))
-import Internal.Cache (ModuleArtifacts)
+import Internal.State (ModuleArtifacts)
 import Types.BuckArgs (BuckArgs (..))
 
 -- | Right now the 'Maybe' just corresponds to the presence of the CLI argument @--abi-out@ – errors occuring while

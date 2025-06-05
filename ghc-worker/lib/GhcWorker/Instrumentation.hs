@@ -8,7 +8,7 @@ import Data.Foldable (traverse_)
 import Data.Int (Int32)
 import Data.Text qualified as Text
 import GhcWorker.Grpc (mkStats)
-import Internal.Cache (Cache)
+import Internal.State (WorkerState)
 import Internal.Log (dbg)
 import Network.GRPC.Common.Protobuf (Proto, defMessage, (&), (.~))
 import Prelude hiding (log)
@@ -90,15 +90,15 @@ messageCompileEnd target exitCode err =
 withInstrumentation ::
   Chan (Proto Instr.Event) ->
   MVar WorkerStatus ->
-  MVar Cache ->
+  MVar WorkerState ->
   InstrumentedHandler ->
   GrpcHandler
-withInstrumentation instrChan status cacheVar handler =
+withInstrumentation instrChan status stateVar handler =
   GrpcHandler \ commandEnv argv -> do
-    cache <- readMVar cacheVar
+    state <- readMVar stateVar
     bracket_ (startJob status) (finishJob status) do
       result <- (handler.create hooks).run commandEnv argv
-      stats <- mkStats cache
+      stats <- mkStats state
       writeChan instrChan (defMessage & Instr.stats .~ stats)
       pure result
   where
@@ -128,9 +128,9 @@ withInstrumentation instrChan status cacheVar handler =
 toGrpcHandler ::
   InstrumentedHandler ->
   MVar WorkerStatus ->
-  MVar Cache ->
+  MVar WorkerState ->
   Maybe (Chan (Proto Instr.Event)) ->
   GrpcHandler
-toGrpcHandler createHandler status cacheVar = \case
+toGrpcHandler createHandler status stateVar = \case
   Nothing -> createHandler.create hooksNoop
-  Just instrChan -> withInstrumentation instrChan status cacheVar createHandler
+  Just instrChan -> withInstrumentation instrChan status stateVar createHandler

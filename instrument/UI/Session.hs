@@ -9,7 +9,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Map qualified as Map
 import Data.Text qualified as Text
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
-import Internal.Cache (Options (..))
+import Internal.State (Options (..))
 import Lens.Micro.Platform (each, filtered, makeLenses, modifying, use, zoom)
 import Network.GRPC.Common.Protobuf (Proto, (^.))
 import Proto.Instrument qualified as Instr
