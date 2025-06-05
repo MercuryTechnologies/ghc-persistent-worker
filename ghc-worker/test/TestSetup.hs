@@ -6,8 +6,8 @@ import Data.Functor ((<&>))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Traversable (for)
 import GHC.Unit (UnitId, stringToUnitId, unitIdString)
-import Internal.Cache (Cache (..), emptyCacheWith)
 import Internal.Log (dbg)
+import Internal.State (WorkerState (..), newStateWith)
 import Internal.State.Oneshot (OneshotCacheFeatures (..))
 import Prelude hiding (log)
 import System.Directory (createDirectoryIfMissing, listDirectory, withCurrentDirectory)
@@ -23,8 +23,8 @@ data Conf =
     -- | Root directory of the test in @/tmp@.
     tmp :: FilePath,
 
-    -- | The worker cache.
-    cache :: MVar Cache,
+    -- | The worker state.
+    state :: MVar WorkerState,
 
     -- | The base cli args used for all modules.
     args0 :: Args,
@@ -203,7 +203,7 @@ withProject mkTargets use =
     withCurrentDirectory tmp do
       for_ @[] ["src", "tmp", "out"] \ dir ->
         createDirectoryIfMissing False (tmp </> dir)
-      cache <- emptyCacheWith OneshotCacheFeatures {
+      state <- newStateWith OneshotCacheFeatures {
         loader = False,
         enable = True,
         names = False,
@@ -215,7 +215,7 @@ withProject mkTargets use =
         [d] -> "lib" </> d </> "lib"
         ds -> error ("weird GHC lib dir contains /= 1 entries: " ++ show ds)
       let topdir = ghcDir </> libPath
-          conf = Conf {tmp, cache, args0 = baseArgs topdir tmp, ..}
+          conf = Conf {tmp, state, args0 = baseArgs topdir tmp, ..}
       targets <- mkTargets conf
       units <- for targets \ unit -> do
         let dir = tmp </> "src" </> unit.name

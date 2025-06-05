@@ -10,7 +10,7 @@ import GhcWorker.GhcHandler (LockState (..), ghcHandler)
 import GhcWorker.Grpc (instrumentMethods)
 import GhcWorker.Instrumentation (WorkerStatus (..), toGrpcHandler)
 import GhcWorker.Orchestration (CreateMethods (..), runCentralGhcSpawned)
-import Internal.Cache (Cache (..), emptyCache, emptyCacheWith)
+import Internal.State (WorkerState (..), newState, newStateWith)
 import Internal.State.Oneshot (OneshotCacheFeatures (..))
 import Network.GRPC.Common.Protobuf (Proto)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
@@ -55,15 +55,15 @@ parseOptions =
 -- events to a client.
 --
 -- Returns the channel so that a GHC server can use it to send events.
-createInstrumentMethods :: MVar Cache -> IO (Chan (Proto Instr.Event), Methods IO (ProtobufMethodsOf Instrument))
-createInstrumentMethods cacheVar = do
+createInstrumentMethods :: MVar WorkerState -> IO (Chan (Proto Instr.Event), Methods IO (ProtobufMethodsOf Instrument))
+createInstrumentMethods stateVar = do
   instrChan <- newChan
-  pure (instrChan, instrumentMethods instrChan cacheVar)
+  pure (instrChan, instrumentMethods instrChan stateVar)
 
 -- | Construct a gRPC server handler for the main part of the persistent worker.
 createGhcMethods ::
   TVar LockState ->
-  MVar Cache ->
+  MVar WorkerState ->
   WorkerMode ->
   MVar WorkerStatus ->
   Maybe (Chan (Proto Instr.Event)) ->
@@ -77,15 +77,15 @@ runWorker CliOptions {workerMode, serve} = do
   cache <-
     case workerMode of
       WorkerMakeMode ->
-        emptyCacheWith OneshotCacheFeatures {
+        newStateWith OneshotCacheFeatures {
           loader = False,
           enable = True,
           names = False,
           finder = False,
           eps = False
         }
-      WorkerOneshotMode -> emptyCache True
-  lock <- newTVarIO LockStart 
+      WorkerOneshotMode -> newState True
+  lock <- newTVarIO LockStart
   status <- newMVar WorkerStatus {active = 0}
   let
     methods = CreateMethods {
