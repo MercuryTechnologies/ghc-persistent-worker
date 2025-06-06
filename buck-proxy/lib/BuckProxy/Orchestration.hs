@@ -13,9 +13,9 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, modifyMVar)
 import Control.Exception (throwIO, try)
 import Control.Monad (void, when)
-import Data.Map.Strict (Map)
+import Data.Map.Strict (Map, (!?))
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
 import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
@@ -37,7 +37,7 @@ import System.Process (ProcessHandle, getProcessExitCode, spawnProcess)
 import Types.Args (TargetId)
 import Types.BuckArgs (BuckArgs (workerTargetId), parseBuckArgs)
 import Types.GhcHandler (WorkerMode (..))
-import Types.Grpc (RequestArgs (..))
+import Types.Grpc (CommandEnv (..), RequestArgs (..))
 import Types.Orchestration (
   PrimarySocketPath (..),
   ServerSocketPath (..),
@@ -83,6 +83,9 @@ proxyHandler ::
 proxyHandler workerMap exe wmode basePath req = do
   let cmdEnv = commandEnv req.env
       argv = Text.unpack . decodeUtf8Lenient <$> req.argv
+      -- Get the build ID for the primary socket path from the command environment, and fall back to the value extracted
+      -- from the gRPC socket path if the key is absent from the env.
+      socketId = fromMaybe basePath (cmdEnv.values !? "BUCK_BUILD_ID")
   buckArgs <- either (throwIO . userError) pure (parseBuckArgs cmdEnv (RequestArgs argv))
   case buckArgs.workerTargetId of
     Nothing -> throwIO (userError "No --worker-target-id passed")
@@ -91,7 +94,7 @@ proxyHandler workerMap exe wmode basePath req = do
         modifyMVar workerMap \wmap -> do
           case Map.lookup targetId wmap of
             Nothing -> do
-              let workerSocketDir = projectSocketDirectory basePath targetId
+              let workerSocketDir = projectSocketDirectory socketId targetId
               void $ try @IOError (createDirectoryIfMissing True workerSocketDir.path)
               resource <- spawnGhcWorker exe wmode workerSocketDir
               dbg $ "No primary socket for " ++ show targetId ++ ", so created it on " ++ resource.primarySocket.path
