@@ -12,7 +12,6 @@ import GHC.Unit.External (ExternalPackageState (..), eucEPS)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomePackageTable, hm_iface)
 import GHC.Unit.Module.Graph (ModuleGraph)
 import GHC.Utils.Outputable (Outputable, SDoc, comma, hang, hcat, ppr, punctuate, text, vcat, (<+>))
-import System.FilePath (takeDirectory, takeFileName)
 
 #if !MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) && !defined(MWB)
 
@@ -21,7 +20,8 @@ import GHC.Unit.Module.Graph (mgTransDeps)
 
 #else
 
-import GHC.Unit.Module.Graph (mgModSummaries')
+import GHC (ms_mod_name)
+import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries')
 
 #endif
 
@@ -52,7 +52,11 @@ showModGraph g =
 
 showModGraph :: ModuleGraph -> SDoc
 showModGraph g =
-  ppr (mgModSummaries' g)
+  vcat (showOne <$> mgModSummaries' g)
+  where
+    showOne = \case
+      ModuleNode deps ms -> hang (ppr (ms_mod_name ms) <+> "->") 2 (vcat (ppr <$> deps))
+      _ -> ""
 
 #endif
 
@@ -85,7 +89,7 @@ showHpt hpt =
 
 showDbPath :: UnitDatabase UnitId -> SDoc
 showDbPath UnitDatabase {unitDatabasePath} =
-  text (takeFileName (takeDirectory unitDatabasePath))
+  text unitDatabasePath
 
 showHomeUnitEnvShort :: HomeUnitEnv -> SDoc
 showHomeUnitEnvShort HomeUnitEnv {..} =
