@@ -40,7 +40,7 @@ unitFlags args HscEnv {hsc_logger, hsc_dflags = dflags0} = do
 
 stepMetadata :: Conf -> Unit -> [Unit] -> IO ()
 stepMetadata Conf {state, tmp, args0} unit deps = do
-  log <- newLog True
+  log <- newLog
   createDirectoryIfMissing False sessionTmpDir
   names <- listDirectory unit.dir
   let srcs = [unit.dir </> name | name <- names, takeExtension name == ".hs"]
@@ -72,7 +72,7 @@ stepMetadata Conf {state, tmp, args0} unit deps = do
 
 stepCompile :: Conf -> Module -> IO ()
 stepCompile Conf {state, tmp, args0} Module {unit, src} = do
-  log <- newLog True
+  log <- newLog
   let env = Env {log, state, args}
   liftIO $ createDirectoryIfMissing False sessionTmpDir
   result <- liftIO $ withGhcMhu env \ _ target -> do
@@ -312,7 +312,7 @@ runStep conf = \case
 
 testWorker :: (Conf -> NonEmpty UnitSpec) -> IO ()
 testWorker mkSpecs = do
-  log <- newLog True
+  log <- newLog
   logMemStats "initial" log
   withProject (pure . mkSpecs) \ conf units -> do
     let steps = testSteps units
