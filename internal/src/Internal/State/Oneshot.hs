@@ -51,7 +51,6 @@ import GHC.Unit (
   moduleName,
   )
 import GHC.Utils.Panic (panic)
-import Internal.Debug (forceInstalledFindResult)
 import Internal.State.Stats (FinderStats (..))
 
 #else
@@ -313,7 +312,6 @@ newFinderCache updateOneshot OneshotState {finder = FinderState {modules, files}
 
       addToFinderCache :: InstalledModule -> InstalledFindResult -> IO ()
       addToFinderCache key val = do
-        !() <- evaluate (forceInstalledFindResult val)
         atomicModifyIORef' modules $ \c ->
           case (lookupInstalledModuleEnv c key, val) of
             (Just InstalledFound{}, InstalledNotFound{}) -> (c, ())
