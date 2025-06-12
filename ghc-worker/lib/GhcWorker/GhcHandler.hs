@@ -18,7 +18,7 @@ import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.State (WorkerState (..), ModuleArtifacts (..))
 import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
-import Internal.Log (LogName (..), dbg, logFlush, newLog)
+import Internal.Log (TraceId, dbg, logFlush, newLog, setLogTarget)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Prelude hiding (log)
@@ -91,10 +91,12 @@ dispatch lock workerMode hooks env args =
           pure (code, result)
       pure (code, snd <$> result)
     Just ModeMetadata -> do
+      let target = Target "metadata"
+      liftIO $ setLogTarget env.log target
       code <- computeMetadata env <&> \case
         True -> 0
         False -> 1
-      pure (code, Just (Target "metadata"))
+      pure (code, Just target)
     Just ModeClose -> do
       dbg "in dispatch. Mode Close"
       _ <- writeCloseOutput args
@@ -112,7 +114,8 @@ dispatch lock workerMode hooks env args =
         withGhcMhu env \ _ ->
           withTarget (compileAndReadAbiHash CompManager compileModuleWithDepsInHpt hooks args)
 
-    withTarget f target =
+    withTarget f target = do
+      liftIO $ setLogTarget env.log target
       f target <&> fmap \ r -> (r, target)
 
 -- | Default implementation of an 'InstrumentedHandler' using our custom persistent worker GHC mode, either using HPT or
@@ -128,20 +131,19 @@ ghcHandler ::
   TVar LockState ->
   MVar WorkerState ->
   WorkerMode ->
+  Maybe TraceId ->
   InstrumentedHandler
-ghcHandler lock state workerMode =
+ghcHandler lock state workerMode traceId =
   InstrumentedHandler \ hooks -> GrpcHandler \ commandEnv argv -> do
     buckArgs <- either (throwIO . userError) pure (parseBuckArgs commandEnv argv)
     args <- toGhcArgs buckArgs
-    log <- newLog
+    log <- newLog traceId
     let env = Env {log, state, args}
     onException
       do
         (result, target) <- dispatch lock workerMode hooks env buckArgs
-        output <- logFlush (logName <$> target) env.log
+        output <- logFlush env.log
         liftIO $ hooks.compileFinish (Just (target, output, result))
         pure (output, result)
       do
         liftIO $ hooks.compileFinish Nothing
-    where
-      logName (Target target) = LogName target

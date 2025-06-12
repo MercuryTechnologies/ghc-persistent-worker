@@ -10,6 +10,7 @@ import GhcWorker.GhcHandler (LockState (..), ghcHandler)
 import GhcWorker.Grpc (instrumentMethods)
 import GhcWorker.Instrumentation (WorkerStatus (..), toGrpcHandler)
 import GhcWorker.Orchestration (CreateMethods (..), FeatureInstrument (..), runCentralGhcSpawned)
+import Internal.Log (TraceId (..))
 import Internal.State (WorkerState (..), newState, newStateWith)
 import Internal.State.Oneshot (OneshotCacheFeatures (..))
 import Network.GRPC.Common.Protobuf (Proto)
@@ -70,15 +71,16 @@ createGhcMethods ::
   MVar WorkerState ->
   WorkerMode ->
   MVar WorkerStatus ->
+  Maybe TraceId ->
   Maybe (Chan (Proto Instr.Event)) ->
   IO (Methods IO (ProtobufMethodsOf Worker))
-createGhcMethods lock cache workerMode status instrChan =
-  pure (fromGrpcHandler (toGrpcHandler (ghcHandler lock cache workerMode) status cache instrChan))
+createGhcMethods lock state workerMode status traceId instrChan =
+  pure (fromGrpcHandler (toGrpcHandler (ghcHandler lock state workerMode traceId) status state instrChan))
 
 -- | Main function for running the default persistent worker using the provided server socket path and CLI options.
 runWorker :: CliOptions -> IO ()
 runWorker CliOptions {workerMode, serve, instrument} = do
-  cache <-
+  state <-
     case workerMode of
       WorkerMakeMode ->
         newStateWith OneshotCacheFeatures {
@@ -93,7 +95,9 @@ runWorker CliOptions {workerMode, serve, instrument} = do
   status <- newMVar WorkerStatus {active = 0}
   let
     methods = CreateMethods {
-      createInstrumentation = createInstrumentMethods cache,
-      createGhc = createGhcMethods lock cache workerMode status
+      createInstrumentation = createInstrumentMethods state,
+      createGhc = createGhcMethods lock state workerMode status traceId
     }
   runCentralGhcSpawned methods instrument serve
+  where
+    traceId = if null serve.traceId then Nothing else Just (TraceId serve.traceId)
