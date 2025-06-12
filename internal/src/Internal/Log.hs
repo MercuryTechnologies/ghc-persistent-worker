@@ -1,7 +1,7 @@
 module Internal.Log where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar)
-import Control.Monad (unless, when)
+import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.ByteString (ByteString)
 import Data.Foldable (traverse_)
@@ -10,7 +10,7 @@ import Data.Text.Encoding (encodeUtf8)
 import GHC (Ghc, Severity (SevIgnore), noSrcSpan)
 import GHC.Driver.Config.Diagnostic (initDiagOpts)
 import GHC.Driver.DynFlags (getDynFlags)
-import GHC.Driver.Errors.Types (DriverMessage (..), GhcMessage(GhcDriverMessage))
+import GHC.Driver.Errors.Types (DriverMessage (..), GhcMessage (GhcDriverMessage))
 import GHC.Driver.Monad qualified as GHC (logDiagnostics)
 import GHC.Types.Error (
   DiagnosticReason (WarningWithoutFlag),
@@ -47,17 +47,24 @@ newtype LogName =
   LogName { get :: String }
   deriving stock (Eq, Show)
 
+-- | Simple log level that decides whether non-diagnostic messages will be sent to Buck in addition to basic file
+-- logging.
+data LogLevel =
+  LogDebug
+  |
+  LogInfo
+  deriving stock (Eq, Show)
+
 data Log =
   Log {
     diagnostics :: [String],
-    other :: [String],
-    debug :: Bool
+    other :: [(String, LogLevel)]
   }
   deriving stock (Eq, Show)
 
-newLog :: MonadIO m => Bool -> m (MVar Log)
-newLog debug =
-  liftIO $ newMVar Log {diagnostics = [], other = [], debug}
+newLog :: MonadIO m => m (MVar Log)
+newLog =
+  liftIO $ newMVar Log {diagnostics = [], other = []}
 
 logDiagnostics ::
   MonadIO m =>
@@ -65,19 +72,18 @@ logDiagnostics ::
   String ->
   m ()
 logDiagnostics logVar msg =
-  liftIO $ modifyMVar_ logVar \ Log {diagnostics, ..} -> do
-    when debug (dbg msg)
+  liftIO $ modifyMVar_ logVar \ Log {diagnostics, ..} ->
     pure Log {diagnostics = msg : diagnostics, ..}
 
 logOther ::
   MonadIO m =>
   MVar Log ->
+  LogLevel ->
   String ->
   m ()
-logOther logVar msg =
-  liftIO $ modifyMVar_ logVar \ Log {other, ..} -> do
-    when debug (dbg msg)
-    pure Log {other = msg : other, ..}
+logOther logVar level msg =
+  liftIO $ modifyMVar_ logVar \ Log {other, ..} ->
+    pure Log {other = (msg, level) : other, ..}
 
 logDir :: FilePath
 logDir =
@@ -89,14 +95,14 @@ logDir =
 --
 -- If the session fails before the target could be determined, this is 'Nothing', so we choose @unknown@ for the file
 -- name.
-writeLogFile :: [String] -> LogName -> IO ()
+writeLogFile :: [(String, LogLevel)] -> LogName -> IO ()
 writeLogFile logLines (LogName logName) =
   either warn pure =<< tryIOError do
     createDirectoryIfMissing True (takeDirectory path)
     exists <- doesPathExist path
     unless exists do
       writeFile path ""
-    appendFile path (unlines logLines)
+    appendFile path (unlines (fst <$> logLines))
   where
     path = logDir </> addExtension logName "log"
 
@@ -106,9 +112,9 @@ writeLogFile logLines (LogName logName) =
 logFlush :: Maybe LogName -> MVar Log -> IO [String]
 logFlush logName var = do
   modifyMVar var \ Log {..} -> do
-    let logLines = reverse (other ++ diagnostics)
+    let logLines = reverse (other ++ [(msg, LogInfo) | msg <- diagnostics])
     traverse_ (writeLogFile logLines) logName
-    pure (Log {diagnostics = [], other = [], debug}, logLines)
+    pure (Log {diagnostics = [], other = [], ..}, [msg | (msg, level) <- logLines, LogInfo == level])
 
 logFlushBytes :: MVar Log -> IO ByteString
 logFlushBytes var = do
@@ -137,7 +143,7 @@ logToState logVar logflags msg_class srcSpan msg = case msg_class of
 
     diagnostic = logDiagnostics logVar . render
 
-    other = logOther logVar . render
+    other = logOther logVar LogInfo . render
 
     render d = renderWithContext (log_default_user_context logflags) d
 
@@ -157,7 +163,7 @@ logp ::
   a ->
   m ()
 logp logVar =
-  logOther logVar . showPprUnsafe
+  logOther logVar LogInfo . showPprUnsafe
 
 logd ::
   MonadIO m =>

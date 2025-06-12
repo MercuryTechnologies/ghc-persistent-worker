@@ -133,7 +133,7 @@ ghcHandler lock state workerMode =
   InstrumentedHandler \ hooks -> GrpcHandler \ commandEnv argv -> do
     buckArgs <- either (throwIO . userError) pure (parseBuckArgs commandEnv argv)
     args <- toGhcArgs buckArgs
-    log <- newLog True
+    log <- newLog
     let env = Env {log, state, args}
     onException
       do

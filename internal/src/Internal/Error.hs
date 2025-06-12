@@ -8,7 +8,7 @@ import qualified Control.Monad.Catch as MC
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import GHC (Ghc, GhcException (..), printException)
 import GHC.Types.SourceError (SourceError, throwErrors)
-import Internal.Log (Log, logOther)
+import Internal.Log (Log, LogLevel (..), logOther)
 import System.Environment (getProgName)
 import System.Exit (ExitCode)
 import GHC.Driver.Errors.Types (GhcMessage)
@@ -48,7 +48,7 @@ handleExceptions logVar errResult =
       | otherwise
       = fm (show (Panic (show exception)))
 
-    fm = logOther logVar
+    fm = logOther logVar LogInfo
 
 eitherMessages ::
   MonadIO m =>
