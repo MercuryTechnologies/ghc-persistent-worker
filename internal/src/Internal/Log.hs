@@ -189,6 +189,30 @@ logd ::
   m ()
 logd = logp
 
+logDebug ::
+  MonadIO m =>
+  MVar Log ->
+  String ->
+  m ()
+logDebug logVar =
+  logOther logVar LogDebug
+
+logDebugP ::
+  Outputable a =>
+  MonadIO m =>
+  MVar Log ->
+  a ->
+  m ()
+logDebugP logVar =
+  logOther logVar LogDebug . showPprUnsafe
+
+logDebugD ::
+  MonadIO m =>
+  MVar Log ->
+  SDoc ->
+  m ()
+logDebugD =
+  logDebugP
 
 ghcLogd :: SDoc -> Ghc ()
 ghcLogd doc = do

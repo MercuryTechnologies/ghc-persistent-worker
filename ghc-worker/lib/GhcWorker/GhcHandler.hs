@@ -3,8 +3,8 @@ module GhcWorker.GhcHandler where
 import Common.Grpc (GrpcHandler (..))
 import Control.Concurrent (MVar, forkIO, threadDelay)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', readTVar, retry, writeTVar)
-import Control.Exception (throwIO)
-import Control.Monad.Catch (onException)
+import Control.Exception (throwIO, try)
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Functor ((<&>))
 import Data.Int (Int32)
@@ -15,12 +15,12 @@ import GHC.Driver.Monad (modifySession)
 import GhcWorker.CompileResult (CompileResult (..), writeCloseOutput, writeResult)
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
-import Internal.State (WorkerState (..), ModuleArtifacts (..))
 import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (TraceId, dbg, logFlush, newLog, setLogTarget)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
+import Internal.State (ModuleArtifacts (..), WorkerState (..), dumpState)
 import Prelude hiding (log)
 import System.Exit (ExitCode (ExitSuccess))
 import System.Posix.Process (exitImmediately)
@@ -118,6 +118,27 @@ dispatch lock workerMode hooks env args =
       liftIO $ setLogTarget env.log target
       f target <&> fmap \ r -> (r, target)
 
+processResult ::
+  Hooks ->
+  Env ->
+  Either IOError (Int32, Maybe Target) ->
+  IO ([String], Int32)
+processResult hooks env result = do
+  when (exitCode /= 0) do
+    dumpState env.log env.state exception
+  output <- logFlush env.log
+  hooks.compileFinish (hookPayload output)
+  pure (output, exitCode)
+  where
+    hookPayload output =
+      if exitCode == 0
+      then Just (target, output, exitCode)
+      else Nothing
+
+    ((exitCode, target), exception) = case result of
+      Right out -> (out, Nothing)
+      Left err -> ((1, Nothing), Just ("Exception: " ++ show err))
+
 -- | Default implementation of an 'InstrumentedHandler' using our custom persistent worker GHC mode, either using HPT or
 -- EPS for local dependency lookup.
 --
@@ -139,11 +160,5 @@ ghcHandler lock state workerMode traceId =
     args <- toGhcArgs buckArgs
     log <- newLog traceId
     let env = Env {log, state, args}
-    onException
-      do
-        (result, target) <- dispatch lock workerMode hooks env buckArgs
-        output <- logFlush env.log
-        liftIO $ hooks.compileFinish (Just (target, output, result))
-        pure (output, result)
-      do
-        liftIO $ hooks.compileFinish Nothing
+    result <- try $ dispatch lock workerMode hooks env buckArgs
+    processResult hooks env result
