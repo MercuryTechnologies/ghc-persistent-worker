@@ -2,8 +2,9 @@
 
 module Internal.State where
 
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, withMVar)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Foldable (traverse_)
 import Data.Set (Set)
 import GHC (Ghc, ModIface, emptyMG, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Driver.Env (HscEnv (..))
@@ -11,7 +12,8 @@ import GHC.Driver.Monad (modifySessionM, withSession)
 import GHC.Linker.Types (Linkable)
 import GHC.Unit.Env (unitEnv_new)
 import GHC.Unit.Module.Graph (ModuleGraph)
-import Internal.Log (Log)
+import Internal.Debug (showHugShort, showModGraph)
+import Internal.Log (Log, logDebug, logDebugD)
 import qualified Internal.State.Make as Make
 import Internal.State.Make (MakeState (..))
 import qualified Internal.State.Oneshot as Oneshot
@@ -177,3 +179,23 @@ withCacheMake logVar stateVar prog = do
       liftIO $ modifyMVar_ stateVar \ state -> do
         make <- Make.storeState logVar hsc_env state.make
         pure state {make}
+
+dumpState ::
+  MVar Log ->
+  MVar WorkerState ->
+  Maybe String ->
+  IO ()
+dumpState logVar state exception =
+  withMVar state \ WorkerState {make = MakeState {moduleGraph, hug}} -> do
+    write "-----------------"
+    write "Request failed!"
+    traverse_ write exception
+    write "-----------------"
+    write "Module graph:"
+    writeD (showModGraph moduleGraph)
+    write "-----------------"
+    write "Home unit graph:"
+    writeD (showHugShort hug)
+  where
+    write = logDebug logVar
+    writeD = logDebugD logVar
