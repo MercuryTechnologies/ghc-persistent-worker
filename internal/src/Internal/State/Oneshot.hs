@@ -38,7 +38,6 @@ import Types.State (SymbolCache (..), SymbolMap, Target)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
-import Control.Exception (evaluate)
 import Data.IORef (IORef, newIORef)
 import qualified Data.Map.Lazy as LazyMap
 import GHC.Fingerprint (Fingerprint, getFileHash)
