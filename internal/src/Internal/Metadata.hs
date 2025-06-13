@@ -9,14 +9,16 @@ import GHC.Driver.Monad (modifySession, modifySessionM, withSession, withTempSes
 import GHC.Driver.Session (updatePlatformConstants)
 import GHC.Platform.Ways (Way (WayDyn), addWay)
 import GHC.Runtime.Loader (initializeSessionPlugins)
-import GHC.Unit (HomeUnit, UnitDatabase, UnitId, UnitState, initUnits)
+import GHC.Unit (HomeUnit, UnitDatabase, UnitId, UnitState, initUnits, unitIdString)
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), unitEnv_insert, unitEnv_keys, updateHug)
 import GHC.Unit.Home.ModInfo (emptyHomePackageTable)
-import Internal.State (WorkerState (..), updateMakeStateVar)
+import Internal.Log (setLogTarget)
 import Internal.MakeFile (doMkDependHS)
 import Internal.Session (Env (..), runSession, withDynFlags)
+import Internal.State (WorkerState (..), updateMakeStateVar)
 import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
 import Internal.State.Stats (logMemStats)
+import Types.State (Target (..))
 
 -- | 'doMkDependHS' needs this to be enabled.
 metadataTempSession :: HscEnv -> HscEnv
@@ -73,13 +75,14 @@ addHomeUnit dflags = do
 --
 -- We especially want to take care that the command line flags aren't applied to the base session before we initialize
 -- the home unit in order to replicate what GHC does in @initMulti@.
-prepareMetadataSession :: Env -> DynFlags -> Ghc ()
+prepareMetadataSession :: Env -> DynFlags -> Ghc UnitId
 prepareMetadataSession env dflags = do
   state <- liftIO $ readMVar env.state
   modifySessionM \ hsc_env -> liftIO (loadState env.log hsc_env state.make)
   unit <- addHomeUnit dflags
   setActiveUnit unit
   storeNewUnit
+  pure unit
   where
     setActiveUnit unit = modifySession (hscUpdateLoggerFlags . hscSetActiveUnitId unit)
 
@@ -104,11 +107,14 @@ writeMetadata srcs = do
 --
 -- Before downsweep, we also create a fresh @Finder@ to prevent 'doMkDependHS' from polluting the cache with entries
 -- with different compilation ways and restore the previous unit env so dependencies are visible.
-computeMetadata :: Env -> IO Bool
+computeMetadata :: Env -> IO (Bool, Maybe Target)
 computeMetadata env = do
-  res <- fmap isJust $ runSession True env $ withDynFlags env \ dflags srcs -> do
-    prepareMetadataSession env dflags
+  res <- runSession True env $ withDynFlags env \ dflags srcs -> do
+    unit <- prepareMetadataSession env dflags
+    let target = Target (unitIdString unit)
+    liftIO $ setLogTarget env.log target
     module_graph <- writeMetadata (fst <$> srcs)
     liftIO $ updateMakeStateVar env.state (storeModuleGraph module_graph)
-    pure (Just ())
-  res <$ logMemStats "after metadata" env.log
+    pure (Just target)
+  logMemStats "after metadata" env.log
+  pure (isJust res, res)

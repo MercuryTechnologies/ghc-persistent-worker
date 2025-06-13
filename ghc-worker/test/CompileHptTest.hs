@@ -46,7 +46,7 @@ stepMetadata Conf {state, tmp, args0} unit deps = do
   let srcs = [unit.dir </> name | name <- names, takeExtension name == ".hs"]
       env = Env {log, state, args = args srcs}
   dbgp (text ">>> metadata for" <+> ppr unit.uid)
-  success <- computeMetadata env
+  (success, _) <- computeMetadata env
   unless success do
     liftIO $ throwGhcExceptionIO (ProgramError "Metadata failed")
   where
