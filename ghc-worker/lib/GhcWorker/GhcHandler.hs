@@ -6,6 +6,7 @@ import Control.Concurrent.STM (TVar, atomically, modifyTVar', readTVar, retry, w
 import Control.Exception (throwIO, try)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
+import Data.Coerce (coerce)
 import Data.Functor ((<&>))
 import Data.Int (Int32)
 import GHC (DynFlags (..), Ghc, getSession)
@@ -17,7 +18,7 @@ import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
-import Internal.Log (TraceId, dbg, logFlush, newLog, setLogTarget)
+import Internal.Log (TraceId, dbg, logDebug, logFlush, newLog, setLogTarget)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Internal.State (ModuleArtifacts (..), WorkerState (..), dumpState)
@@ -27,7 +28,8 @@ import System.Posix.Process (exitImmediately)
 import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
 import Types.GhcHandler (WorkerMode (..))
-import Types.State (Target (Target))
+import Types.Grpc (RequestArgs (..))
+import Types.State (Target)
 
 data LockState = LockStart | LockFreeze Int | LockThaw Int | LockEnd
   deriving stock (Eq, Show)
@@ -91,12 +93,8 @@ dispatch lock workerMode hooks env args =
           pure (code, result)
       pure (code, snd <$> result)
     Just ModeMetadata -> do
-      let target = Target "metadata"
-      liftIO $ setLogTarget env.log target
-      code <- computeMetadata env <&> \case
-        True -> 0
-        False -> 1
-      pure (code, Just target)
+      (success, target) <- computeMetadata env
+      pure (if success then 0 else 1, target)
     Just ModeClose -> do
       dbg "in dispatch. Mode Close"
       _ <- writeCloseOutput args
@@ -159,6 +157,7 @@ ghcHandler lock state workerMode traceId =
     buckArgs <- either (throwIO . userError) pure (parseBuckArgs commandEnv argv)
     args <- toGhcArgs buckArgs
     log <- newLog traceId
+    logDebug log (unlines (coerce argv))
     let env = Env {log, state, args}
     result <- try $ dispatch lock workerMode hooks env buckArgs
     processResult hooks env result
