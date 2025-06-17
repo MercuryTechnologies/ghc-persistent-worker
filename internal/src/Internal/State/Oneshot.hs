@@ -36,7 +36,7 @@ import Internal.State.Stats (
   )
 import Types.State (SymbolCache (..), SymbolMap, Target)
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
 import Control.Exception (evaluate)
 import Data.IORef (IORef, newIORef)
@@ -60,7 +60,7 @@ import GHC.Unit.Finder (initFinderCache)
 
 #endif
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
 data FinderState =
   FinderState {
@@ -294,7 +294,7 @@ updateState target InterpCache {..} newLoaderState newSymbols newNames cache = d
   where
     symbolsStats = basicSymbolsStats symbols newSymbols
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
 -- | This replacement of the Finder implementation has the sole purpose of recording some cache stats, for now.
 -- While its mutable state is allocated separately and shared across sessions, this doesn't really make a difference at
