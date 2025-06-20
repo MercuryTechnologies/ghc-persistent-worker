@@ -4,10 +4,9 @@ import BuckWorkerProto (Instrument, Worker)
 import Common.Grpc (GrpcHandler (..), fromGrpcHandler)
 import Control.Concurrent (MVar, newChan, newMVar)
 import Control.Concurrent.Chan (Chan)
-import Control.Concurrent.STM (TVar, newTVarIO)
 import Control.Exception (throwIO)
 import Data.Functor (void)
-import GhcWorker.GhcHandler (LockState (..), ghcHandler)
+import GhcWorker.GhcHandler (ghcHandler)
 import GhcWorker.Grpc (instrumentMethods)
 import GhcWorker.Instrumentation (WorkerStatus (..), toGrpcHandler)
 import GhcWorker.Orchestration (CreateMethods (..), FeatureInstrument (..), runCentralGhcSpawned)
@@ -69,7 +68,6 @@ createInstrumentMethods stateVar recompile = do
 
 -- | Construct a gRPC server handler for the main part of the persistent worker.
 createGhcMethods ::
-  TVar LockState ->
   MVar WorkerState ->
   WorkerMode ->
   FeatureInstrument ->
@@ -77,8 +75,8 @@ createGhcMethods ::
   Maybe TraceId ->
   Maybe (Chan Event) ->
   IO (CommandEnv -> RequestArgs -> IO (), Methods IO (ProtobufMethodsOf Worker))
-createGhcMethods lock state workerMode instrument status traceId instrChan =
-  let handler = toGrpcHandler (ghcHandler lock state workerMode instrument traceId) status state instrChan
+createGhcMethods state workerMode instrument status traceId instrChan =
+  let handler = toGrpcHandler (ghcHandler state workerMode instrument traceId) status state instrChan
       voidRun commandEnv requestArgs =
         void $ handler.run commandEnv requestArgs
   in pure (voidRun, fromGrpcHandler handler)
@@ -97,12 +95,11 @@ runWorker CliOptions {workerMode, serve, instrument} = do
           eps = False
         }
       WorkerOneshotMode -> newState True
-  lock <- newTVarIO LockStart
   status <- newMVar WorkerStatus {active = 0}
   let
     methods = CreateMethods {
       createInstrumentation = createInstrumentMethods state,
-      createGhc = createGhcMethods lock state workerMode instrument status traceId
+      createGhc = createGhcMethods state workerMode instrument status traceId
     }
   runCentralGhcSpawned methods instrument serve
   where
