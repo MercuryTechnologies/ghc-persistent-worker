@@ -87,10 +87,9 @@ dispatch lock workerMode hooks env args =
     Just ModeCompile -> do
       let maxLock = 10
       (code, result) <- do
-        withLock maxLock lock do
-          result <- compile
-          code <- writeResult args (fst <$> result)
-          pure (code, result)
+        result <- compile
+        code <- writeResult args (fst <$> result)
+        pure (code, result)
       pure (code, snd <$> result)
     Just ModeMetadata -> do
       (success, target) <- computeMetadata env
