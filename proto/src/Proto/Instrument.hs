@@ -6,8 +6,8 @@
 module Proto.Instrument (
         Instrument(..), CompileEnd(), CompileStart(), Empty(), Event(),
         Event'Event(..), _Event'Halt, _Event'CompileStart,
-        _Event'CompileEnd, _Event'Stats, Options(), Stats(),
-        Stats'MemoryEntry()
+        _Event'CompileEnd, _Event'Stats, Options(), RebuildRequest(),
+        Stats(), Stats'MemoryEntry()
     ) where
 import qualified Control.DeepSeq
 import qualified Data.ProtoLens.Prism
@@ -866,6 +866,119 @@ instance Control.DeepSeq.NFData Options where
              (Control.DeepSeq.deepseq (_Options'extraGhcOptions x__) ())
 {- | Fields :
      
+         * 'Proto.Instrument_Fields.target' @:: Lens' RebuildRequest Data.Text.Text@ -}
+data RebuildRequest
+  = RebuildRequest'_constructor {_RebuildRequest'target :: !Data.Text.Text,
+                                 _RebuildRequest'_unknownFields :: !Data.ProtoLens.FieldSet}
+  deriving stock (Prelude.Eq, Prelude.Ord)
+instance Prelude.Show RebuildRequest where
+  showsPrec _ __x __s
+    = Prelude.showChar
+        '{'
+        (Prelude.showString
+           (Data.ProtoLens.showMessageShort __x) (Prelude.showChar '}' __s))
+instance Data.ProtoLens.Field.HasField RebuildRequest "target" Data.Text.Text where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _RebuildRequest'target
+           (\ x__ y__ -> x__ {_RebuildRequest'target = y__}))
+        Prelude.id
+instance Data.ProtoLens.Message RebuildRequest where
+  messageName _ = Data.Text.pack "instrument.RebuildRequest"
+  packedMessageDescriptor _
+    = "\n\
+      \\SORebuildRequest\DC2\SYN\n\
+      \\ACKtarget\CAN\SOH \SOH(\tR\ACKtarget"
+  packedFileDescriptor _ = packedFileDescriptor
+  fieldsByTag
+    = let
+        target__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "target"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.StringField ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Text.Text)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"target")) ::
+              Data.ProtoLens.FieldDescriptor RebuildRequest
+      in
+        Data.Map.fromList
+          [(Data.ProtoLens.Tag 1, target__field_descriptor)]
+  unknownFields
+    = Lens.Family2.Unchecked.lens
+        _RebuildRequest'_unknownFields
+        (\ x__ y__ -> x__ {_RebuildRequest'_unknownFields = y__})
+  defMessage
+    = RebuildRequest'_constructor
+        {_RebuildRequest'target = Data.ProtoLens.fieldDefault,
+         _RebuildRequest'_unknownFields = []}
+  parseMessage
+    = let
+        loop ::
+          RebuildRequest
+          -> Data.ProtoLens.Encoding.Bytes.Parser RebuildRequest
+        loop x
+          = do end <- Data.ProtoLens.Encoding.Bytes.atEnd
+               if end then
+                   do (let missing = []
+                       in
+                         if Prelude.null missing then
+                             Prelude.return ()
+                         else
+                             Prelude.fail
+                               ((Prelude.++)
+                                  "Missing required fields: "
+                                  (Prelude.show (missing :: [Prelude.String]))))
+                      Prelude.return
+                        (Lens.Family2.over
+                           Data.ProtoLens.unknownFields (\ !t -> Prelude.reverse t) x)
+               else
+                   do tag <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                      case tag of
+                        10
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getText
+                                             (Prelude.fromIntegral len))
+                                       "target"
+                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"target") y x)
+                        wire
+                          -> do !y <- Data.ProtoLens.Encoding.Wire.parseTaggedValueFromWire
+                                        wire
+                                loop
+                                  (Lens.Family2.over
+                                     Data.ProtoLens.unknownFields (\ !t -> (:) y t) x)
+      in
+        (Data.ProtoLens.Encoding.Bytes.<?>)
+          (do loop Data.ProtoLens.defMessage) "RebuildRequest"
+  buildMessage
+    = \ _x
+        -> (Data.Monoid.<>)
+             (let
+                _v = Lens.Family2.view (Data.ProtoLens.Field.field @"target") _x
+              in
+                if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                    Data.Monoid.mempty
+                else
+                    (Data.Monoid.<>)
+                      (Data.ProtoLens.Encoding.Bytes.putVarInt 10)
+                      ((Prelude..)
+                         (\ bs
+                            -> (Data.Monoid.<>)
+                                 (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                    (Prelude.fromIntegral (Data.ByteString.length bs)))
+                                 (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                         Data.Text.Encoding.encodeUtf8 _v))
+             (Data.ProtoLens.Encoding.Wire.buildFieldSet
+                (Lens.Family2.view Data.ProtoLens.unknownFields _x))
+instance Control.DeepSeq.NFData RebuildRequest where
+  rnf
+    = \ x__
+        -> Control.DeepSeq.deepseq
+             (_RebuildRequest'_unknownFields x__)
+             (Control.DeepSeq.deepseq (_RebuildRequest'target x__) ())
+{- | Fields :
+     
          * 'Proto.Instrument_Fields.memory' @:: Lens' Stats (Data.Map.Map Data.Text.Text Data.Int.Int64)@
          * 'Proto.Instrument_Fields.gcCpuNs' @:: Lens' Stats Data.Int.Int64@
          * 'Proto.Instrument_Fields.cpuNs' @:: Lens' Stats Data.Int.Int64@ -}
@@ -1226,14 +1339,17 @@ data Instrument = Instrument {}
 instance Data.ProtoLens.Service.Types.Service Instrument where
   type ServiceName Instrument = "Instrument"
   type ServicePackage Instrument = "instrument"
-  type ServiceMethods Instrument = '["notifyMe", "setOptions"]
+  type ServiceMethods Instrument = '["notifyMe",
+                                     "setOptions",
+                                     "triggerRebuild"]
   packedServiceDescriptor _
     = "\n\
       \\n\
       \Instrument\DC24\n\
       \\bNotifyMe\DC2\DC1.instrument.Empty\SUB\DC1.instrument.Event\"\NUL0\SOH\DC26\n\
       \\n\
-      \SetOptions\DC2\DC3.instrument.Options\SUB\DC1.instrument.Empty\"\NUL"
+      \SetOptions\DC2\DC3.instrument.Options\SUB\DC1.instrument.Empty\"\NUL\DC2A\n\
+      \\SOTriggerRebuild\DC2\SUB.instrument.RebuildRequest\SUB\DC1.instrument.Empty\"\NUL"
 instance Data.ProtoLens.Service.Types.HasMethodImpl Instrument "notifyMe" where
   type MethodName Instrument "notifyMe" = "NotifyMe"
   type MethodInput Instrument "notifyMe" = Empty
@@ -1244,6 +1360,11 @@ instance Data.ProtoLens.Service.Types.HasMethodImpl Instrument "setOptions" wher
   type MethodInput Instrument "setOptions" = Options
   type MethodOutput Instrument "setOptions" = Empty
   type MethodStreamingType Instrument "setOptions" = 'Data.ProtoLens.Service.Types.NonStreaming
+instance Data.ProtoLens.Service.Types.HasMethodImpl Instrument "triggerRebuild" where
+  type MethodName Instrument "triggerRebuild" = "TriggerRebuild"
+  type MethodInput Instrument "triggerRebuild" = RebuildRequest
+  type MethodOutput Instrument "triggerRebuild" = Empty
+  type MethodStreamingType Instrument "triggerRebuild" = 'Data.ProtoLens.Service.Types.NonStreaming
 packedFileDescriptor :: Data.ByteString.ByteString
 packedFileDescriptor
   = "\n\
@@ -1273,13 +1394,16 @@ packedFileDescriptor
     \\ENQstats\CAN\EOT \SOH(\v2\DC1.instrument.StatsH\NULR\ENQstatsB\a\n\
     \\ENQevent\"5\n\
     \\aOptions\DC2*\n\
-    \\DC1extra_ghc_options\CAN\SOH \SOH(\tR\SIextraGhcOptions2z\n\
+    \\DC1extra_ghc_options\CAN\SOH \SOH(\tR\SIextraGhcOptions\"(\n\
+    \\SORebuildRequest\DC2\SYN\n\
+    \\ACKtarget\CAN\SOH \SOH(\tR\ACKtarget2\189\SOH\n\
     \\n\
     \Instrument\DC24\n\
     \\bNotifyMe\DC2\DC1.instrument.Empty\SUB\DC1.instrument.Event\"\NUL0\SOH\DC26\n\
     \\n\
-    \SetOptions\DC2\DC3.instrument.Options\SUB\DC1.instrument.Empty\"\NULJ\239\a\n\
-    \\ACK\DC2\EOT\NUL\NUL&\SOH\n\
+    \SetOptions\DC2\DC3.instrument.Options\SUB\DC1.instrument.Empty\"\NUL\DC2A\n\
+    \\SOTriggerRebuild\DC2\SUB.instrument.RebuildRequest\SUB\DC1.instrument.Empty\"\NULJ\245\b\n\
+    \\ACK\DC2\EOT\NUL\NUL+\SOH\n\
     \\b\n\
     \\SOH\f\DC2\ETX\NUL\NUL\DC2\n\
     \\b\n\
@@ -1425,25 +1549,47 @@ packedFileDescriptor
     \\ENQ\EOT\ENQ\STX\NUL\ETX\DC2\ETX \GS\RS\n\
     \\n\
     \\n\
-    \\STX\ACK\NUL\DC2\EOT#\NUL&\SOH\n\
+    \\STX\EOT\ACK\DC2\EOT#\NUL%\SOH\n\
     \\n\
     \\n\
-    \\ETX\ACK\NUL\SOH\DC2\ETX#\b\DC2\n\
+    \\ETX\EOT\ACK\SOH\DC2\ETX#\b\SYN\n\
     \\v\n\
-    \\EOT\ACK\NUL\STX\NUL\DC2\ETX$\STX/\n\
+    \\EOT\EOT\ACK\STX\NUL\DC2\ETX$\STX\DC4\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\NUL\SOH\DC2\ETX$\ACK\SO\n\
+    \\ENQ\EOT\ACK\STX\NUL\ENQ\DC2\ETX$\STX\b\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\NUL\STX\DC2\ETX$\SI\DC4\n\
+    \\ENQ\EOT\ACK\STX\NUL\SOH\DC2\ETX$\t\SI\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\NUL\ACK\DC2\ETX$\US%\n\
-    \\f\n\
-    \\ENQ\ACK\NUL\STX\NUL\ETX\DC2\ETX$&+\n\
+    \\ENQ\EOT\ACK\STX\NUL\ETX\DC2\ETX$\DC2\DC3\n\
+    \\n\
+    \\n\
+    \\STX\ACK\NUL\DC2\EOT'\NUL+\SOH\n\
+    \\n\
+    \\n\
+    \\ETX\ACK\NUL\SOH\DC2\ETX'\b\DC2\n\
     \\v\n\
-    \\EOT\ACK\NUL\STX\SOH\DC2\ETX%\STX,\n\
+    \\EOT\ACK\NUL\STX\NUL\DC2\ETX(\STX/\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\SOH\SOH\DC2\ETX%\ACK\DLE\n\
+    \\ENQ\ACK\NUL\STX\NUL\SOH\DC2\ETX(\ACK\SO\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\SOH\STX\DC2\ETX%\DC1\CAN\n\
+    \\ENQ\ACK\NUL\STX\NUL\STX\DC2\ETX(\SI\DC4\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\SOH\ETX\DC2\ETX%#(b\ACKproto3"
+    \\ENQ\ACK\NUL\STX\NUL\ACK\DC2\ETX(\US%\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\NUL\ETX\DC2\ETX(&+\n\
+    \\v\n\
+    \\EOT\ACK\NUL\STX\SOH\DC2\ETX)\STX,\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\SOH\SOH\DC2\ETX)\ACK\DLE\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\SOH\STX\DC2\ETX)\DC1\CAN\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\SOH\ETX\DC2\ETX)#(\n\
+    \\v\n\
+    \\EOT\ACK\NUL\STX\STX\DC2\ETX*\STX7\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\STX\SOH\DC2\ETX*\ACK\DC4\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\STX\STX\DC2\ETX*\NAK#\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\STX\ETX\DC2\ETX*.3b\ACKproto3"

@@ -9,6 +9,7 @@ executable instrument
   main-is: Main.hs
   hs-source-dirs: .
   other-modules:
+    Grpc
     UI
     UI.ActiveTasks
     UI.ModuleSelector
@@ -38,6 +39,7 @@ executable instrument
     brick,
     buck-worker-internal,
     buck-worker-proto,
+    buck-worker-types,
     containers,
     directory,
     fsnotify,

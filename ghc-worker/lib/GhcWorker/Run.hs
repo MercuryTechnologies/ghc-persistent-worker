@@ -1,11 +1,12 @@
 module GhcWorker.Run where
 
 import BuckWorker (Instrument, Worker)
-import Common.Grpc (fromGrpcHandler)
+import Common.Grpc (fromGrpcHandler, GrpcHandler(..))
 import Control.Concurrent (MVar, newChan, newMVar)
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.STM (TVar, newTVarIO)
 import Control.Exception (throwIO)
+import Data.Functor (void)
 import GhcWorker.GhcHandler (LockState (..), ghcHandler)
 import GhcWorker.Grpc (instrumentMethods)
 import GhcWorker.Instrumentation (WorkerStatus (..), toGrpcHandler)
@@ -22,6 +23,7 @@ import Types.Orchestration (
   ServerSocketPath (..),
   serverSocketFromPath,
   )
+import Types.Grpc (CommandEnv, RequestArgs)
 
 -- | Global options for the worker, passed when the process is started, in contrast to request options stored in
 -- 'BuckArgs'.
@@ -60,22 +62,29 @@ parseOptions =
 -- events to a client.
 --
 -- Returns the channel so that a GHC server can use it to send events.
-createInstrumentMethods :: MVar WorkerState -> IO (Chan (Proto Instr.Event), Methods IO (ProtobufMethodsOf Instrument))
-createInstrumentMethods stateVar = do
+createInstrumentMethods ::
+  MVar WorkerState ->
+  (CommandEnv -> RequestArgs -> IO ()) ->
+  IO (Chan (Proto Instr.Event), Methods IO (ProtobufMethodsOf Instrument))
+createInstrumentMethods stateVar recompile = do
   instrChan <- newChan
-  pure (instrChan, instrumentMethods instrChan stateVar)
+  pure (instrChan, instrumentMethods instrChan stateVar recompile)
 
 -- | Construct a gRPC server handler for the main part of the persistent worker.
 createGhcMethods ::
   TVar LockState ->
   MVar WorkerState ->
   WorkerMode ->
+  FeatureInstrument ->
   MVar WorkerStatus ->
   Maybe TraceId ->
   Maybe (Chan (Proto Instr.Event)) ->
-  IO (Methods IO (ProtobufMethodsOf Worker))
-createGhcMethods lock state workerMode status traceId instrChan =
-  pure (fromGrpcHandler (toGrpcHandler (ghcHandler lock state workerMode traceId) status state instrChan))
+  IO (CommandEnv -> RequestArgs -> IO (), Methods IO (ProtobufMethodsOf Worker))
+createGhcMethods lock state workerMode instrument status traceId instrChan =
+  let handler = toGrpcHandler (ghcHandler lock state workerMode instrument traceId) status state instrChan
+      voidRun commandEnv requestArgs =
+        void $ handler.run commandEnv requestArgs
+  in pure (voidRun, fromGrpcHandler handler)
 
 -- | Main function for running the default persistent worker using the provided server socket path and CLI options.
 runWorker :: CliOptions -> IO ()
@@ -96,7 +105,7 @@ runWorker CliOptions {workerMode, serve, instrument} = do
   let
     methods = CreateMethods {
       createInstrumentation = createInstrumentMethods state,
-      createGhc = createGhcMethods lock state workerMode status traceId
+      createGhc = createGhcMethods lock state workerMode instrument status traceId
     }
   runCentralGhcSpawned methods instrument serve
   where

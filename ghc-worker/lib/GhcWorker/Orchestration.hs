@@ -1,3 +1,4 @@
+{-# LANGUAGE RecursiveDo #-}
 module GhcWorker.Orchestration where
 
 import qualified BuckWorker as Worker
@@ -27,6 +28,7 @@ import System.Exit (exitFailure)
 import System.FilePath (takeDirectory)
 import System.IO (IOMode (..), hGetLine, hPutStr, withFile)
 import System.Process (ProcessHandle, getProcessExitCode)
+import Types.Grpc (CommandEnv, RequestArgs)
 import Types.Orchestration (
   InstrumentSocketPath (..),
   PrimarySocketDiscoveryPath (..),
@@ -42,8 +44,8 @@ import Types.Orchestration (
 -- The 'Instrument' component is intended to be optional.
 data CreateMethods where
   CreateMethods :: {
-    createInstrumentation :: IO (instrumentSocket, Methods IO (ProtobufMethodsOf Instrument)),
-    createGhc :: Maybe instrumentSocket -> IO (Methods IO (ProtobufMethodsOf Worker))
+    createInstrumentation :: (CommandEnv -> RequestArgs -> IO ()) -> IO (instrumentSocket, Methods IO (ProtobufMethodsOf Instrument)),
+    createGhc :: Maybe instrumentSocket -> IO (CommandEnv -> RequestArgs -> IO (), Methods IO (ProtobufMethodsOf Worker))
   } -> CreateMethods
 
 newtype FeatureInstrument =
@@ -56,14 +58,14 @@ runLocalGhc ::
   ServerSocketPath ->
   Maybe InstrumentSocketPath ->
   IO ()
-runLocalGhc CreateMethods {..} socket minstr = do
+runLocalGhc CreateMethods {..} socket minstr = mdo
   dbg ("Starting ghc server on " ++ socket.path)
   instrResource <- for minstr \instrumentSocket -> do
     dbg ("Instrumentation info available on " ++ instrumentSocket.path)
-    (resource, methods) <- createInstrumentation
-    _instrThread <- async $ runServerWithHandlers def (grpcServerConfig instrumentSocket.path) (fromMethods methods)
+    (resource, instrMethods) <- createInstrumentation recompile
+    _instrThread <- async $ runServerWithHandlers def (grpcServerConfig instrumentSocket.path) (fromMethods instrMethods)
     pure resource
-  methods <- createGhc instrResource
+  (recompile, methods) <- createGhc instrResource
   runServerWithHandlers def (grpcServerConfig socket.path) (fromMethods methods)
 
 -- | Start a gRPC server that runs GHC for client proxies, deleting the discovery file on shutdown.

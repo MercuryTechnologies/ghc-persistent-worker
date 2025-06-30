@@ -5,6 +5,7 @@ module Internal.State where
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, withMVar)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Foldable (traverse_)
+import Data.Map (Map)
 import Data.Set (Set)
 import GHC (Ghc, ModIface, emptyMG, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Driver.Env (HscEnv (..))
@@ -21,6 +22,7 @@ import Internal.State.Oneshot (OneshotCacheFeatures (..), OneshotState, newOnesh
 import qualified Internal.State.Stats as Stats
 import System.Environment (lookupEnv)
 import Types.Args (TargetId (..))
+import Types.Grpc (CommandEnv (..), RequestArgs (..))
 import Types.State (Target)
 
 data ModuleArtifacts =
@@ -46,7 +48,8 @@ data WorkerState =
     baseSession :: Maybe HscEnv,
     options :: Options,
     make :: MakeState,
-    oneshot :: OneshotState
+    oneshot :: OneshotState,
+    targetArgs :: Map Target (CommandEnv, RequestArgs)
   }
 
 data Options =
@@ -70,7 +73,8 @@ newStateWith features = do
       hug = unitEnv_new mempty,
       interp = Nothing
     },
-    oneshot
+    oneshot,
+    targetArgs = mempty
   }
 
 newState :: Bool -> IO (MVar WorkerState)

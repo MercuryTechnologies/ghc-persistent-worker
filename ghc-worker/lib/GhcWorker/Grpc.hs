@@ -4,6 +4,7 @@ import Common.Grpc ()
 import Control.Concurrent.Chan (Chan, dupChan, readChan)
 import Control.Concurrent.MVar (MVar, modifyMVar_, readMVar)
 import Control.Monad (forever)
+import Data.Foldable (for_)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
@@ -20,6 +21,8 @@ import Network.GRPC.Server.StreamType (
 import qualified Proto.Instrument as Instr
 import Proto.Instrument (Instrument)
 import Proto.Instrument_Fields qualified as Instr
+import Types.Grpc (CommandEnv (..), RequestArgs (..))
+import Types.State (Target (..))
 
 -- | Fetch statistics about the current state of the RTS for instrumentation.
 mkStats :: WorkerState -> IO (Proto Instr.Stats)
@@ -54,7 +57,7 @@ notifyMe stateVar chan callback = do
 -- | Set the options for the server.
 setOptions ::
   MVar WorkerState ->
-  Proto  Instr.Options ->
+  Proto Instr.Options ->
   IO (Proto Instr.Empty)
 setOptions stateVar opts = do
   modifyMVar_ stateVar $ \state ->
@@ -65,12 +68,26 @@ setOptions stateVar opts = do
     }
   pure defMessage
 
+-- | Trigger a rebuild for the given target.
+triggerRebuild ::
+  MVar WorkerState ->
+  (CommandEnv -> RequestArgs -> IO ()) ->
+  Proto Instr.RebuildRequest ->
+  IO (Proto Instr.Empty)
+triggerRebuild stateVar recompile target = do
+  state <- readMVar stateVar
+  let margs = Map.lookup (Target (Text.unpack target.target)) state.targetArgs
+  for_ margs (uncurry recompile)
+  pure defMessage
+
 -- | A grapesy server that streams instrumentation data from the provided channel.
 instrumentMethods ::
   Chan (Proto Instr.Event) ->
   MVar WorkerState ->
+  (CommandEnv -> RequestArgs -> IO ()) ->
   Methods IO (ProtobufMethodsOf Instrument)
-instrumentMethods chan stateVar =
+instrumentMethods chan stateVar recompile =
   simpleMethods
     (mkServerStreaming (const (notifyMe stateVar chan)))
     (mkNonStreaming (setOptions stateVar))
+    (mkNonStreaming (triggerRebuild stateVar recompile))
