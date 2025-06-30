@@ -7,10 +7,10 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Sequence qualified as Seq
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
-import Internal.State (Options)
+import Network.GRPC.Client (Connection)
 import Lens.Micro.Platform (Traversal', each, filtered, modifying, preuse, zoom, (.=), _2)
 import UI.Session qualified as Session
-import UI.Types (Name (SessionSelector))
+import UI.Types (Name (SessionSelector), WorkerId)
 import UI.Utils (popup)
 
 type State = GenericList Name Seq.Seq (Session.Id, Session.State)
@@ -19,8 +19,8 @@ data Event
   = StartSession Session.Id UTCTime
   | EndSession Session.Id
   | SessionEvent Session.Id Session.Event
-  | AddWorker Session.Id Session.WorkerId UTCTime (Options -> IO ())
-  | RemoveWorker Session.Id Session.WorkerId
+  | AddWorker Session.Id WorkerId UTCTime Connection
+  | RemoveWorker Session.Id WorkerId
 
 initialState :: State
 initialState = list SessionSelector Seq.empty 1

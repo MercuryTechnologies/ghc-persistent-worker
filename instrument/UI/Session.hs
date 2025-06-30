@@ -9,19 +9,18 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Map qualified as Map
 import Data.Text qualified as Text
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
-import Internal.State (Options (..))
 import Lens.Micro.Platform (each, filtered, makeLenses, modifying, use, zoom)
+import Network.GRPC.Client (Connection)
 import Network.GRPC.Common.Protobuf (Proto, (^.))
 import Proto.Instrument qualified as Instr
 import Proto.Instrument_Fields qualified as Instr
+import Types.State (Target (..))
 import UI.ActiveTasks qualified as ActiveTasks
 import UI.ModuleSelector qualified as ModuleSelector
-import UI.Types (Name)
+import UI.Types (Name, WorkerId)
 import UI.Utils (formatBytes, formatPs, stripEscSeqs)
 
-newtype Id = Id { unId :: Text.Text }
-  deriving stock (Eq, Ord, Show)
-newtype WorkerId = WorkerId { unWorkerId :: Text.Text }
+newtype Id = Id {unId :: Text.Text}
   deriving stock (Eq, Ord, Show)
 
 data State = Session
@@ -36,7 +35,7 @@ data State = Session
 
 data Worker = Worker
   { _workerId :: WorkerId
-  , _sendOptions :: Options -> IO ()
+  , _connection :: Connection
   , _stats :: Stats
   }
 
@@ -102,18 +101,18 @@ handleEvent :: Event -> EventM Name State ()
 handleEvent (InstrEvent wid evt) =
   case evt ^. Instr.maybe'compileStart of
     Just cs -> do
-      zoom activeTasks $ ActiveTasks.addTask (Text.unpack $ cs ^. Instr.target)
+      zoom activeTasks $ ActiveTasks.addTask (Target $ Text.unpack $ cs ^. Instr.target) wid
     _ -> case evt ^. Instr.maybe'compileEnd of
       Just ce -> do
         let content = stripEscSeqs (Text.unpack $ ce ^. Instr.stderr)
             target' = Text.unpack $ ce ^. Instr.target
-            target = if target' == "" then takeWhile (/= ':') content else target'
+            target = Target $ if target' == "" then takeWhile (/= ':') content else target'
         if ce ^. Instr.exitCode == 0
           then do
             start <- zoom activeTasks $ ActiveTasks.removeTask target
             end <- liftIO getCurrentTime
             let time = nominalDiffTimeToSeconds . diffUTCTime end <$> start
-            zoom modules $ ModuleSelector.addModule target content time
+            zoom modules $ ModuleSelector.addModule target content time wid
           else do
             zoom activeTasks $ ActiveTasks.taskFailure target content
       _ -> case evt ^. Instr.maybe'stats of

@@ -1,6 +1,7 @@
 module Grpc where
 
 import BuckWorker (Instrument)
+import Control.Concurrent (forkIO)
 import Control.Monad (void)
 import Data.Text qualified as Text
 import Internal.State (Options (..))
@@ -13,7 +14,7 @@ import Types.State (Target (..))
 
 sendOptions :: Connection -> Options -> IO ()
 sendOptions conn options =
-  void $
+  void $ forkIO $ void $
     nonStreaming conn (rpc @(Protobuf Instrument "setOptions")) $
       mkOptions options
 
@@ -25,7 +26,7 @@ mkOptions Options{..} =
 
 triggerRebuild :: Connection -> Target -> IO ()
 triggerRebuild conn (Target target) =
-  void $
+  void $ forkIO $ void $
     nonStreaming conn (rpc @(Protobuf Instrument "triggerRebuild")) $
       defMessage
         & Fields.target

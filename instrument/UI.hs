@@ -16,23 +16,27 @@ import Brick.Widgets.List (handleListEvent, listSelectedAttr, listSelectedElemen
 import Control.Exception (handle)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
+import Data.Monoid (First (..))
 import Data.Text qualified as Text
 import Data.Time (UTCTime (..), fromGregorian)
 import Graphics.Vty qualified as V
 import Graphics.Vty.Attributes.Color
+import Grpc (sendOptions, triggerRebuild)
 import Internal.State (Options (..), defaultOptions)
-import Lens.Micro.Platform (Lens', lens, makeLenses, packed, use, zoom, (.=), _2)
+import Lens.Micro.Platform (Lens', Traversal', each, filtered, lens, makeLenses, packed, preuse, use, zoom, (.=), _2)
+import Types.State (Target)
 import UI.ActiveTasks qualified as ActiveTasks
 import UI.ModuleSelector qualified as ModuleSelector
 import UI.Session qualified as Session
 import UI.SessionSelector qualified as SessionSelector
-import UI.Types (Name (..))
+import UI.Types (Name (..), WorkerId)
 import UI.Utils (popup)
 
 data Event
-  = SendOptions (Maybe Session.WorkerId)
+  = SendOptions (Maybe WorkerId)
   | SetTime UTCTime
   | SessionSelectorEvent SessionSelector.Event
+  | TriggerRebuild WorkerId Target
 
 data State = State
   { _sessions :: SessionSelector.State
@@ -46,7 +50,7 @@ makeLenses ''State
 ghcOptionsLens :: Lens' Options Text.Text
 ghcOptionsLens =
   lens
-    ((.extraGhcOptions))
+    (.extraGhcOptions)
     (\opts s -> opts{extraGhcOptions = s})
     . packed
 
@@ -80,7 +84,7 @@ drawUI State{..} =
                   (borderWithLabel (str " GHC Persistent Worker ") $ center $ str "Waiting for first session")
                   (Session.draw _currentFocus _currentTime)
                   session
-          , modifyDefAttr (`V.withStyle` V.italic) $ str " q:quit   Enter:show details   s:toggle session selector   o:toggle options editor "
+          , modifyDefAttr (`V.withStyle` V.italic) $ str " q:quit   Enter:show details   r:trigger rebuild   o:toggle options editor   s:toggle session selector"
           ]
        ]
  where
@@ -89,18 +93,25 @@ drawUI State{..} =
 drawOptionsEditor :: Form Options Event Name -> Widget Name
 drawOptionsEditor form = popup 50 "Session Options" $ renderForm form
 
+currentSession :: Traversal' State Session.State
+currentSession = sessions . listSelectedElementL . _2
+
 handleEvent :: BrickEvent Name Event -> EventM Name State ()
 handleEvent (AppEvent (SetTime t)) = currentTime .= t
 handleEvent (AppEvent (SendOptions mwid)) = do
   opts <- use options
-  workers <- use (sessions . listSelectedElementL . _2 . Session.workers)
+  workers <- use (currentSession . Session.workers)
   let workers' = case mwid of
         Nothing -> workers
         Just wid -> filter (\w -> w._workerId == wid) workers
   for_ workers' $ \worker -> do
     liftIO $
       handle @IOError (\_ -> pure ()) $
-        Session._sendOptions worker (formState opts)
+        sendOptions (Session._connection worker) (formState opts)
+handleEvent (AppEvent (TriggerRebuild wid target)) = do
+  mworker <- preuse (currentSession . Session.workers . each . filtered (\w -> Session._workerId w == wid))
+  for_ mworker $ \worker -> do
+    liftIO $ triggerRebuild (Session._connection worker) target
 handleEvent (AppEvent (SessionSelectorEvent evt)) =
   zoom sessions (SessionSelector.handleEvent evt)
 handleEvent (VtyEvent evt) = do
@@ -126,13 +137,13 @@ handleEvent (VtyEvent evt) = do
       case evt of
         V.EvKey V.KEsc [] -> hide
         V.EvKey V.KEnter [] -> hide
-        _ -> zoom (sessions . listSelectedElementL . _2 . Session.activeTasks) (handleListEvent evt)
+        _ -> zoom (currentSession . Session.activeTasks) (handleListEvent evt)
     ModuleDetails -> do
       let hide = currentFocus .= ModuleSelector
       case evt of
         V.EvKey V.KEsc [] -> hide
         V.EvKey V.KEnter [] -> hide
-        _ -> zoom (sessions . listSelectedElementL . _2 . Session.modules) (handleListEvent evt)
+        _ -> zoom (currentSession . Session.modules) (handleListEvent evt)
     _ -> case evt of
       V.EvKey V.KEsc [] -> halt
       V.EvKey (V.KChar 'q') [] -> halt
@@ -140,6 +151,14 @@ handleEvent (VtyEvent evt) = do
         currentFocus .= SessionSelector
       V.EvKey (V.KChar 'o') [] -> do
         currentFocus .= OptionsEditor
+      V.EvKey (V.KChar 'r') [] -> do
+        mtarget <- case current of
+          ActiveTasks -> zoom (currentSession . Session.activeTasks) (First <$> ActiveTasks.getRebuildTarget)
+          ModuleSelector -> zoom (currentSession . Session.modules) (First <$> ModuleSelector.getRebuildTarget)
+          _ -> pure (First Nothing)
+        case mtarget of
+          First Nothing -> pure ()
+          First (Just (wid, target)) -> handleEvent (AppEvent (TriggerRebuild wid target))
       V.EvKey (V.KChar '\t') [] -> do
         currentFocus .= case current of
           ActiveTasks -> ModuleSelector
@@ -150,10 +169,10 @@ handleEvent (VtyEvent evt) = do
           ActiveTasks -> TaskDetails
           ModuleSelector -> ModuleDetails
           _ -> current
-      _ ->
-        if current == ActiveTasks
-          then zoom (sessions . listSelectedElementL . _2 . Session.activeTasks) (handleListEvent evt)
-          else zoom (sessions . listSelectedElementL . _2 . Session.modules) (handleListEvent evt)
+      _ -> case current of
+        ActiveTasks -> zoom (currentSession . Session.activeTasks) (handleListEvent evt)
+        ModuleSelector -> zoom (currentSession . Session.modules) (handleListEvent evt)
+        _ -> pure ()
 handleEvent MouseDown{} = pure ()
 handleEvent MouseUp{} = pure ()
 
