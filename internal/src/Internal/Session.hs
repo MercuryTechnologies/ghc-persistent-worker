@@ -2,50 +2,61 @@ module Internal.Session where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, readMVar)
 import Control.Exception (finally)
-import Control.Monad (unless)
+import Control.Monad (foldM, unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (toList, traverse_)
 import Data.IORef (newIORef)
 import Data.List (intercalate, isPrefixOf)
-import Data.List.NonEmpty (nonEmpty)
+import Data.List.NonEmpty (NonEmpty ((:|)), nonEmpty)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (maybeToList)
 import qualified Data.Set as Set
 import GHC (
   DynFlags (..),
   GeneralFlag (Opt_KeepTmpFiles),
   Ghc,
+  GhcException (..),
   GhcLink (LinkBinary),
   Phase,
   getSession,
   getSessionDynFlags,
   gopt,
+  mkModule,
   parseDynamicFlags,
   parseTargetFiles,
   popLogHookM,
   prettyPrintGhcErrors,
   pushLogHookM,
   setSessionDynFlags,
-  withSignalHandlers,
+  withSignalHandlers, ModuleName,
   )
+import GHC.Data.Maybe (MaybeErr (..))
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
-import GHC.Driver.Env (HscEnv (..), hscUpdateFlags)
+import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscUpdateFlags, hscUpdateHPT, hsc_HPT)
 import GHC.Driver.Errors (printOrThrowDiagnostics)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
-import GHC.Driver.Main (initHscEnv)
-import GHC.Driver.Monad (Session (Session), modifySession, unGhc)
+import GHC.Driver.Main (initHscEnv, initModDetails)
+import GHC.Driver.Monad (Session (Session), modifySession, modifySessionM, unGhc)
+import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
+import GHC.Iface.Load (readIface)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
+import GHC.Types.Unique.DFM (addToUDFM, elemUDFM)
+import GHC.Unit (Definite (..), GenUnit (..))
+import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..), HomePackageTable)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
-import GHC.Utils.Panic (GhcException (UsageError), panic, throwGhcException)
+import GHC.Utils.Outputable (ppr, ($+$))
+import GHC.Utils.Panic (panic, throwGhcException, throwGhcExceptionIO)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
-import Internal.State (BinPath (..), WorkerState (..), ModuleArtifacts, Options (..), withCacheMake, withCacheOneshot)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log (..), logToState)
+import Internal.State (BinPath (..), ModuleArtifacts, Options (..), WorkerState (..), withCacheMake, withCacheOneshot)
 import Internal.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 import Prelude hiding (log)
 import System.Environment (setEnv)
 import Types.Args (Args (..))
+import Types.CachedDeps (CachedDeps (..), DepName (..))
 import Types.State (Target (Target))
 
 -- | Data used by a single worker request session, consisting of a logger, shared state, and request arguments.
@@ -317,6 +328,61 @@ withGhcUsingCacheMhu cacheHandler env prog =
       initializeSessionPlugins
       prog specific target
 
+-- | If the given module name is missing from the HPT, load the given interface from disk and store it in the module's
+-- 'HomeModInfo'.
+--
+-- This only happens when the module is dependend upon downstream for the first time after restarting the worker with a
+-- partial build.
+--
+-- So far, this only restores the interface and 'GHC.ModDetails', omitting bytecode.
+loadCachedDep ::
+  HscEnv ->
+  HomePackageTable ->
+  ModuleName ->
+  FilePath ->
+  IO HomePackageTable
+loadCachedDep hsc_env hpt name ifaceFile =
+  if elemUDFM name hpt
+  then pure hpt
+  else loadHmi
+  where
+    loadHmi = do
+      hm_iface <- loadIface
+      hm_details <- initModDetails hsc_env hm_iface
+      pure $ addToUDFM hpt name HomeModInfo {
+        hm_iface,
+        hm_linkable = HomeModLinkable {homeMod_object = Nothing, homeMod_bytecode = Nothing},
+        hm_details
+      }
+
+    loadIface =
+      ifaceResult =<< readIface (hsc_dflags hsc_env) (hsc_NC hsc_env) (toModule name) ifaceFile
+
+    ifaceResult = \case
+      Succeeded i ->
+        pure i
+      Failed err ->
+        let msg = ppr name $+$ readInterfaceErrorDiagnostic err
+        in throwGhcExceptionIO (PprProgramError "Loading cached interface failed" msg)
+
+    toModule = mkModule (RealUnit (Definite uid))
+
+    uid = hscActiveUnitId hsc_env
+
+-- | Load all dependencies of the current modules from the Buck cache into the HPT if they don't exist.
+--
+-- When the make worker is killed by Buck at the end of a build, and the user subsequently changes some code and start a
+-- new build, the state (the current HPT) is initially empty, since Buck immediately tries to compile the changed
+-- module, assuming its deps to be available to the compiler.
+-- A JSON file provides 'CachedDeps' to the worker, containing all interface paths for the current home unit, which we
+-- restore into the HPT here.
+loadCachedDeps :: CachedDeps -> HscEnv -> Ghc HscEnv
+loadCachedDeps CachedDeps {local} hsc_env = do
+  newHpt <- foldM loadDep (hsc_HPT hsc_env) (Map.toList local)
+  pure (hscUpdateHPT (const newHpt) hsc_env)
+  where
+    loadDep hpt (DepName name, iface :| _) = liftIO (loadCachedDep hsc_env hpt name iface)
+
 -- | Like @withGhcUsingCacheMhu@, using the default cache handler @withCache@.
 withGhcMhu :: Env -> ([String] -> Target -> Ghc (Maybe a)) -> IO (Maybe a)
 withGhcMhu env f =
@@ -324,6 +390,7 @@ withGhcMhu env f =
   where
     cacheHandler _ prog = do
       result <- withCacheMake env.log env.state do
+        traverse_ (modifySessionM . loadCachedDeps) env.args.cachedDeps
         res <- prog
         pure do
           a <- res

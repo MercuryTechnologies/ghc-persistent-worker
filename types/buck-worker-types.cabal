@@ -26,13 +26,17 @@ library
   exposed-modules:
     Types.Args
     Types.BuckArgs
+    Types.CachedDeps
     Types.GhcHandler
     Types.Grpc
     Types.Orchestration
     Types.State
   build-depends:
+    aeson,
     base ==4.*,
+    bytestring,
     containers,
     filepath,
     ghc,
-    split
+    split,
+    text

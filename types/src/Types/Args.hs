@@ -2,6 +2,7 @@ module Types.Args where
 
 import Data.Map (Map)
 import Data.Map.Strict ((!?))
+import Types.CachedDeps (CachedDeps)
 
 newtype TargetId = TargetId {string :: String}
   deriving newtype (Show, Eq, Ord)
@@ -13,7 +14,8 @@ data Args =
     binPath :: [String],
     tempDir :: Maybe String,
     ghcPath :: Maybe String,
-    ghcOptions :: [String]
+    ghcOptions :: [String],
+    cachedDeps :: Maybe CachedDeps
   }
   deriving stock (Eq, Show)
 
@@ -25,5 +27,6 @@ emptyArgs env =
     binPath = [],
     tempDir = env !? "TMPDIR",
     ghcPath = Nothing,
-    ghcOptions = []
+    ghcOptions = [],
+    cachedDeps = Nothing
   }

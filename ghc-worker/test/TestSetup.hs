@@ -151,7 +151,8 @@ baseArgs topdir tmp =
       "base"
       -- , "-v"
       -- , "-ddump-if-trace"
-    ]
+    ],
+    cachedDeps = Nothing
   }
   where
     artifactDir a = ["-" ++ a ++ "dir", tmp </> "out"]
