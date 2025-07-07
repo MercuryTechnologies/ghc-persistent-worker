@@ -6,6 +6,7 @@ message Empty {}
 
 message CompileStart {
   string target = 1;
+  bool canDebug = 2;
 }
 
 message CompileEnd {

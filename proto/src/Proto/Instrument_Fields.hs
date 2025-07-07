@@ -27,6 +27,12 @@ import qualified Data.Vector
 import qualified Data.Vector.Generic
 import qualified Data.Vector.Unboxed
 import qualified Text.Read
+canDebug ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "canDebug" a) =>
+  Lens.Family2.LensLike' f s a
+canDebug = Data.ProtoLens.Field.field @"canDebug"
 compileEnd ::
   forall f s a.
   (Prelude.Functor f,
