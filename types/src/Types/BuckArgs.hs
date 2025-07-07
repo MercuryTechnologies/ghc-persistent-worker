@@ -57,7 +57,8 @@ data BuckArgs =
     mode :: Maybe Mode,
     envKey :: Maybe String,
     closeInput :: Maybe String,
-    closeOutput :: Maybe String
+    closeOutput :: Maybe String,
+    connectGhcDebug :: Bool
   }
   deriving stock (Eq, Show)
 
@@ -83,7 +84,8 @@ emptyBuckArgs env =
     mode = Nothing,
     envKey = Nothing,
     closeInput = Nothing,
-    closeOutput = Nothing
+    closeOutput = Nothing,
+    connectGhcDebug = False
   }
 
 options :: Map String ([String] -> BuckArgs -> Either String ([String], BuckArgs))
@@ -109,6 +111,7 @@ options =
     withArg "--worker-close" \z _a -> z {mode = Just ModeClose},
     withArg "--close-input" \z a -> z {closeInput = Just a},
     withArg "--close-output" \z a -> z {closeOutput = Just a},
+    flag "--connect-ghc-debug" \ z -> z {connectGhcDebug = True},
     ("-c", \ rest z -> Right (rest, z {mode = Just ModeCompile})),
     ("-M", \ rest z -> Right (rest, z {mode = Just ModeMetadata}))
   ]

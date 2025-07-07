@@ -11,15 +11,17 @@ import Data.Functor ((<&>))
 import Data.Int (Int32)
 import Data.Map qualified as Map
 import GHC (DynFlags (..), Ghc, getSession)
+import GHC.Debug.Stub (withGhcDebugUnix)
 import GHC.Driver.DynFlags (GhcMode (..))
 import GHC.Driver.Env (hscUpdateFlags)
-import GHC.Driver.Monad (modifySession)
+import GHC.Driver.Monad (modifySession, reifyGhc, reflectGhc)
 import GhcWorker.CompileResult (CompileResult (..), writeCloseOutput, writeResult)
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import GhcWorker.Orchestration (FeatureInstrument (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
+import Internal.Debug (debugSocketPath)
 import Internal.Log (TraceId, dbg, logDebug, logFlush, newLog, setLogTarget)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
@@ -31,7 +33,7 @@ import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
 import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (RequestArgs (..))
-import Types.State (Target)
+import Types.State (Target (..))
 
 data LockState = LockStart | LockFreeze Int | LockThaw Int | LockEnd
   deriving stock (Eq, Show)
@@ -117,7 +119,10 @@ dispatch lock workerMode hooks env args targetCallback =
 
     withTarget f target = do
       liftIO $ targetCallback target
-      f target <&> fmap \ r -> (r, target)
+      reifyGhc $ \session -> do
+        let path = debugSocketPath target
+        (if args.connectGhcDebug then withGhcDebugUnix path else id) $
+          reflectGhc (f target) session <&> fmap \ r -> (r, target)
 
 processResult ::
   Hooks ->

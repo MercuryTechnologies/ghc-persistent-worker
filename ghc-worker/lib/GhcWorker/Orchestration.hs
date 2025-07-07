@@ -28,7 +28,7 @@ import System.Exit (exitFailure)
 import System.FilePath (takeDirectory)
 import System.IO (IOMode (..), hGetLine, hPutStr, withFile)
 import System.Process (ProcessHandle, getProcessExitCode)
-import Types.Grpc (CommandEnv, RequestArgs)
+import Types.Grpc (CommandEnv, RequestArgs (..))
 import Types.Orchestration (
   InstrumentSocketPath (..),
   PrimarySocketDiscoveryPath (..),
@@ -62,7 +62,7 @@ runLocalGhc CreateMethods {..} socket minstr = mdo
   dbg ("Starting ghc server on " ++ socket.path)
   instrResource <- for minstr \instrumentSocket -> do
     dbg ("Instrumentation info available on " ++ instrumentSocket.path)
-    (resource, instrMethods) <- createInstrumentation recompile
+    (resource, instrMethods) <- createInstrumentation (\ ce (RequestArgs args) -> recompile ce (RequestArgs (args ++ ["-fforce-recomp", "--connect-ghc-debug"])))
     _instrThread <- async $ runServerWithHandlers def (grpcServerConfig instrumentSocket.path) (fromMethods instrMethods)
     pure resource
   (recompile, methods) <- createGhc instrResource

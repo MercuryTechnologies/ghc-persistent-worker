@@ -12,6 +12,8 @@ import GHC.Unit.External (ExternalPackageState (..), eucEPS)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomePackageTable, hm_iface)
 import GHC.Unit.Module.Graph (ModuleGraph)
 import GHC.Utils.Outputable (Outputable, SDoc, comma, hang, hcat, ppr, punctuate, text, vcat, (<+>))
+import System.FilePath ((</>))
+import Types.State (Target (..))
 
 #if !MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) && !defined(MWB)
 
@@ -125,3 +127,7 @@ showUnitEnv UnitEnv {..} = do
     ("hug", showHug ue_home_unit_graph),
     ("current_unit", ppr ue_current_unit)
     ]
+
+debugSocketPath :: Target -> FilePath
+debugSocketPath target =
+  "/tmp/ghc-persistent-worker/debug-sockets" </> target.path
