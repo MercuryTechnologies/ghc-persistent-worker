@@ -1,14 +1,15 @@
 module UI.ActiveTasks where
 
 import Brick.Types (EventM, Widget)
-import Brick.Widgets.Core (Padding (..), padRight, str, strWrap, (<+>))
+import Brick.Widgets.Core (Padding (..), padRight, str, strWrap, (<+>), withAttr)
 import Brick.Widgets.List (GenericList, list, listElementsL, listSelectedL, renderList, listSelectedElementL)
 import Control.Monad.IO.Class (liftIO)
+import Data.Maybe (fromMaybe)
 import Data.Sequence qualified as Seq
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
 import Types.State (Target (..))
 import Lens.Micro.Platform (modifying, use, (.=), preuse)
-import UI.Types (Name (ActiveTasks), WorkerId)
+import UI.Types (Name (ActiveTasks), WorkerId, canDebugAttr)
 import UI.Utils (formatPico, popup)
 
 type State = GenericList Name Seq.Seq Task
@@ -21,31 +22,33 @@ data Task = Task
   , _taskStartTime :: UTCTime
   , _failure :: Maybe String
   , _fromWorker :: WorkerId
+  , _canDebug :: Bool
   }
 
 draw :: Name -> UTCTime -> State -> Widget Name
 draw current now = renderList drawTask (current == ActiveTasks)
  where
   drawTask _ Task{_taskTarget = Target name, ..} =
-    padRight Max (str name) <+> str (maybe (formatPico $ nominalDiffTimeToSeconds (max 0 (diffUTCTime now _taskStartTime))) (const "Failure") _failure)
+    (if _canDebug then withAttr canDebugAttr else id) $
+      padRight Max (str name) <+> str (maybe (formatPico $ nominalDiffTimeToSeconds (max 0 (diffUTCTime now _taskStartTime))) (const "Failure") _failure)
 
 drawTaskDetails :: Task -> Widget Name
 drawTaskDetails Task{_taskTarget = Target name,..} =
   popup 70 name $ strWrap $ maybe "" id _failure
 
-addTask :: Target -> WorkerId -> EventM Name State ()
-addTask name wid = do
+addTask :: Target -> WorkerId -> Bool -> EventM Name State ()
+addTask name wid canDebug = do
   time <- liftIO $ getCurrentTime
-  modifying
-    listElementsL
-    (Seq.insertAt 0 (Task name time Nothing wid))
-  modifying listSelectedL (Just . maybe 0 succ)
+  tasks <- use listElementsL
+  let i = if canDebug then 0 else fromMaybe 0 (Seq.findIndexL (not . _canDebug) tasks)
+  listElementsL .= Seq.insertAt i (Task name time Nothing wid canDebug) tasks
+  modifying listSelectedL (Just . maybe i (\i' -> if i' >= i then i' + 1 else i'))
 
 removeTask :: Target -> EventM Name State (Maybe UTCTime)
 removeTask target = do
   tasks <- use listElementsL
   case Seq.breakl ((== target) . _taskTarget) tasks of
-    (before, (Task _ start _ _) Seq.:<| after) -> do
+    (before, (Task { _taskStartTime = start }) Seq.:<| after) -> do
       listElementsL .= before <> after
       modifying listSelectedL (fmap $ \i -> if i > length before then i - 1 else i)
       pure $ Just start

@@ -1,13 +1,13 @@
 module UI.ModuleSelector where
 
 import Brick.Types (EventM, Widget)
-import Brick.Widgets.Core (Padding (..), padRight, str, strWrap, vBox, (<+>))
+import Brick.Widgets.Core (Padding (..), padRight, str, strWrap, vBox, (<+>), withAttr)
 import Brick.Widgets.List (GenericList, list, listElementsL, listSelectedElementL, listSelectedL, renderList)
 import Data.Fixed (Fixed (..), Pico)
 import Data.Sequence qualified as Seq
 import Lens.Micro.Platform (modifying, preuse, use, (.=))
 import Types.State (Target (..))
-import UI.Types (Name (ModuleSelector), WorkerId)
+import UI.Types (Name (ModuleSelector), WorkerId, disabledAttr)
 import UI.Utils (formatPico, formatPs, popup, upsertAscSeq)
 
 type State = GenericList Name Seq.Seq Module
@@ -20,13 +20,15 @@ data Module = Module
   , _content :: String
   , _modCompileTime :: Maybe Pico
   , _fromWorker :: WorkerId
+  , _disabled :: Bool
   }
 
 draw :: Name -> State -> Widget Name
 draw current = renderList drawModule (current == ModuleSelector)
  where
   drawModule _ Module{_modTarget = Target name, ..} =
-    padRight Max (str name) <+> str (maybe "" formatPico _modCompileTime)
+    (if _disabled then withAttr disabledAttr else id) $
+      padRight Max (str name) <+> str (maybe "" formatPico _modCompileTime)
 
 drawModuleDetails :: Module -> Widget Name
 drawModuleDetails Module{_modTarget = Target name, ..} =
@@ -40,11 +42,17 @@ addModule :: Target -> String -> Maybe Pico -> WorkerId -> EventM Name State ()
 addModule (Target "") _ _ _ = pure () -- TODO: Filter out earlier
 addModule target content compileTime wid = do
   mods <- use listElementsL
-  let (i, mods') = upsertAscSeq _modTarget (Module target content compileTime wid) mods
-  modifying listSelectedL (Just . maybe i (\i' -> if i' >= i then i' + 1 else i'))
+  let (i, mods') = upsertAscSeq _modTarget (Module target content compileTime wid False) mods
   listElementsL .= mods'
+  modifying listSelectedL (Just . maybe i (\i' -> if i' >= i then i' + 1 else i'))
 
 getRebuildTarget :: EventM Name State (Maybe (WorkerId, Target))
 getRebuildTarget = do
   mtask <- preuse listSelectedElementL
-  pure $ (\Module{_fromWorker = wid, _modTarget = target} -> (wid, target)) <$> mtask
+  modifying listSelectedElementL (\m -> m {_disabled = True})
+  pure $ mtask >>= \Module{_fromWorker = wid, _modTarget = target, _disabled} -> if _disabled then Nothing else Just (wid, target)
+
+removeWorker :: WorkerId -> EventM Name State ()
+removeWorker wid = do
+  modifying listElementsL \mods ->
+    fmap (\m -> if m._fromWorker == wid then m{_disabled = True} else m) mods

@@ -29,7 +29,7 @@ import UI.ActiveTasks qualified as ActiveTasks
 import UI.ModuleSelector qualified as ModuleSelector
 import UI.Session qualified as Session
 import UI.SessionSelector qualified as SessionSelector
-import UI.Types (Name (..), WorkerId)
+import UI.Types (Name (..), WorkerId, disabledAttr, canDebugAttr)
 import UI.Utils (popup)
 
 data Event
@@ -189,6 +189,8 @@ app =
             [ (editFocusedAttr, brightWhite `on` blue)
             , (listSelectedAttr, brightWhite `on` brightBlack)
             , (listSelectedFocusedAttr, brightWhite `on` blue)
+            , (disabledAttr, V.withStyle V.defAttr V.dim)
+            , (canDebugAttr, V.withStyle V.defAttr V.bold)
             ]
     , appChooseCursor = showFirstCursor
     }

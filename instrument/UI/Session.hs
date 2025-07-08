@@ -101,7 +101,8 @@ handleEvent :: Event -> EventM Name State ()
 handleEvent (InstrEvent wid evt) =
   case evt ^. Instr.maybe'compileStart of
     Just cs -> do
-      zoom activeTasks $ ActiveTasks.addTask (Target $ Text.unpack $ cs ^. Instr.target) wid
+      let canDebug = cs ^. Instr.canDebug
+      zoom activeTasks $ ActiveTasks.addTask (Target $ Text.unpack $ cs ^. Instr.target) wid canDebug
     _ -> case evt ^. Instr.maybe'compileEnd of
       Just ce -> do
         let content = stripEscSeqs (Text.unpack $ ce ^. Instr.stderr)
@@ -130,3 +131,4 @@ removeWorker wid = do
   st <- use (workers . each . filtered (\w -> w._workerId == wid) . stats)
   modifying finishedWorkerStats (<> st{_memory = mempty})
   modifying workers (filter (\w -> w._workerId /= wid))
+  zoom modules $ ModuleSelector.removeWorker wid
