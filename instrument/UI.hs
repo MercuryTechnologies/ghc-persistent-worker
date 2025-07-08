@@ -4,7 +4,7 @@ module UI (module UI, customMainWithDefaultVty) where
 
 import Brick.AttrMap (attrMap)
 import Brick.Forms (Form, FormFieldState, editTextField, formState, handleFormEvent, newForm, renderForm, (@@=))
-import Brick.Main (App (..), customMainWithDefaultVty, halt, showFirstCursor)
+import Brick.Main (App (..), customMainWithDefaultVty, halt, showFirstCursor, getVtyHandle)
 import Brick.Types (BrickEvent (..), EventM, Widget)
 import Brick.Util (on)
 import Brick.Widgets.Border (borderWithLabel)
@@ -96,6 +96,11 @@ drawOptionsEditor form = popup 50 "Session Options" $ renderForm form
 currentSession :: Traversal' State Session.State
 currentSession = sessions . listSelectedElementL . _2
 
+beep :: EventM Name State ()
+beep = do
+  vty <- getVtyHandle
+  liftIO $ V.ringTerminalBell $ V.outputIface vty
+
 handleEvent :: BrickEvent Name Event -> EventM Name State ()
 handleEvent (AppEvent (SetTime t)) = currentTime .= t
 handleEvent (AppEvent (SendOptions mwid)) = do
@@ -157,7 +162,7 @@ handleEvent (VtyEvent evt) = do
           ModuleSelector -> zoom (currentSession . Session.modules) (First <$> ModuleSelector.getRebuildTarget)
           _ -> pure (First Nothing)
         case mtarget of
-          First Nothing -> pure ()
+          First Nothing -> beep
           First (Just (wid, target)) -> handleEvent (AppEvent (TriggerRebuild wid target))
       V.EvKey (V.KChar '\t') [] -> do
         currentFocus .= case current of
