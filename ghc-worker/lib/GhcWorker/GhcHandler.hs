@@ -99,7 +99,7 @@ dispatch lock workerMode hooks env args =
       dbg "in dispatch. Mode Close"
       _ <- writeCloseOutput args
       _ <- forkIO $ do
-        threadDelay 1_000_000
+        threadDelay 100_000
         exitImmediately ExitSuccess
       pure (0, Nothing)
     Just m -> error ("worker: mode not implemented: " ++ show m)
