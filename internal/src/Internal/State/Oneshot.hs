@@ -54,8 +54,13 @@ import Internal.State.Stats (FinderStats (..))
 
 #else
 
-import Control.Concurrent.MVar (newMVar)
 import GHC.Unit.Finder (initFinderCache)
+
+#if !defined(MWB)
+
+import Control.Concurrent.MVar (newMVar)
+
+#endif
 
 #endif
 
