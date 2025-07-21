@@ -18,7 +18,7 @@ import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Compile (compileModuleWithDepsInEps)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
-import Internal.Log (TraceId, dbg, logDebug, logFlush, newLog, setLogTarget)
+import Internal.Log (TraceId, dbg, logDebug, logFlush, newLog, setLogTarget, Log)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhc, withGhcMhu)
 import Internal.State (ModuleArtifacts (..), WorkerState (..), dumpState)
@@ -118,13 +118,14 @@ dispatch lock workerMode hooks env args =
 
 processResult ::
   Hooks ->
-  Env ->
+  MVar Log ->
+  MVar WorkerState ->
   Either IOError (Int32, Maybe Target) ->
   IO ([String], Int32)
-processResult hooks env result = do
+processResult hooks logVar stateVar result = do
   when (exitCode /= 0) do
-    dumpState env.log env.state exception
-  output <- logFlush env.log
+    dumpState logVar stateVar exception
+  output <- logFlush logVar
   hooks.compileFinish (hookPayload output)
   pure (output, exitCode)
   where
@@ -154,10 +155,14 @@ ghcHandler ::
   InstrumentedHandler
 ghcHandler lock state workerMode traceId =
   InstrumentedHandler \ hooks -> GrpcHandler \ commandEnv argv -> do
-    buckArgs <- either (throwIO . userError) pure (parseBuckArgs commandEnv argv)
-    args <- toGhcArgs buckArgs
     log <- newLog traceId
-    logDebug log (unlines (coerce argv))
-    let env = Env {log, state, args}
-    result <- try $ dispatch lock workerMode hooks env buckArgs
-    processResult hooks env result
+    result <- try do
+      buckArgs <- either parseError pure (parseBuckArgs commandEnv argv)
+      args <- toGhcArgs buckArgs
+      logDebug log (unlines (coerce argv))
+      let env = Env {log, state, args}
+      dispatch lock workerMode hooks env buckArgs
+    processResult hooks log state result
+  where
+    parseError msg =
+      throwIO (userError ("Parsing Buck args failed: " ++ msg))

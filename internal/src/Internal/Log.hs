@@ -173,6 +173,14 @@ dbgs = dbg . show
 dbgp :: Outputable a => MonadIO m => a -> m ()
 dbgp = dbg . showPprUnsafe
 
+logs ::
+  MonadIO m =>
+  MVar Log ->
+  String ->
+  m ()
+logs logVar =
+  logOther logVar LogInfo
+
 logp ::
   Outputable a =>
   MonadIO m =>

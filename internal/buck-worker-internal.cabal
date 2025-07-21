@@ -45,7 +45,8 @@ library
     if (flag(mwb))
         cpp-options: -DMWB
 
-    build-depends:    binary,
+    build-depends:    aeson,
+                      binary,
                       buck-worker-types,
                       bytestring,
                       containers,

@@ -5,14 +5,15 @@ module Internal.Error where
 import Control.Concurrent.MVar (MVar)
 import Control.Exception (AsyncException (..), Exception (..), IOException, throwIO)
 import qualified Control.Monad.Catch as MC
-import Control.Monad.IO.Class (liftIO, MonadIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHC (Ghc, GhcException (..), printException)
+import GHC.Driver.Errors.Types (GhcMessage)
+import GHC.Types.Error (Messages)
 import GHC.Types.SourceError (SourceError, throwErrors)
+import GHC.Utils.Outputable (Outputable (..))
 import Internal.Log (Log, LogLevel (..), logOther)
 import System.Environment (getProgName)
 import System.Exit (ExitCode)
-import GHC.Driver.Errors.Types (GhcMessage)
-import GHC.Types.Error (Messages)
 
 handleExceptions :: MVar Log -> a -> Ghc a -> Ghc a
 handleExceptions logVar errResult =
@@ -58,3 +59,13 @@ eitherMessages ::
 eitherMessages toMessage = \case
   Right b -> pure b
   Left errs -> throwErrors (toMessage <$> errs)
+
+notePpr ::
+  MonadIO m =>
+  Outputable doc =>
+  String ->
+  doc ->
+  Maybe a ->
+  m a
+notePpr msg doc =
+  maybe (liftIO (throwIO (PprPanic msg (ppr doc)))) pure

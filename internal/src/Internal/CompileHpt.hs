@@ -28,7 +28,6 @@ setHiLocation HscEnv {hsc_dflags = DynFlags {outputHi = Just ml_hi_file, outputF
   summ {ms_location = summ.ms_location {ml_hi_file, ml_obj_file}}
 setHiLocation _ summ = summ
 
--- | Not used yet.
 cleanCurrentModuleTempFilesMaybe :: MonadIO m => Logger -> TmpFs -> DynFlags -> m ()
 cleanCurrentModuleTempFilesMaybe logger tmpfs dflags =
   if gopt Opt_KeepTmpFiles dflags
@@ -54,6 +53,7 @@ compileModuleWithDepsInHpt (Target src) = do
   initializeSessionPlugins
   hsc_env <- getSession
   hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
+    -- TODO update summary in module graph
     summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
     summary <- setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
     result <- compileOne hsc_env summary 1 100000 Nothing (HomeModLinkable Nothing Nothing)

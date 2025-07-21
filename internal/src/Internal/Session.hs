@@ -11,7 +11,7 @@ import Data.IORef (newIORef)
 import Data.List (intercalate, isPrefixOf)
 import Data.List.NonEmpty (NonEmpty ((:|)), nonEmpty)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (maybeToList)
+import Data.Maybe (fromMaybe, maybeToList)
 import qualified Data.Set as Set
 import GHC (
   DynFlags (..),
@@ -20,12 +20,14 @@ import GHC (
   GhcException (..),
   GhcLink (LinkBinary),
   ModIface,
+  ModIface_ (..),
   ModuleName,
   Phase,
   getSession,
   getSessionDynFlags,
   gopt,
   mkModule,
+  moduleName,
   parseDynamicFlags,
   parseTargetFiles,
   popLogHookM,
@@ -37,7 +39,8 @@ import GHC (
 import GHC.Data.Maybe (MaybeErr (..))
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
-import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscUpdateFlags, hscUpdateHPT, hsc_HPT)
+import GHC.Driver.DynFlags (GhcMode (..))
+import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hscUpdateFlags, hscUpdateHPT, hsc_HPT)
 import GHC.Driver.Errors (printOrThrowDiagnostics)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
 import GHC.Driver.Main (initHscEnv, initModDetails)
@@ -45,24 +48,27 @@ import GHC.Driver.Monad (Session (Session), modifySession, modifySessionM, unGhc
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
 import GHC.Iface.Load (readIface)
 import GHC.Linker.Types (Linkable)
+import GHC.Platform.Ways (Way (..), addWay)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Types.Unique.DFM (addToUDFM, elemUDFM)
 import GHC.Unit (Definite (..), GenUnit (..))
-import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..), HomePackageTable)
+import GHC.Unit.Env (UnitEnv (..), unitEnv_member)
+import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..), addToHpt, emptyHomeModInfoLinkable)
 import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Outputable (ppr, ($+$))
-import GHC.Utils.Panic (panic, throwGhcException, throwGhcExceptionIO)
+import GHC.Utils.Panic (panic, throwGhcExceptionIO)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Error (handleExceptions)
-import Internal.Log (Log (..), logToState, logDebug)
+import Internal.Log (Log (..), logDebug, logToState)
 import Internal.State (BinPath (..), ModuleArtifacts, Options (..), WorkerState (..), withCacheMake, withCacheOneshot)
 import Internal.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 import Prelude hiding (log)
 import System.Environment (setEnv)
+import System.IO.Unsafe (unsafeInterleaveIO)
 import Types.Args (Args (..))
-import Types.CachedDeps (CachedDeps (..), DepName (..))
+import Types.CachedDeps (CachedDeps (..), CachedProjectDep (..), JsonFs (..))
 import Types.State (Target (Target))
 
 -- This preprocessor variable indicates that we're building with a GHC that has the final version of the oneshot
@@ -112,14 +118,16 @@ instrumentLocation = mkGeneralLocated "by instrument"
 
 -- | Parse command line flags into @DynFlags@ and set up the logger. Extracted from GHC.
 -- Returns the subset of args that have not been recognized as options.
-parseFlags :: [Located String] -> Ghc (DynFlags, Logger, [Located String], DriverMessages)
-parseFlags argv = do
-  dflags0 <- GHC.getSessionDynFlags
+parseFlags ::
+  DynFlags ->
+  Logger ->
+  [Located String] ->
+  IO (DynFlags, Logger, [Located String], DriverMessages)
+parseFlags dflags0 logger0 argv = do
   let dflags1 = dflags0 {ghcLink = LinkBinary, verbosity = 0}
-  logger1 <- getLogger
-  let logger2 = setLogFlags logger1 (initLogFlags dflags1)
-  (dflags, fileish_args, dynamicFlagWarnings) <- parseDynamicFlags logger2 dflags1 argv
-  pure (dflags, setLogFlags logger2 (initLogFlags dflags), fileish_args, dynamicFlagWarnings)
+  let logger1 = setLogFlags logger0 (initLogFlags dflags1)
+  (dflags, fileish_args, dynamicFlagWarnings) <- parseDynamicFlags logger1 dflags1 argv
+  pure (dflags, setLogFlags logger1 (initLogFlags dflags), fileish_args, dynamicFlagWarnings)
 
 -- | Parse CLI args and initialize 'DynFlags'.
 -- Returns the subset of args that have not been recognized as options.
@@ -128,11 +136,11 @@ initDynFlags ::
   Logger ->
   [Located String] ->
   DriverMessages ->
-  Ghc (DynFlags, [(String, Maybe Phase)])
+  IO (DynFlags, [(String, Maybe Phase)])
 initDynFlags dflags0 logger fileish_args dynamicFlagWarnings = do
-  liftIO $ printOrThrowDiagnostics logger (initPrintConfig dflags0) (initDiagOpts dflags0) flagWarnings'
+  printOrThrowDiagnostics logger (initPrintConfig dflags0) (initDiagOpts dflags0) flagWarnings'
   let (dflags1, srcs, objs) = parseTargetFiles dflags0 (map unLoc fileish_args)
-  unless (null objs) $ throwGhcException (UsageError ("Targets contain object files: " ++ show objs))
+  unless (null objs) $ throwGhcExceptionIO (UsageError ("Targets contain object files: " ++ show objs))
   pure (dflags1, srcs)
   where
     flagWarnings' = GhcDriverMessage <$> dynamicFlagWarnings
@@ -146,7 +154,7 @@ initGhc ::
   DriverMessages ->
   Ghc [(String, Maybe Phase)]
 initGhc dflags0 logger fileish_args dynamicFlagWarnings = do
-  (dflags1, srcs) <- initDynFlags dflags0 logger fileish_args dynamicFlagWarnings
+  (dflags1, srcs) <- liftIO $ initDynFlags dflags0 logger fileish_args dynamicFlagWarnings
   setSessionDynFlags dflags1
   pure srcs
 
@@ -159,9 +167,11 @@ withDynFlags env prog argv = do
   let !log = env.log
   pushLogHookM (const (logToState log))
   state <- liftIO $ readMVar env.state
-  (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags (argv ++ map instrumentLocation (words state.options.extraGhcOptions))
+  dflags0 <- GHC.getSessionDynFlags
+  logger0 <- getLogger
+  (dflags1, logger, fileish_args, dynamicFlagWarnings) <- liftIO $ parseFlags dflags0 logger0 (argv ++ map instrumentLocation (words state.options.extraGhcOptions))
   result <- prettyPrintGhcErrors logger do
-    (dflags, srcs) <- initDynFlags dflags0 logger fileish_args dynamicFlagWarnings
+    (dflags, srcs) <- liftIO $ initDynFlags dflags1 logger fileish_args dynamicFlagWarnings
     prog dflags srcs
   result <$ popLogHookM
 
@@ -341,6 +351,14 @@ withGhcUsingCacheMhu cacheHandler env prog =
       initializeSessionPlugins
       prog specific target
 
+add_iface_to_hpt :: ModIface -> ModDetails -> HscEnv -> HscEnv
+add_iface_to_hpt iface details =
+  hscUpdateHPT $ \ hpt ->
+    addToHpt hpt (moduleName (mi_module iface'))
+    (HomeModInfo iface' details emptyHomeModInfoLinkable)
+  where
+    iface' = iface { mi_extra_decls = Nothing }
+
 -- | Load bytecode from an interface.
 -- Used only for modules missing from the current target's HPT when restoring the Buck cache after restarting a build.
 --
@@ -350,7 +368,7 @@ withGhcUsingCacheMhu cacheHandler env prog =
 loadCachedByteCode :: HscEnv -> FilePath -> ModIface -> ModDetails -> IO (Maybe Linkable)
 #if defined(MWB_2025_07)
 loadCachedByteCode hsc_env ifaceFile iface details =
-   sequence (loadIfaceByteCode hsc_env iface location (md_types details))
+   sequence (loadIfaceByteCode hsc_env' iface location (md_types details))
    where
     location =
       ModLocation {
@@ -361,6 +379,8 @@ loadCachedByteCode hsc_env ifaceFile iface details =
         ml_dyn_obj_file = error "loadCachedByteCode",
         ml_hie_file = error "loadCachedByteCode"
       }
+
+    hsc_env' = add_iface_to_hpt iface details hsc_env
 #else
 loadCachedByteCode _ _ _ _ =
   pure Nothing
@@ -369,33 +389,38 @@ loadCachedByteCode _ _ _ _ =
 -- | If the given module name is missing from the HPT, load the given interface from disk and store it in the module's
 -- 'HomeModInfo'.
 --
--- This only happens when the module is dependend upon downstream for the first time after restarting the worker with a
+-- This only happens when the module is depended upon downstream for the first time after restarting the worker with a
 -- partial build.
 --
 -- Maybe this could reuse some stuff in @hscRecompStatus@?
 loadCachedDep ::
   MVar Log ->
-  HscEnv ->
-  HomePackageTable ->
   ModuleName ->
+  HscEnv ->
   FilePath ->
-  IO HomePackageTable
-loadCachedDep log hsc_env hpt name ifaceFile =
+  IO HscEnv
+loadCachedDep log name hsc_env ifaceFile =
   if elemUDFM name hpt
-  then pure hpt
+  then pure hsc_env
   else loadHmi
   where
     loadHmi = do
       logDebug log ("Loading HPT module from cache: " ++ ifaceFile)
       hm_iface <- loadIface
+      -- TODO this adds an empty HMI to the active HPT, so we need to set the active unit for package deps.
+      -- But since we're overwriting the HPT in hsc_env afterwards, the pollution isn't a problem – just need to avoid
+      -- wrong unit ids being used.
+      -- Although, could this cause problems with transitive deps?
       hm_details <- initModDetails hsc_env hm_iface
-      homeMod_bytecode <- loadCachedByteCode hsc_env ifaceFile hm_iface hm_details
-      pure $ addToUDFM hpt name HomeModInfo {
+      homeMod_bytecode <- unsafeInterleaveIO $ loadCachedByteCode hsc_env ifaceFile hm_iface hm_details
+      let new = addToUDFM hpt name HomeModInfo {
         hm_iface,
         hm_linkable = HomeModLinkable {homeMod_object = Nothing, homeMod_bytecode},
         hm_details
       }
+      pure (hscUpdateHPT (const new) hsc_env)
 
+    -- @readIface@ needs the dflags only for platform/ways, so we don't need the unit dflags
     loadIface =
       ifaceResult =<< readIface (hsc_dflags hsc_env) (hsc_NC hsc_env) (toModule name) ifaceFile
 
@@ -410,23 +435,49 @@ loadCachedDep log hsc_env hpt name ifaceFile =
 
     uid = hscActiveUnitId hsc_env
 
--- | Load all dependencies of the current modules from the Buck cache into the HPT if they don't exist.
+    hpt = hsc_HPT hsc_env
+
+-- | Load all dependencies of the current module from the Buck cache into the HPT if they don't exist.
 --
--- When the make worker is killed by Buck at the end of a build, and the user subsequently changes some code and start a
--- new build, the state (the current HPT) is initially empty, since Buck immediately tries to compile the changed
+-- When the make worker is killed by Buck at the end of a build, and the user subsequently changes some code and starts
+-- a new build, the state (the current HPT) is initially empty, since Buck immediately tries to compile the changed
 -- module, assuming its deps to be available to the compiler.
 -- A JSON file provides 'CachedDeps' to the worker, containing all interface paths for the current home unit, which we
 -- restore into the HPT here.
+--
+-- TODO toposort?
+--
+-- TODO load the cli args alongside modules and restore module-specific DynFlags properly.
+-- This is a peculiarity of Buck (compared to cabal), since we can specify per-module options outside of the module
+-- header.
 loadCachedDeps ::
   MVar Log ->
   CachedDeps ->
   HscEnv ->
   Ghc HscEnv
-loadCachedDeps log CachedDeps {local} hsc_env = do
-  newHpt <- foldM loadDep (hsc_HPT hsc_env) (Map.toList local)
-  pure (hscUpdateHPT (const newHpt) hsc_env)
+loadCachedDeps log CachedDeps {home_unit, project} hsc_env0 = do
+  hsc_env1 <- foldM (uncurry . loadDepUnit) (setDyn hsc_env0) (Map.toList projectByUnit)
+  let hsc_env2 = hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1
+  loadActiveUnit (setDyn hsc_env2) home_unit
   where
-    loadDep hpt (DepName name, iface :| _) = liftIO (loadCachedDep log hsc_env hpt name iface)
+    setDyn = hscUpdateFlags \ d -> d {ghcMode = CompManager, targetWays_ = addWay WayDyn (targetWays_ d)}
+
+    -- If the unit isn't part of the module graph, it wasn't built by a worker, since it would have been loaded in the
+    -- metadata restoration step.
+    loadDepUnit hsc_env uid mods =
+      if unitEnv_member uid hsc_env.hsc_unit_env.ue_home_unit_graph
+      then loadActiveUnit (hscSetActiveUnitId uid hsc_env) mods
+      else pure hsc_env
+
+    loadActiveUnit hsc_env mods = do
+      foldM loadDep hsc_env (Map.toList mods)
+
+    loadDep hsc_env (JsonFs name, iface :| _) = liftIO (loadCachedDep log name hsc_env iface)
+
+    projectByUnit = foldl' insProjectMod mempty project
+
+    insProjectMod z CachedProjectDep {name, package = JsonFs uid, interfaces} =
+      Map.alter (Just . Map.insert name interfaces . fromMaybe mempty) uid z
 
 -- | Like @withGhcUsingCacheMhu@, using the default cache handler @withCache@.
 withGhcMhu :: Env -> ([String] -> Target -> Ghc (Maybe a)) -> IO (Maybe a)

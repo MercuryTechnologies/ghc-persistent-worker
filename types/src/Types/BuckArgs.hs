@@ -2,8 +2,7 @@ module Types.BuckArgs where
 
 import Control.Applicative ((<|>))
 import Control.Exception (throwIO)
-import Control.Monad ((>=>))
-import Data.Aeson (eitherDecodeFileStrict')
+import Data.Aeson (FromJSON, eitherDecodeFileStrict')
 import Data.Coerce (coerce)
 import Data.List (dropWhileEnd)
 import Data.Map (Map)
@@ -13,7 +12,6 @@ import Data.Maybe (fromMaybe)
 import System.FilePath (takeDirectory)
 import qualified Types.Args
 import Types.Args (Args (Args), TargetId (..))
-import Types.CachedDeps (CachedDeps)
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
 
 data Mode =
@@ -44,6 +42,7 @@ data BuckArgs =
     buck2PackageDb :: [String],
     buck2PackageDbDep :: Maybe String,
     buck2DepGraph :: Maybe String,
+    buck2BuildPlans :: Maybe String,
     workerTargetId :: Maybe TargetId,
     pluginDb :: Maybe String,
     env :: Map String String,
@@ -52,6 +51,7 @@ data BuckArgs =
     ghcPath :: Maybe String,
     ghcDirFile :: Maybe String,
     ghcDbFile :: Maybe String,
+    ghcArgsFile :: Maybe String,
     ghcOptions :: [String],
     multiplexerCustom :: Bool,
     mode :: Maybe Mode,
@@ -70,6 +70,7 @@ emptyBuckArgs env =
     buck2PackageDb = [],
     buck2PackageDbDep = Nothing,
     buck2DepGraph = Nothing,
+    buck2BuildPlans = Nothing,
     workerTargetId = Nothing,
     pluginDb = Nothing,
     env,
@@ -78,6 +79,7 @@ emptyBuckArgs env =
     ghcPath = Nothing,
     ghcDirFile = Nothing,
     ghcDbFile = Nothing,
+    ghcArgsFile = Nothing,
     ghcOptions = [],
     multiplexerCustom = False,
     mode = Nothing,
@@ -94,6 +96,7 @@ options =
     withArg "--buck2-package-db" \ z a -> z {buck2PackageDb = a : z.buck2PackageDb},
     withArg "--buck2-packagedb-dep" \ z a -> z {buck2PackageDbDep = Just a},
     withArg "--buck2-dep-graph" \ z a -> z {buck2DepGraph = Just a},
+    withArg "--buck2-transitive-build-plans" \ z a -> z {buck2BuildPlans = Just a},
     withArg "--extra-env-key" \ z a -> z {envKey = Just a},
     withArgErr "--extra-env-value" \ z a -> addEnv z a,
     withArg "--worker-target-id" \ z a -> z {workerTargetId = Just (TargetId a)},
@@ -101,6 +104,7 @@ options =
     withArg "--plugin-db" \ z a -> z {pluginDb = Just a},
     withArg "--ghc" \ z a -> z {ghcOptions = [], ghcPath = Just a},
     withArg "--ghc-dir" \ z a -> z {ghcDirFile = Just a},
+    withArg "--ghc-args" \ z a -> z {ghcArgsFile = Just a},
     withArg "--extra-pkg-db" \ z a -> z {ghcDbFile = Just a},
     withArg "--bin-path" \ z a -> z {binPath = a : z.binPath},
     withArg "--bin-exe" \ z a -> z {binPath = takeDirectory a : z.binPath},
@@ -151,24 +155,31 @@ parseBuckArgs env =
     -- Let GHC handle the arg
     ghcOption arg rest z = Right (rest, z {ghcOptions = arg : z.ghcOptions})
 
-decodeCachedDeps :: String -> IO CachedDeps
-decodeCachedDeps =
-  eitherDecodeFileStrict' >=> \case
+decodeJsonArg ::
+  FromJSON a =>
+  String ->
+  String ->
+  IO a
+decodeJsonArg desc file =
+  eitherDecodeFileStrict' file >>= \case
     Right a -> pure a
-    Left err -> throwIO (userError err)
+    Left err -> throwIO (userError ("Invalid JSON in file for " ++ desc ++ ": " ++ err ++ " (" ++ file ++ ")"))
 
 toGhcArgs :: BuckArgs -> IO Args
 toGhcArgs args = do
-  cachedDeps <- traverse decodeCachedDeps args.buck2DepGraph
+  cachedDeps <- traverse (decodeJsonArg "--buck2-dep-graph") args.buck2DepGraph
+  cachedBuildPlans <- traverse (decodeJsonArg "--buck2-transitive-build-plans") args.buck2BuildPlans
   topdir <- (<|> args.topdir) <$> readPath args.ghcDirFile
   packageDb <- readPath args.ghcDbFile
+  ghcArgs <- traverse readFile args.ghcArgsFile
   pure Args {
     topdir,
     workerTargetId = args.workerTargetId,
     binPath = args.binPath,
     tempDir = args.tempDir,
     ghcPath = args.ghcPath,
-    ghcOptions = args.ghcOptions ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
+    ghcOptions = foldMap lines ghcArgs ++ args.ghcOptions ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
+    cachedBuildPlans,
     cachedDeps
   }
   where
