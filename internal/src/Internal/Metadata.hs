@@ -2,20 +2,24 @@ module Internal.Metadata where
 
 import Control.Concurrent (readMVar)
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Maybe (MaybeT (..))
+import Data.Foldable (for_)
 import Data.Maybe (isJust)
-import GHC (DynFlags (..), Ghc, GhcMode (..), ModuleGraph)
+import GHC (DynFlags (..), Ghc, GhcMode (..), ModuleGraph, getSession, getSessionDynFlags, setSession)
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateFlags, hscUpdateLoggerFlags)
 import GHC.Driver.Monad (modifySession, modifySessionM, withSession, withTempSession)
 import GHC.Platform.Ways (Way (WayDyn), addWay)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit (UnitId)
-import Internal.Cache.Metadata (initHomeUnit)
-import Internal.Log (setLogTarget)
+import Internal.Cache.Metadata (addHomeUnitTo, loadCachedUnits)
+import Internal.Log (logDebug, setLogTarget)
 import Internal.MakeFile (doMkDependHS)
 import Internal.Session (Env (..), runSession, withDynFlags)
 import Internal.State (WorkerState (..), updateMakeStateVar)
 import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
 import Internal.State.Stats (logMemStats)
+import System.Directory (createDirectoryIfMissing)
+import Types.Args (Args (..))
 import Types.State (TargetSpec (..), UnitTarget (..))
 
 -- | 'doMkDependHS' needs this to be enabled.
@@ -28,12 +32,10 @@ metadataTempSession =
 -- DB arguments for dependencies.
 addHomeUnit :: DynFlags -> Ghc UnitId
 addHomeUnit dflags = do
-  modifySessionM \ hsc_env -> do
-    unit_env <- liftIO $ initHomeUnit dflags hsc_env.hsc_logger unit hsc_env.hsc_unit_env
-    pure hsc_env {hsc_unit_env = unit_env}
+  hsc_env <- getSession
+  (hsc_env1, unit) <- liftIO $ addHomeUnitTo hsc_env dflags
+  setSession hsc_env1
   pure unit
-  where
-    unit = dflags.homeUnitId_
 
 -- | Initialize the home unit env for this target and restore the module graphs computed previously for other units.
 --
@@ -77,12 +79,21 @@ writeMetadata srcs = do
 -- with different compilation ways and restore the previous unit env so dependencies are visible.
 computeMetadata :: Env -> IO (Bool, Maybe TargetSpec)
 computeMetadata env = do
-  res <- runSession True env $ withDynFlags env \ dflags srcs -> do
-    unit <- prepareMetadataSession env dflags
-    let target = TargetUnit (UnitTarget unit)
-    liftIO $ setLogTarget env.log target
-    module_graph <- writeMetadata (fst <$> srcs)
-    liftIO $ updateMakeStateVar env.state (storeModuleGraph module_graph)
-    pure (Just target)
+  res <- runMaybeT do
+    () <- MaybeT $ runSession True env \ _ -> do
+      dflags <- getSessionDynFlags
+      for_ env.args.cachedBuildPlans \ bp ->
+        withSession (liftIO . loadCachedUnits env.log env.state dflags bp)
+      pure (Just ())
+    MaybeT $ runSession True env $ withDynFlags env \ dflags srcs -> do
+      unit <- prepareMetadataSession env dflags
+      let target = TargetUnit (UnitTarget unit)
+      liftIO $ setLogTarget env.log target
+      module_graph <- writeMetadata (fst <$> srcs)
+      liftIO $ updateMakeStateVar env.state (storeModuleGraph module_graph)
+      for_ dflags.stubDir \ stubdir -> do
+        logDebug env.log ("Creating stubdir: " ++ stubdir)
+        liftIO $ createDirectoryIfMissing False stubdir
+      pure (Just target)
   logMemStats "after metadata" env.log
   pure (isJust res, res)

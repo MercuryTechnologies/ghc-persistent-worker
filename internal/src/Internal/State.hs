@@ -80,12 +80,18 @@ newStateWith features = do
 newState :: Bool -> IO (MVar WorkerState)
 newState enable = newStateWith newOneshotCacheFeatures {enable}
 
+modifyMakeState :: MVar WorkerState -> (MakeState -> IO (MakeState, a)) -> IO a
+modifyMakeState var f =
+  modifyMVar var \ state -> do
+    (make, a) <- f state.make
+    pure (state {make}, a)
+
 -- | Update the 'MakeState' field in the 'WorkerState'.
 updateMakeState :: (MakeState -> MakeState) -> WorkerState -> WorkerState
 updateMakeState f state = state {make = f state.make}
 
 updateMakeStateVar :: MVar WorkerState -> (MakeState -> MakeState) -> IO ()
-updateMakeStateVar var f = modifyMVar_ var (pure . updateMakeState f)
+updateMakeStateVar var f = modifyMakeState var (\ s -> pure (f s, ()))
 
 updateOneshotState :: (OneshotState -> OneshotState) -> WorkerState -> WorkerState
 updateOneshotState f state = state {oneshot = f state.oneshot}
