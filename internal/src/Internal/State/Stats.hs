@@ -16,7 +16,7 @@ import GHC.Types.Unique.FM (minusUFM, nonDetEltsUFM, sizeUFM)
 import GHC.Unit.Module.Env (moduleEnvKeys)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
-import Internal.Log (Log, logd)
+import Internal.Log (Log, logDebugD, logd)
 import Types.Args (TargetId (..))
 import Types.State (SymbolCache (..), Target (..))
 
@@ -213,8 +213,8 @@ report logVar workerId target stats = do
 logMemStats :: String -> MVar Log -> IO ()
 logMemStats step logVar = do
   s <- liftIO getRTSStats
-  let logMem desc value = logd logVar (text (desc ++ ":") <+> doublePrec 2 (fromIntegral value / 1_000_000) <+> text "MB")
-  logd logVar (text ("-------------- " ++ step))
+  let logMem desc value = logDebugD logVar (text (desc ++ ":") <+> doublePrec 2 (fromIntegral value / 1_000_000) <+> text "MB")
+  logDebugD logVar (text ("-------------- " ++ step))
   logMem "Mem in use" s.gc.gcdetails_mem_in_use_bytes
   logMem "Max mem in use" s.max_mem_in_use_bytes
   logMem "Max live bytes" s.max_live_bytes
