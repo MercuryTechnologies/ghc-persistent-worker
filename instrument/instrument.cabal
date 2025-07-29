@@ -12,6 +12,7 @@ executable instrument
     Grpc
     UI
     UI.ActiveTasks
+    UI.GhcDebug
     UI.ModuleSelector
     UI.Session
     UI.SessionSelector
@@ -26,6 +27,7 @@ executable instrument
     DataKinds,
     DerivingStrategies,
     DuplicateRecordFields,
+    ImportQualifiedPost,
     LambdaCase,
     NamedFieldPuns,
     OverloadedLists,
@@ -41,6 +43,7 @@ executable instrument
     buck-worker-proto,
     buck-worker-types,
     containers,
+    ghc-debug-brick,
     directory,
     fsnotify,
     grapesy,

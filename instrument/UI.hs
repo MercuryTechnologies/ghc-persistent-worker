@@ -4,7 +4,7 @@ module UI (module UI, customMainWithDefaultVty) where
 
 import Brick.AttrMap (attrMap)
 import Brick.Forms (Form, FormFieldState, editTextField, formState, handleFormEvent, newForm, renderForm, (@@=))
-import Brick.Main (App (..), customMainWithDefaultVty, halt, showFirstCursor, getVtyHandle)
+import Brick.Main (App (..), customMainWithDefaultVty, getVtyHandle, halt, showFirstCursor, suspendAndResume')
 import Brick.Types (BrickEvent (..), EventM, Widget)
 import Brick.Util (on)
 import Brick.Widgets.Border (borderWithLabel)
@@ -22,10 +22,12 @@ import Data.Time (UTCTime (..), fromGregorian)
 import Graphics.Vty qualified as V
 import Graphics.Vty.Attributes.Color
 import Grpc (sendOptions, triggerRebuild)
+import Internal.Debug (debugSocketPath)
 import Internal.State (Options (..), defaultOptions)
 import Lens.Micro.Platform (Lens', Traversal', each, filtered, lens, makeLenses, packed, preuse, use, zoom, (.=), _2)
 import Types.State (Target)
 import UI.ActiveTasks qualified as ActiveTasks
+import UI.GhcDebug (debug)
 import UI.ModuleSelector qualified as ModuleSelector
 import UI.Session qualified as Session
 import UI.SessionSelector qualified as SessionSelector
@@ -84,7 +86,7 @@ drawUI State{..} =
                   (borderWithLabel (str " GHC Persistent Worker ") $ center $ str "Waiting for first session")
                   (Session.draw _currentFocus _currentTime)
                   session
-          , modifyDefAttr (`V.withStyle` V.italic) $ str " q:quit   Enter:show details   r:trigger rebuild   o:toggle options editor   s:toggle session selector"
+          , modifyDefAttr (`V.withStyle` V.italic) $ str " q:quit   Enter:show details   r:trigger rebuild   d:debug   o:toggle options editor   s:toggle session selector"
           ]
        ]
  where
@@ -167,6 +169,10 @@ handleEvent (VtyEvent evt) = do
         currentFocus .= SessionSelector
       V.EvKey (V.KChar 'o') [] -> do
         currentFocus .= OptionsEditor
+      V.EvKey (V.KChar 'd') [] -> do
+        withTarget $ \_wid target ->
+          suspendAndResume' $
+            debug (debugSocketPath target)
       V.EvKey (V.KChar 'r') [] -> do
         withTarget $ \wid target ->
           handleEvent (AppEvent (TriggerRebuild wid target))
