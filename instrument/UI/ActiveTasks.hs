@@ -50,7 +50,7 @@ removeTask target = do
   case Seq.breakl ((== target) . _taskTarget) tasks of
     (before, (Task { _taskStartTime = start }) Seq.:<| after) -> do
       listElementsL .= before <> after
-      modifying listSelectedL (fmap $ \i -> if i > length before then i - 1 else i)
+      modifying listSelectedL (\i -> if length before + length after == 0 then Nothing else i)
       pure $ Just start
     _ -> pure Nothing
 
@@ -62,7 +62,7 @@ taskFailure target content = do
       listElementsL .= before <> (task{_failure = Just content} Seq.<| after)
     _ -> pure ()
 
-getRebuildTarget :: EventM Name State (Maybe (WorkerId, Target))
-getRebuildTarget = do
+getSelectedTarget :: EventM Name State (Maybe (WorkerId, Target))
+getSelectedTarget = do
   mtask <- preuse listSelectedElementL
   pure $ (\Task{_fromWorker = wid, _taskTarget = target} -> (wid, target)) <$> mtask

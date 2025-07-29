@@ -29,7 +29,7 @@ import UI.ActiveTasks qualified as ActiveTasks
 import UI.ModuleSelector qualified as ModuleSelector
 import UI.Session qualified as Session
 import UI.SessionSelector qualified as SessionSelector
-import UI.Types (Name (..), WorkerId, disabledAttr, canDebugAttr)
+import UI.Types (Name (..), WorkerId, canDebugAttr, disabledAttr)
 import UI.Utils (popup)
 
 data Event
@@ -101,6 +101,17 @@ beep = do
   vty <- getVtyHandle
   liftIO $ V.ringTerminalBell $ V.outputIface vty
 
+withTarget :: (WorkerId -> Target -> EventM Name State ()) -> EventM Name State ()
+withTarget handler = do
+  current <- use currentFocus
+  First mtarget <- case current of
+    ActiveTasks -> zoom (currentSession . Session.activeTasks) (First <$> ActiveTasks.getSelectedTarget)
+    ModuleSelector -> zoom (currentSession . Session.modules) (First <$> ModuleSelector.getSelectedTarget)
+    _ -> pure (First Nothing)
+  case mtarget of
+    Nothing -> beep
+    Just (wid, target) -> handler wid target
+
 handleEvent :: BrickEvent Name Event -> EventM Name State ()
 handleEvent (AppEvent (SetTime t)) = currentTime .= t
 handleEvent (AppEvent (SendOptions mwid)) = do
@@ -157,23 +168,19 @@ handleEvent (VtyEvent evt) = do
       V.EvKey (V.KChar 'o') [] -> do
         currentFocus .= OptionsEditor
       V.EvKey (V.KChar 'r') [] -> do
-        mtarget <- case current of
-          ActiveTasks -> zoom (currentSession . Session.activeTasks) (First <$> ActiveTasks.getRebuildTarget)
-          ModuleSelector -> zoom (currentSession . Session.modules) (First <$> ModuleSelector.getRebuildTarget)
-          _ -> pure (First Nothing)
-        case mtarget of
-          First Nothing -> beep
-          First (Just (wid, target)) -> handleEvent (AppEvent (TriggerRebuild wid target))
+        withTarget $ \wid target ->
+          handleEvent (AppEvent (TriggerRebuild wid target))
       V.EvKey (V.KChar '\t') [] -> do
         currentFocus .= case current of
           ActiveTasks -> ModuleSelector
           ModuleSelector -> ActiveTasks
           _ -> current
       V.EvKey V.KEnter [] -> do
-        currentFocus .= case current of
-          ActiveTasks -> TaskDetails
-          ModuleSelector -> ModuleDetails
-          _ -> current
+        withTarget \_ _ ->
+          currentFocus .= case current of
+            ActiveTasks -> TaskDetails
+            ModuleSelector -> ModuleDetails
+            _ -> current
       _ -> case current of
         ActiveTasks -> zoom (currentSession . Session.activeTasks) (handleListEvent evt)
         ModuleSelector -> zoom (currentSession . Session.modules) (handleListEvent evt)

@@ -46,8 +46,8 @@ addModule target content compileTime wid = do
   listElementsL .= mods'
   modifying listSelectedL (Just . maybe i (\i' -> if i' >= i then i' + 1 else i'))
 
-getRebuildTarget :: EventM Name State (Maybe (WorkerId, Target))
-getRebuildTarget = do
+getSelectedTarget :: EventM Name State (Maybe (WorkerId, Target))
+getSelectedTarget = do
   mtask <- preuse listSelectedElementL
   modifying listSelectedElementL (\m -> m {_disabled = True})
   pure $ mtask >>= \Module{_fromWorker = wid, _modTarget = target, _disabled} -> if _disabled then Nothing else Just (wid, target)
