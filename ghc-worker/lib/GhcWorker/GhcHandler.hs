@@ -85,7 +85,7 @@ dispatch ::
   Hooks ->
   Env ->
   BuckArgs ->
-  (Target -> IO ()) ->
+  (Target -> IO FeatureInstrument) ->
   IO (Int32, Maybe Target)
 dispatch lock workerMode hooks env args targetCallback =
   case args.mode of
@@ -117,11 +117,11 @@ dispatch lock workerMode hooks env args targetCallback =
         withGhcMhu env \ _ ->
           withTarget (compileAndReadAbiHash CompManager compileModuleWithDepsInHpt hooks args)
 
-    withTarget f target = do
-      liftIO $ targetCallback target
+    withTarget f target =
       reifyGhc $ \session -> do
+        instrument <- targetCallback target
         let path = debugSocketPath target
-        (if args.connectGhcDebug then withGhcDebugUnix path else id) $
+        (if instrument.flag then withGhcDebugUnix path else id) $
           reflectGhc (f target) session <&> fmap \ r -> (r, target)
 
 processResult ::
@@ -173,4 +173,5 @@ ghcHandler lock state workerMode instrument traceId =
       when instrument.flag $
         modifyMVar_ state \ st ->
           pure $ st {targetArgs = Map.insert target (commandEnv, argv) st.targetArgs}
+      pure instrument
     processResult hooks env result

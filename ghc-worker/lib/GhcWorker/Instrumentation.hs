@@ -70,10 +70,10 @@ finishJob var = do
 
 -- | Construct a grapesy message for a "compilation started" event.
 messageCompileStart :: BuckArgs -> String -> Proto Instr.CompileStart
-messageCompileStart args target =
+messageCompileStart _args target =
   defMessage
     & Instr.target .~ Text.pack target
-    & Instr.canDebug .~ args.connectGhcDebug
+    & Instr.canDebug .~ True
 
 -- | Construct a grapesy message for a "compilation finished" event.
 messageCompileEnd :: String -> Int -> String -> Proto Instr.CompileEnd

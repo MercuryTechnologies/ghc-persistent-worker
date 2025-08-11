@@ -62,7 +62,7 @@ runLocalGhc CreateMethods {..} socket minstr = mdo
   dbg ("Starting ghc server on " ++ socket.path)
   instrResource <- for minstr \instrumentSocket -> do
     dbg ("Instrumentation info available on " ++ instrumentSocket.path)
-    (resource, instrMethods) <- createInstrumentation (\ ce (RequestArgs args) -> recompile ce (RequestArgs (args ++ ["-fforce-recomp", "--connect-ghc-debug"])))
+    (resource, instrMethods) <- createInstrumentation (\ ce (RequestArgs args) -> recompile ce (RequestArgs (args ++ ["-fforce-recomp"])))
     _instrThread <- async $ runServerWithHandlers def (grpcServerConfig instrumentSocket.path) (fromMethods instrMethods)
     pure resource
   (recompile, methods) <- createGhc instrResource
