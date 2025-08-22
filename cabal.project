@@ -28,8 +28,8 @@ index-state: 2025-04-02T00:00:00Z
 
 source-repository-package
   type: git
-  location: https://gitlab.haskell.org/trac-sjoerd_visscher/ghc-debug
-  tag: 7ebaaf1fa1c9dcdf305f6148853b69039f5f1cbc
+  location: https://gitlab.haskell.org/ghc/ghc-debug
+  tag: 1b0f36fab86e9baa9734c88dcc1dbe17d10d8c93
   subdir: client
           common
           convention

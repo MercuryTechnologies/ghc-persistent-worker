@@ -19,7 +19,10 @@ import GHC.Debug.Brick.Model (
   keybindingsMode,
   mkSocketInfo,
  )
-import GHC.Debug.Brick.UI
+import GHC.Debug.Brick.Render (myAppDraw)
+import GHC.Debug.Brick.Render.Utils (disabledMenuAttr, highlightAttr, inputAttr, labelAttr, menuAttr, treeAttr)
+import GHC.Debug.Brick.UI (myAppStartEvent)
+import GHC.Debug.Brick.Update (mkSavedAndGCRootsIOTree, myAppHandleEvent, savedAndGCRoots)
 import Graphics.Vty qualified as Vty
 import Lens.Micro.Platform (view)
 
