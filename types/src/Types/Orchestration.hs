@@ -6,16 +6,6 @@ import System.Environment (getEnv)
 import System.FilePath (splitDirectories, takeDirectory, (</>))
 import Types.Args (TargetId (..))
 
--- | Determine how GHC servers should be started in relation to Buck worker processes.
-data Orchestration =
-  -- | Each worker process starts its own GHC server.
-  Multi
-  |
-  -- | One worker process starts a GHC server, the others start a proxy server that forwards requests to the central
-  -- GHC.
-  Single
-  deriving stock (Eq, Show)
-
 -- | The file system path of the socket on which the worker running in this process is supposed to listen.
 data ServerSocketPath =
   ServerSocketPath {

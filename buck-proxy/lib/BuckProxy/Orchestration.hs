@@ -1,4 +1,5 @@
 module BuckProxy.Orchestration (
+  GhcWorkerCommand (..),
   WorkerExe (..),
   WorkerResource (..),
   proxyServer,
@@ -36,7 +37,6 @@ import System.Exit (exitFailure)
 import System.Process (ProcessHandle, getProcessExitCode, spawnProcess)
 import Types.Args (TargetId)
 import Types.BuckArgs (BuckArgs (workerTargetId), parseBuckArgs)
-import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
 import Types.Orchestration (
   PrimarySocketPath (..),
@@ -47,10 +47,18 @@ import Types.Orchestration (
   projectSocketDirectory,
   )
 
--- | Path to the worker executable, i.e. this program.
+-- | Path to the worker executable proxied by this app.
 --- Used to spawn the GHC server process.
 newtype WorkerExe =
   WorkerExe { path :: FilePath }
+  deriving stock (Eq, Show)
+
+-- | Executable and arguments used to spawn the GHC server process.
+data GhcWorkerCommand =
+  GhcWorkerCommand {
+    exe :: WorkerExe,
+    args :: [String]
+  }
   deriving stock (Eq, Show)
 
 data WorkerResource =
@@ -75,12 +83,11 @@ forwardRequest connection req = withRPC connection def (Proxy @(Protobuf Worker 
 
 proxyHandler ::
   MVar (Map TargetId WorkerResource) ->
-  WorkerExe ->
-  WorkerMode ->
+  GhcWorkerCommand ->
   FilePath ->
   Proto ExecuteCommand ->
   IO (Proto ExecuteResponse)
-proxyHandler workerMap exe wmode basePath req = do
+proxyHandler workerMap command basePath req = do
   let cmdEnv = commandEnv req.env
       argv = Text.unpack . decodeUtf8Lenient <$> req.argv
       -- Get the build ID for the primary socket path from the command environment, and fall back to the value extracted
@@ -96,7 +103,7 @@ proxyHandler workerMap exe wmode basePath req = do
             Nothing -> do
               let workerSocketDir = projectSocketDirectory socketId targetId
               void $ try @IOError (createDirectoryIfMissing True workerSocketDir.path)
-              resource <- spawnGhcWorker exe wmode workerSocketDir
+              resource <- spawnGhcWorker command workerSocketDir
               dbg $ "No primary socket for " ++ show targetId ++ ", so created it on " ++ resource.primarySocket.path
               pure (Map.insert targetId resource wmap, resource)
             Just resource -> do
@@ -116,11 +123,10 @@ grpcServerConfig socketPath =
 proxyServer ::
   -- | mutable worker map (we spawn a new ghc-worker as a new target id arrives)
   MVar (Map TargetId WorkerResource) ->
-  WorkerExe ->
-  WorkerMode ->
+  GhcWorkerCommand ->
   ServerSocketPath ->
   IO ()
-proxyServer workerMap exe wmode socket = do
+proxyServer workerMap command socket = do
   try launch >>= \case
     Right () ->
       dbg ("Shutting down buck-proxy on " ++ socket.path)
@@ -133,7 +139,7 @@ proxyServer workerMap exe wmode socket = do
     methods :: Methods IO (ProtobufMethodsOf Worker)
     methods =
       Method (mkClientStreaming streamingNotImplemented) $
-      Method (mkNonStreaming (proxyHandler workerMap exe wmode base)) $
+      Method (mkNonStreaming (proxyHandler workerMap command base)) $
       NoMoreMethods
     launch = do
       dbg ("Starting buck-proxy on " ++ socket.path)
@@ -175,20 +181,16 @@ waitForGhcWorker ph socket = do
   when (isJust exitCode) do
     dbg "Spawned process for the GHC server exited after starting up."
 
--- | Spawn a child process executing the worker executable (which usually is the same as this process), for the purpose
--- of running a GHC server to which all worker processes then forward their requests.
+-- | Spawn a child process executing the worker executable, for the purpose of running a GHC server to which some or all
+-- worker processes then forward their requests.
 -- Afterwards, wait for the server to be responsive.
 spawnGhcWorker ::
-  WorkerExe ->
-  WorkerMode ->
+  GhcWorkerCommand ->
   SocketDirectory ->
   IO WorkerResource
-spawnGhcWorker exe mode socketDir = do
+spawnGhcWorker GhcWorkerCommand {exe, args} socketDir = do
   dbg ("Forking GHC server at " ++ primary.path)
-  let workerModeFlag = case mode of
-        WorkerOneshotMode -> []
-        WorkerMakeMode -> ["--make"]
-  proc <- spawnProcess exe.path (workerModeFlag ++ ["--serve", primary.path])
+  proc <- spawnProcess exe.path (args ++ ["--serve", primary.path])
   waitForGhcWorker proc primary
   pure WorkerResource {primarySocket = primary, processHandle = proc}
   where
