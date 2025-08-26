@@ -6,8 +6,8 @@ module BuckProxy.Orchestration (
 ) where
 
 import BuckProxy.Util (dbg)
-import qualified BuckWorker as Worker
-import BuckWorker (ExecuteCommand, ExecuteResponse)
+import qualified BuckWorkerProto as Worker
+import BuckWorkerProto (ExecuteCommand, ExecuteResponse)
 import Common.Grpc (commandEnv, streamingNotImplemented)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, modifyMVar)

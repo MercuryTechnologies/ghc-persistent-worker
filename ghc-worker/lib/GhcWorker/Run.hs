@@ -1,6 +1,6 @@
 module GhcWorker.Run where
 
-import BuckWorker (Instrument, Worker)
+import BuckWorkerProto (Instrument, Worker)
 import Common.Grpc (fromGrpcHandler, GrpcHandler(..))
 import Control.Concurrent (MVar, newChan, newMVar)
 import Control.Concurrent.Chan (Chan)

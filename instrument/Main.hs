@@ -1,7 +1,7 @@
 module Main where
 
 import Brick.BChan (BChan, newBChan, writeBChan)
-import BuckWorker (Instrument)
+import BuckWorkerProto (Instrument)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Exception (SomeException, catch)
 import Control.Monad (filterM, forever, void, when)

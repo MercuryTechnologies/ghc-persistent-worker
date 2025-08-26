@@ -1,8 +1,8 @@
 {-# LANGUAGE RecursiveDo #-}
 module GhcWorker.Orchestration where
 
-import qualified BuckWorker as Worker
-import BuckWorker (ExecuteCommand, ExecuteResponse)
+import qualified BuckWorkerProto as Worker
+import BuckWorkerProto (ExecuteCommand, ExecuteResponse)
 import Common.Grpc (streamingNotImplemented)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel, wait)

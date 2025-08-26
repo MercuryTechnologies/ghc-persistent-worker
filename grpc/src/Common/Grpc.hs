@@ -7,7 +7,7 @@ module Common.Grpc (
   fromGrpcHandler,
 ) where
 
-import BuckWorker (ExecuteCommand, ExecuteResponse)
+import BuckWorkerProto (ExecuteCommand, ExecuteResponse)
 import Control.Exception (SomeException (..), displayException, fromException, try)
 import Control.Monad (when)
 import Data.Int (Int32)

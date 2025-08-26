@@ -1,6 +1,6 @@
 module Grpc where
 
-import BuckWorker (Instrument)
+import BuckWorkerProto (Instrument)
 import Control.Concurrent (forkIO)
 import Control.Monad (void)
 import Data.Text qualified as Text

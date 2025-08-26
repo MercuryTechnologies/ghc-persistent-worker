@@ -25,7 +25,7 @@ library
     TypeFamilies
 
   exposed-modules:
-    BuckWorker,
+    BuckWorkerProto,
     Proto.Worker,
     Proto.Worker_Fields
     Proto.Instrument,
