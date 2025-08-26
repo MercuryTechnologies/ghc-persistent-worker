@@ -3,6 +3,7 @@ module UI.ModuleSelector where
 import Brick.Types (EventM, Widget)
 import Brick.Widgets.Core (Padding (..), padRight, str, strWrap, vBox, (<+>), withAttr)
 import Brick.Widgets.List (GenericList, list, listElementsL, listSelectedElementL, listSelectedL, renderList)
+import Control.Monad (when)
 import Data.Fixed (Fixed (..), Pico)
 import Data.Sequence qualified as Seq
 import Lens.Micro.Platform (modifying, preuse, use, (.=))
@@ -46,11 +47,11 @@ addModule target content compileTime wid = do
   listElementsL .= mods'
   modifying listSelectedL (Just . maybe i (\i' -> if i' >= i then i' + 1 else i'))
 
-getSelectedTarget :: EventM Name State (Maybe (WorkerId, Target))
-getSelectedTarget = do
+getSelectedTarget :: Bool -> EventM Name State (Maybe (WorkerId, Target))
+getSelectedTarget forRebuild = do
   mtask <- preuse listSelectedElementL
-  modifying listSelectedElementL (\m -> m {_disabled = True})
-  pure $ mtask >>= \Module{_fromWorker = wid, _modTarget = target, _disabled} -> if _disabled then Nothing else Just (wid, target)
+  when forRebuild $ modifying listSelectedElementL (\m -> m {_disabled = True})
+  pure $ mtask >>= \Module{_fromWorker = wid, _modTarget = target, _disabled} -> if forRebuild && _disabled then Nothing else Just (wid, target)
 
 removeWorker :: WorkerId -> EventM Name State ()
 removeWorker wid = do

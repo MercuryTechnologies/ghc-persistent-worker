@@ -103,16 +103,22 @@ beep = do
   vty <- getVtyHandle
   liftIO $ V.ringTerminalBell $ V.outputIface vty
 
-withTarget :: (WorkerId -> Target -> EventM Name State ()) -> EventM Name State ()
-withTarget handler = do
+withTarget' :: Bool -> (WorkerId -> Target -> EventM Name State ()) -> EventM Name State ()
+withTarget' forRebuild handler = do
   current <- use currentFocus
   First mtarget <- case current of
     ActiveTasks -> zoom (currentSession . Session.activeTasks) (First <$> ActiveTasks.getSelectedTarget)
-    ModuleSelector -> zoom (currentSession . Session.modules) (First <$> ModuleSelector.getSelectedTarget)
+    ModuleSelector -> zoom (currentSession . Session.modules) (First <$> ModuleSelector.getSelectedTarget forRebuild)
     _ -> pure (First Nothing)
   case mtarget of
     Nothing -> beep
     Just (wid, target) -> handler wid target
+
+withTarget :: (WorkerId -> Target -> EventM Name State ()) -> EventM Name State ()
+withTarget = withTarget' False
+
+withTargetForRebuild :: (WorkerId -> Target -> EventM Name State ()) -> EventM Name State ()
+withTargetForRebuild = withTarget' True
 
 handleEvent :: BrickEvent Name Event -> EventM Name State ()
 handleEvent (AppEvent (SetTime t)) = currentTime .= t
@@ -174,7 +180,7 @@ handleEvent (VtyEvent evt) = do
           suspendAndResume' $
             debug (debugSocketPath target)
       V.EvKey (V.KChar 'r') [] -> do
-        withTarget $ \wid target ->
+        withTargetForRebuild $ \wid target ->
           handleEvent (AppEvent (TriggerRebuild wid target))
       V.EvKey (V.KChar '\t') [] -> do
         currentFocus .= case current of
