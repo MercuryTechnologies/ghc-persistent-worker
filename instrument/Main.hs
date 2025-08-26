@@ -17,6 +17,7 @@ import Network.GRPC.Common.NextElem (whileNext_)
 import Network.GRPC.Common.Protobuf (Protobuf, defMessage)
 import System.Directory (doesPathExist, getModificationTime, listDirectory, createDirectoryIfMissing)
 import System.Environment (lookupEnv)
+import System.FilePath ((</>))
 import System.FSNotify (Event (..), EventIsDirectory (..), watchDir, withManager)
 import UI qualified
 import UI.Session qualified as Session
@@ -77,7 +78,7 @@ main = do
   withManager $ \mgr -> do
     void $ watchDir mgr workers.path (const True) $ \case
       Added dir _ IsDirectory | not ("/log" `isInfixOf` dir) -> do
-        listen eventChan $ dir ++ "instrument"
+        listen eventChan $ dir </> "instrument"
       _ -> pure ()
 
     (_, vty) <- UI.customMainWithDefaultVty (Just eventChan) UI.app UI.initialState

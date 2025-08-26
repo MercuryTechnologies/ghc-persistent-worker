@@ -45,6 +45,7 @@ executable instrument
     containers,
     ghc-debug-brick,
     directory,
+    filepath,
     fsnotify,
     grapesy,
     microlens-platform,
