@@ -3,7 +3,7 @@ module Main where
 import Brick.BChan (BChan, newBChan, writeBChan)
 import BuckWorkerProto (Instrument)
 import Control.Concurrent (forkIO, threadDelay)
-import Control.Exception (SomeException, catch)
+import Control.Exception (SomeException, catch, try, IOException)
 import Control.Monad (filterM, forever, void, when)
 import Data.List (isInfixOf)
 import Data.Maybe (fromMaybe)
@@ -15,7 +15,7 @@ import Network.GRPC.Client.StreamType.IO (serverStreaming)
 import Network.GRPC.Common (def)
 import Network.GRPC.Common.NextElem (whileNext_)
 import Network.GRPC.Common.Protobuf (Protobuf, defMessage)
-import System.Directory (doesPathExist, getModificationTime, listDirectory)
+import System.Directory (doesPathExist, getModificationTime, listDirectory, createDirectoryIfMissing)
 import System.Environment (lookupEnv)
 import System.FSNotify (Event (..), EventIsDirectory (..), watchDir, withManager)
 import UI qualified
@@ -69,6 +69,9 @@ main = do
       dirs <- listDirectory workers.path
       filterM (\dir -> doesPathExist (workers.path ++ dir ++ "/instrument")) dirs
     mapM_ (listen eventChan . (++ "/instrument") . (workers.path ++)) primaryDirs
+
+  void $ try @IOException do
+    createDirectoryIfMissing True workers.path
 
   -- Detect new workers
   withManager $ \mgr -> do
