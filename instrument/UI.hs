@@ -12,7 +12,7 @@ import Brick.Widgets.Border.Style (unicodeRounded)
 import Brick.Widgets.Center (center)
 import Brick.Widgets.Core (joinBorders, modifyDefAttr, str, vBox, withBorderStyle, (<+>))
 import Brick.Widgets.Edit (editFocusedAttr)
-import Brick.Widgets.List (handleListEvent, listSelectedAttr, listSelectedElement, listSelectedElementL, listSelectedFocusedAttr)
+import Brick.Widgets.List (listSelectedAttr, listSelectedElement, listSelectedElementL, listSelectedFocusedAttr)
 import Control.Exception (handle)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
@@ -32,7 +32,7 @@ import UI.ModuleSelector qualified as ModuleSelector
 import UI.Session qualified as Session
 import UI.SessionSelector qualified as SessionSelector
 import UI.Types (Name (..), WorkerId, canDebugAttr, disabledAttr)
-import UI.Utils (popup)
+import UI.Utils (handleListEventOf, popup)
 
 data Event
   = SendOptions (Maybe WorkerId)
@@ -147,7 +147,7 @@ handleEvent (VtyEvent evt) = do
         V.EvKey V.KEsc [] -> hide
         V.EvKey V.KEnter [] -> hide
         V.EvKey (V.KChar 's') [] -> hide
-        _ -> zoom sessions (handleListEvent evt)
+        _ -> handleListEventOf sessions evt
     OptionsEditor -> do
       let hide = do
             currentFocus .= ModuleSelector
@@ -161,13 +161,13 @@ handleEvent (VtyEvent evt) = do
       case evt of
         V.EvKey V.KEsc [] -> hide
         V.EvKey V.KEnter [] -> hide
-        _ -> zoom (currentSession . Session.activeTasks) (handleListEvent evt)
+        _ -> handleListEventOf (currentSession . Session.activeTasks) evt
     ModuleDetails -> do
       let hide = currentFocus .= ModuleSelector
       case evt of
         V.EvKey V.KEsc [] -> hide
         V.EvKey V.KEnter [] -> hide
-        _ -> zoom (currentSession . Session.modules) (handleListEvent evt)
+        _ -> handleListEventOf (currentSession . Session.modules) evt
     _ -> case evt of
       V.EvKey V.KEsc [] -> halt
       V.EvKey (V.KChar 'q') [] -> halt
@@ -194,8 +194,8 @@ handleEvent (VtyEvent evt) = do
             ModuleSelector -> ModuleDetails
             _ -> current
       _ -> case current of
-        ActiveTasks -> zoom (currentSession . Session.activeTasks) (handleListEvent evt)
-        ModuleSelector -> zoom (currentSession . Session.modules) (handleListEvent evt)
+        ActiveTasks -> handleListEventOf (currentSession . Session.activeTasks) evt
+        ModuleSelector -> handleListEventOf (currentSession . Session.modules) evt
         _ -> pure ()
 handleEvent MouseDown{} = pure ()
 handleEvent MouseUp{} = pure ()
