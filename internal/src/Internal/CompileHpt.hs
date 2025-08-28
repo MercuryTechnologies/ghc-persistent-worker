@@ -17,6 +17,7 @@ import GHC (
   mgLookupModule,
   )
 import GHC.Driver.Env (HscEnv (..), hscUpdateHUG)
+import GHC.Driver.DynFlags (gopt_set)
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
 import GHC.Driver.Monad (modifySession)
@@ -104,8 +105,12 @@ compileModuleWithDepsInHpt logVar target = do
   hsc_env <- getSession
   hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
     summary <- ensureSummary logVar hsc_env target
-    result <- compileOne hsc_env summary 1 100000 Nothing (HomeModLinkable Nothing Nothing)
+    result <- compileOne hsc_env (forceRecomp summary) 1 100000 Nothing (HomeModLinkable Nothing Nothing)
     cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts
     pure result
   modifySession (addDepsToHscEnv [hmi])
   pure (Just ModuleArtifacts {iface, bytecode = homeMod_bytecode hm_linkable})
+  where
+    -- This bypasses another recompilation check in 'compileOne'
+    forceRecomp summary =
+      summary {ms_hspp_opts = gopt_set summary.ms_hspp_opts Opt_ForceRecomp}
