@@ -5,24 +5,50 @@ module Internal.Cache.Hpt where
 import Control.Concurrent.MVar (MVar)
 import Control.Monad (foldM)
 import Control.Monad.IO.Class (liftIO)
-import Data.List.NonEmpty (NonEmpty ((:|)))
-import qualified Data.Map.Strict as Map
-import GHC (Ghc, GhcException (..), ModIface, ModuleName, mkModule)
+import Data.Foldable (toList)
+import Data.Function (on)
+import Data.List.NonEmpty (NonEmpty ((:|)), groupBy)
+import GHC (DynFlags (..), Ghc, GhcException (..), ModIface, ModIface_ (..), ModuleName, mkModule, moduleName)
 import GHC.Data.Maybe (MaybeErr (..))
-import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscUpdateHPT, hsc_HPT)
+import GHC.Driver.DynFlags (GhcMode (..))
+import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hscUpdateFlags, hscUpdateHPT, hsc_HPT)
 import GHC.Driver.Main (initModDetails)
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
 import GHC.Iface.Load (readIface)
 import GHC.Linker.Types (Linkable)
+import GHC.Platform.Ways (Way (..), addWay)
 import GHC.Types.Unique.DFM (addToUDFM, elemUDFM)
 import GHC.Unit (Definite (..), GenUnit (..))
-import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..), HomePackageTable)
+import GHC.Unit.Env (UnitEnv (..), unitEnv_member)
+import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..), addToHpt, emptyHomeModInfoLinkable)
 import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.Log (Log (..), logDebug)
 import Prelude hiding (log)
-import Types.CachedDeps (CachedDeps (..), DepName (..))
+import System.IO.Unsafe (unsafeInterleaveIO)
+import Types.CachedDeps (
+  CachedDeps (..),
+  CachedInterface (..),
+  CachedProjectDep (..),
+  JsonFs (..),
+  cachedProjectDepInterface,
+  )
+
+-- This preprocessor variable indicates that we're building with a GHC that has the final version of the oneshot
+-- bytecode patch.
+#if defined(MWB_2025_07) || MIN_VERSION_GLASGOW_HASKELL(9,12,0,0)
+import GHC (ModLocation (..))
+import GHC.Driver.Main (loadIfaceByteCode)
+#endif
+
+add_iface_to_hpt :: ModIface -> ModDetails -> HscEnv -> HscEnv
+add_iface_to_hpt iface details =
+  hscUpdateHPT $ \ hpt ->
+    addToHpt hpt (moduleName (mi_module iface'))
+    (HomeModInfo iface' details emptyHomeModInfoLinkable)
+  where
+    iface' = iface { mi_extra_decls = Nothing }
 
 -- | Load bytecode from an interface.
 -- Used only for modules missing from the current target's HPT when restoring the Buck cache after restarting a build.
@@ -31,9 +57,11 @@ import Types.CachedDeps (CachedDeps (..), DepName (..))
 -- eventually.
 -- For example, the source file is used to add debug info and find foreign export stubs.
 loadCachedByteCode :: HscEnv -> FilePath -> ModIface -> ModDetails -> IO (Maybe Linkable)
-#if defined(MWB_2025_07)
+-- The function 'loadIfaceByteCode' is only available in the final version of the oneshot-bytecode patch, which isn't
+-- part of the MWB branch of GHC.
+#if defined(MWB_2025_07) || MIN_VERSION_GLASGOW_HASKELL(9,12,0,0)
 loadCachedByteCode hsc_env ifaceFile iface details =
-   sequence (loadIfaceByteCode hsc_env iface location (md_types details))
+   sequence (loadIfaceByteCode hsc_env' iface location (md_types details))
    where
     location =
       ModLocation {
@@ -44,6 +72,8 @@ loadCachedByteCode hsc_env ifaceFile iface details =
         ml_dyn_obj_file = error "loadCachedByteCode",
         ml_hie_file = error "loadCachedByteCode"
       }
+
+    hsc_env' = add_iface_to_hpt iface details hsc_env
 #else
 loadCachedByteCode _ _ _ _ =
   pure Nothing
@@ -52,33 +82,34 @@ loadCachedByteCode _ _ _ _ =
 -- | If the given module name is missing from the HPT, load the given interface from disk and store it in the module's
 -- 'HomeModInfo'.
 --
--- This only happens when the module is dependend upon downstream for the first time after restarting the worker with a
+-- This only happens when the module is depended upon downstream for the first time after restarting the worker with a
 -- partial build.
 --
 -- Maybe this could reuse some stuff in @hscRecompStatus@?
 loadCachedDep ::
   MVar Log ->
-  HscEnv ->
-  HomePackageTable ->
   ModuleName ->
+  HscEnv ->
   FilePath ->
-  IO HomePackageTable
-loadCachedDep log hsc_env hpt name ifaceFile =
+  IO HscEnv
+loadCachedDep log name hsc_env ifaceFile =
   if elemUDFM name hpt
-  then pure hpt
+  then pure hsc_env
   else loadHmi
   where
     loadHmi = do
       logDebug log ("Loading HPT module from cache: " ++ ifaceFile)
       hm_iface <- loadIface
       hm_details <- initModDetails hsc_env hm_iface
-      homeMod_bytecode <- loadCachedByteCode hsc_env ifaceFile hm_iface hm_details
-      pure $ addToUDFM hpt name HomeModInfo {
+      homeMod_bytecode <- unsafeInterleaveIO $ loadCachedByteCode hsc_env ifaceFile hm_iface hm_details
+      let new = addToUDFM hpt name HomeModInfo {
         hm_iface,
         hm_linkable = HomeModLinkable {homeMod_object = Nothing, homeMod_bytecode},
         hm_details
       }
+      pure (hscUpdateHPT (const new) hsc_env)
 
+    -- @readIface@ needs the dflags only for platform/ways, so we don't need the unit dflags
     loadIface =
       ifaceResult =<< readIface (hsc_dflags hsc_env) (hsc_NC hsc_env) (toModule name) ifaceFile
 
@@ -93,10 +124,12 @@ loadCachedDep log hsc_env hpt name ifaceFile =
 
     uid = hscActiveUnitId hsc_env
 
--- | Load all dependencies of the current modules from the Buck cache into the HPT if they don't exist.
+    hpt = hsc_HPT hsc_env
+
+-- | Load all dependencies of the current module from the Buck cache into the HPT if they don't exist.
 --
--- When the make worker is killed by Buck at the end of a build, and the user subsequently changes some code and start a
--- new build, the state (the current HPT) is initially empty, since Buck immediately tries to compile the changed
+-- When the make worker is killed by Buck at the end of a build, and the user subsequently changes some code and starts
+-- a new build, the state (the current HPT) is initially empty, since Buck immediately tries to compile the changed
 -- module, assuming its deps to be available to the compiler.
 -- A JSON file provides 'CachedDeps' to the worker, containing all interface paths for the current home unit, which we
 -- restore into the HPT here.
@@ -105,8 +138,23 @@ loadCachedDeps ::
   CachedDeps ->
   HscEnv ->
   Ghc HscEnv
-loadCachedDeps log CachedDeps {local} hsc_env = do
-  newHpt <- foldM loadDep (hsc_HPT hsc_env) (Map.toList local)
-  pure (hscUpdateHPT (const newHpt) hsc_env)
+loadCachedDeps log CachedDeps {home_unit, project} hsc_env0 = do
+  hsc_env1 <- foldM loadDepUnit (setDyn hsc_env0) projectByUnit
+  let hsc_env2 = hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1
+  loadActiveUnit (setDyn hsc_env2) home_unit
   where
-    loadDep hpt (DepName name, iface :| _) = liftIO (loadCachedDep log hsc_env hpt name iface)
+    setDyn = hscUpdateFlags \ d -> d {ghcMode = CompManager, targetWays_ = addWay WayDyn (targetWays_ d)}
+
+    -- If the unit isn't part of the module graph, it wasn't built by a worker, since it would have been loaded in the
+    -- metadata restoration step.
+    loadDepUnit hsc_env mods@(CachedProjectDep {package = JsonFs uid} :| _) =
+      if unitEnv_member uid hsc_env.hsc_unit_env.ue_home_unit_graph
+      then loadActiveUnit (hscSetActiveUnitId uid hsc_env) (cachedProjectDepInterface <$> toList mods)
+      else pure hsc_env
+
+    loadActiveUnit = foldM loadDep
+
+    loadDep hsc_env CachedInterface {name = JsonFs name, interfaces = iface :| _} =
+      liftIO (loadCachedDep log name hsc_env iface)
+
+    projectByUnit = groupBy (on (==) (.package)) project
