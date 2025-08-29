@@ -9,12 +9,13 @@ import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict ((!?))
 import Data.Maybe (fromMaybe, isJust)
-import GHC (mkModuleName)
-import GHC.Unit (stringToUnitId)
+import GHC (mkModule, mkModuleName)
+import GHC.Unit (Definite (..), GenUnit (RealUnit), stringToUnitId)
 import System.FilePath (takeDirectory)
 import qualified Types.Args
 import Types.Args (Args (Args), TargetId (..), UnitName (..))
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
+import Types.State (ModuleTarget (..))
 
 data Mode =
   ModeCompile
@@ -170,6 +171,20 @@ decodeJsonArg desc file =
     Right a -> pure a
     Left err -> throwIO (userError ("Invalid JSON in file for " ++ desc ++ ": " ++ err ++ " (" ++ file ++ ")"))
 
+-- | @CompileHpt@ can either process a source file or pick a previously constructed @ModSummary@ from the module graph.
+-- In the latter case, we need both a unit ID and a module name, which is ensured here.
+checkModuleTarget ::
+  BuckArgs ->
+  IO (Maybe ModuleTarget)
+checkModuleTarget args =
+  case (args.unit, args.moduleName) of
+    (Nothing, Just _) ->
+      throwIO (userError "Specified --module without --unit")
+    (Just unit, Just name) ->
+      pure (Just (ModuleTarget (mkModule (RealUnit (Definite (stringToUnitId unit))) (mkModuleName name))))
+    _ ->
+      pure Nothing
+
 toGhcArgs :: BuckArgs -> IO Args
 toGhcArgs args = do
   cachedDeps <- traverse (decodeJsonArg "--dep-modules") args.depModules
@@ -182,13 +197,14 @@ toGhcArgs args = do
     if isJust args.moduleName
     then pure [] else
     maybe args.ghcOptions lines <$> traverse readFile args.ghcArgsFile
+  moduleTarget <- checkModuleTarget args
   pure Args {
     topdir,
     workerTargetId = args.workerTargetId,
     binPath = args.binPath,
     tempDir = args.tempDir,
     unit = UnitName . stringToUnitId <$> args.unit,
-    moduleName = mkModuleName <$> args.moduleName,
+    moduleTarget,
     ghcOptions = ghcArgs ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
     cachedBuildPlans,
     cachedDeps

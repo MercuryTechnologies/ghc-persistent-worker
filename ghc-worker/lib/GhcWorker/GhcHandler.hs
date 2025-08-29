@@ -1,7 +1,7 @@
 module GhcWorker.GhcHandler where
 
 import Common.Grpc (GrpcHandler (..))
-import Control.Concurrent (MVar, forkIO, threadDelay, modifyMVar_)
+import Control.Concurrent (MVar, forkIO, modifyMVar_, threadDelay)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', readTVar, retry, writeTVar)
 import Control.Exception (throwIO, try)
 import Control.Monad (when)
@@ -14,7 +14,7 @@ import GHC (DynFlags (..), Ghc, getSession)
 import GHC.Debug.Stub (withGhcDebugUnix)
 import GHC.Driver.DynFlags (GhcMode (..))
 import GHC.Driver.Env (hscUpdateFlags)
-import GHC.Driver.Monad (modifySession, reifyGhc, reflectGhc)
+import GHC.Driver.Monad (modifySession, reflectGhc, reifyGhc)
 import GhcWorker.CompileResult (CompileResult (..), writeCloseOutput, writeResult)
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import GhcWorker.Orchestration (FeatureInstrument (..))
@@ -24,11 +24,12 @@ import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Debug (debugSocketPath)
 import Internal.Log (Log, TraceId, dbg, logDebug, logFlush, newLog, setLogTarget)
 import Internal.Metadata (computeMetadata)
-import Internal.Session (Env (..), withGhc, withGhcMhu)
+import Internal.Session (Env (..), withGhc, withGhcForModule, withGhcForSource)
 import Internal.State (ModuleArtifacts (..), WorkerState (..), dumpState)
 import Prelude hiding (log)
 import System.Exit (ExitCode (ExitSuccess))
 import System.Posix.Process (exitImmediately)
+import Types.Args (Args (..))
 import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
 import Types.GhcHandler (WorkerMode (..))
@@ -113,9 +114,15 @@ dispatch lock workerMode hooks env args targetCallback =
     compile = case workerMode of
       WorkerOneshotMode ->
         withGhc env (withTarget (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args) . TargetSource)
-      WorkerMakeMode ->
-        withGhcMhu env \ _ ->
-          withTarget (compileAndReadAbiHash CompManager (compileModuleWithDepsInHpt env.log) hooks args) . TargetSource
+      WorkerMakeMode
+        | Just target <- env.args.moduleTarget -> do
+          setLogTarget env.log (TargetModule target)
+          withGhcForModule env target do
+            withTarget compileHpt
+        | otherwise ->
+          withGhcForSource env (withTarget compileHpt . TargetSource)
+
+    compileHpt = compileAndReadAbiHash CompManager (compileModuleWithDepsInHpt env.log) hooks args
 
     withTarget f (target :: TargetSpec) =
       reifyGhc $ \session -> do

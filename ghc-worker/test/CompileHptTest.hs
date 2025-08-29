@@ -22,7 +22,7 @@ import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Log (dbg, dbgp, dbgs, newLog)
 import Internal.Metadata (computeMetadata)
-import Internal.Session (Env (..), withGhcMhu)
+import Internal.Session (Env (..), withGhcForSource)
 import Internal.State.Stats (logMemStats)
 import Prelude hiding (log)
 import System.Directory (createDirectoryIfMissing, listDirectory, removeDirectoryRecursive)
@@ -75,7 +75,7 @@ stepCompile Conf {state, tmp, args0} Module {unit, src} = do
   log <- newLog Nothing
   let env = Env {log, state, args}
   liftIO $ createDirectoryIfMissing False sessionTmpDir
-  result <- liftIO $ withGhcMhu env \ _ target -> do
+  result <- liftIO $ withGhcForSource env \ target -> do
     dbg ""
     dbg (">>> compiling " ++ takeFileName target.path)
     modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}

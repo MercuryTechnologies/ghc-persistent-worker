@@ -32,32 +32,27 @@ import GHC (
   )
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
-import GHC.Driver.Env (HscEnv (..), hscUpdateFlags)
+import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateFlags)
 import GHC.Driver.Errors (printOrThrowDiagnostics)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
 import GHC.Driver.Main (initHscEnv)
 import GHC.Driver.Monad (Session (Session), modifySession, modifySessionM, unGhc)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
+import GHC.Unit (moduleUnitId)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
+import GHC.Utils.Outputable (ppr, text, (<+>))
 import GHC.Utils.Panic (panic, throwGhcExceptionIO)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Cache.Hpt (loadCachedDeps)
 import Internal.Error (handleExceptions)
-import Internal.Log (Log (..), logToState)
+import Internal.Log (Log (..), logDebugD, logToState)
 import Internal.State (BinPath (..), ModuleArtifacts, Options (..), WorkerState (..), withCacheMake, withCacheOneshot)
 import Internal.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 import Prelude hiding (log)
 import System.Environment (setEnv)
 import Types.Args (Args (..))
-import Types.State (Target (Target))
-
--- This preprocessor variable indicates that we're building with a GHC that has the final version of the oneshot
--- bytecode patch.
-#if defined(MWB_2025_07)
-import GHC (ModLocation (..))
-import GHC.Driver.Main (loadIfaceByteCode)
-#endif
+import Types.State (ModuleTarget (..), Target (Target), TargetSpec (..))
 
 -- | Data used by a single worker request session, consisting of a logger, shared state, and request arguments.
 data Env =
@@ -312,36 +307,67 @@ withUnitSpecificOptions reuse env use =
         -> spin (arg : g, s) rest
 
 -- | Run a GHC session with multiple home unit support, separating the CLI args for the current unit from the rest.
-withGhcInSessionMhu ::
+withGhcInSessionForSource ::
   Env ->
   ([String] -> [(String, Maybe Phase)] -> Ghc (Maybe a)) ->
   IO (Maybe a)
-withGhcInSessionMhu env prog =
+withGhcInSessionForSource env prog =
   withUnitSpecificOptions True env \ env1 specific -> withGhcInSession env1 (prog specific)
 
 -- | Like @withGhcInSessionMhu@, but wrap with the given function operating on the current target for caching purposes.
-withGhcUsingCacheMhu ::
+withGhcUsingCacheForSource ::
   (Target -> Ghc a -> Ghc (Maybe b)) ->
   Env ->
   ([String] -> Target -> Ghc a) ->
   IO (Maybe b)
-withGhcUsingCacheMhu cacheHandler env prog =
-  withGhcInSessionMhu env \ specific srcs -> do
+withGhcUsingCacheForSource cacheHandler env prog =
+  withGhcInSessionForSource env \ specific srcs -> do
     target <- ensureSingleTarget srcs
+    logDebugD env.log (text "Compiling source target " <+> ppr target)
     cacheHandler target do
       initializeSessionPlugins
       prog specific target
 
 -- | Like @withGhcUsingCacheMhu@, using the default cache handler @withCache@.
-withGhcMhu :: Env -> ([String] -> Target -> Ghc (Maybe a)) -> IO (Maybe a)
-withGhcMhu env f =
-  withGhcUsingCacheMhu cacheHandler env f
+withGhcForSource :: Env -> (Target -> Ghc (Maybe a)) -> IO (Maybe a)
+withGhcForSource env f =
+  withGhcUsingCacheForSource cacheHandler env (const f)
   where
     cacheHandler _ prog = do
       result <- withCacheMake env.log env.state do
-        traverse_ (modifySessionM . loadCachedDeps env.log) env.args.cachedDeps
         res <- prog
         pure do
           a <- res
           pure (Nothing, a)
       pure (snd <$> result)
+
+-- | Run a GHC session with multiple home unit support for a module target.
+--
+-- Before compilation, ensure that the session's home package tables contain the module's dependencies, restoring them
+-- from cache if necessary.
+-- Since this mode does not process any new command line arguments, we set the active home unit manually.
+withGhcForModule ::
+  Env ->
+  ModuleTarget ->
+  (TargetSpec -> Ghc (Maybe a)) ->
+  IO (Maybe a)
+withGhcForModule env target prog = do
+  logDebugD env.log (text "Compiling module target" <+> ppr target)
+  runSession True env $ withGhcInSession env \case
+    [] -> run
+    srcs -> failExtraArgs srcs
+  where
+    run = do
+      result <- withCacheMake env.log env.state do
+        modifySession (hscSetActiveUnitId (moduleUnitId target.mod))
+        traverse_ (modifySessionM . loadCachedDeps env.log) env.args.cachedDeps
+        initializeSessionPlugins
+        res <- prog (TargetModule target)
+        pure do
+          a <- res
+          pure (Nothing, a)
+      pure (snd <$> result)
+
+    failExtraArgs srcs =
+      liftIO $
+      throwGhcExceptionIO (PprProgramError "Extraneous arguments for GHC in module graph mode" (text (unwords (fst <$> srcs))))

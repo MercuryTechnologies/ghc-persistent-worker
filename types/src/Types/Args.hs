@@ -4,10 +4,10 @@ module Types.Args where
 
 import Data.Map (Map)
 import Data.Map.Strict ((!?))
-import GHC (ModuleName)
 import GHC.Unit (UnitId)
 import GHC.Utils.Outputable (showPprUnsafe)
 import Types.CachedDeps (CachedBuildPlans, CachedDeps)
+import Types.State (ModuleTarget)
 
 newtype TargetId = TargetId {string :: String}
   deriving newtype (Show, Eq, Ord)
@@ -26,7 +26,7 @@ data Args =
     binPath :: [String],
     tempDir :: Maybe String,
     unit :: Maybe UnitName,
-    moduleName :: Maybe ModuleName,
+    moduleTarget :: Maybe ModuleTarget,
     ghcOptions :: [String],
     cachedBuildPlans :: Maybe CachedBuildPlans,
     cachedDeps :: Maybe CachedDeps
@@ -41,7 +41,7 @@ emptyArgs env =
     binPath = [],
     tempDir = env !? "TMPDIR",
     unit = Nothing,
-    moduleName = Nothing,
+    moduleTarget = Nothing,
     ghcOptions = [],
     cachedBuildPlans = Nothing,
     cachedDeps = Nothing
