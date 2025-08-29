@@ -115,7 +115,7 @@ dispatch lock workerMode hooks env args targetCallback =
         withGhc env (withTarget (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args) . TargetSource)
       WorkerMakeMode ->
         withGhcMhu env \ _ ->
-          withTarget (compileAndReadAbiHash CompManager compileModuleWithDepsInHpt hooks args) . TargetSource
+          withTarget (compileAndReadAbiHash CompManager (compileModuleWithDepsInHpt env.log) hooks args) . TargetSource
 
     withTarget f (target :: TargetSpec) =
       reifyGhc $ \session -> do
