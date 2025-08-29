@@ -7,7 +7,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Maybe (fromMaybe)
 import Data.Sequence qualified as Seq
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
-import Types.State (Target (..))
+import Types.State (TargetSpec (..), renderTargetSpec)
 import Lens.Micro.Platform (modifying, use, (.=), preuse)
 import UI.Types (Name (ActiveTasks), WorkerId, canDebugAttr)
 import UI.Utils (formatPico, popup)
@@ -18,7 +18,7 @@ initialState :: State
 initialState = list ActiveTasks Seq.empty 1
 
 data Task = Task
-  { _taskTarget :: Target
+  { _taskTarget :: TargetSpec
   , _taskStartTime :: UTCTime
   , _failure :: Maybe String
   , _fromWorker :: WorkerId
@@ -28,15 +28,15 @@ data Task = Task
 draw :: Name -> UTCTime -> State -> Widget Name
 draw current now = renderList drawTask (current == ActiveTasks)
  where
-  drawTask _ Task{_taskTarget = Target name, ..} =
+  drawTask _ Task{_taskTarget = name, ..} =
     (if _canDebug then withAttr canDebugAttr else id) $
-      padRight Max (str name) <+> str (maybe (formatPico $ nominalDiffTimeToSeconds (max 0 (diffUTCTime now _taskStartTime))) (const "Failure") _failure)
+      padRight Max (str (renderTargetSpec name)) <+> str (maybe (formatPico $ nominalDiffTimeToSeconds (max 0 (diffUTCTime now _taskStartTime))) (const "Failure") _failure)
 
 drawTaskDetails :: Task -> Widget Name
-drawTaskDetails Task{_taskTarget = Target name,..} =
-  popup 70 name $ strWrap $ maybe "" id _failure
+drawTaskDetails Task{_taskTarget = name,..} =
+  popup 70 (renderTargetSpec name) $ strWrap $ maybe "" id _failure
 
-addTask :: Target -> WorkerId -> Bool -> EventM Name State ()
+addTask :: TargetSpec -> WorkerId -> Bool -> EventM Name State ()
 addTask name wid canDebug = do
   time <- liftIO $ getCurrentTime
   tasks <- use listElementsL
@@ -44,7 +44,7 @@ addTask name wid canDebug = do
   listElementsL .= Seq.insertAt i (Task name time Nothing wid canDebug) tasks
   modifying listSelectedL (Just . maybe i (\i' -> if i' >= i then i' + 1 else i'))
 
-removeTask :: Target -> EventM Name State (Maybe UTCTime)
+removeTask :: TargetSpec -> EventM Name State (Maybe UTCTime)
 removeTask target = do
   tasks <- use listElementsL
   case Seq.breakl ((== target) . _taskTarget) tasks of
@@ -54,7 +54,7 @@ removeTask target = do
       pure $ Just start
     _ -> pure Nothing
 
-taskFailure :: Target -> String -> EventM Name State ()
+taskFailure :: TargetSpec -> String -> EventM Name State ()
 taskFailure target content = do
   tasks <- use listElementsL
   case Seq.breakl ((== target) . _taskTarget) tasks of
@@ -62,7 +62,7 @@ taskFailure target content = do
       listElementsL .= before <> (task{_failure = Just content} Seq.<| after)
     _ -> pure ()
 
-getSelectedTarget :: EventM Name State (Maybe (WorkerId, Target))
+getSelectedTarget :: EventM Name State (Maybe (WorkerId, TargetSpec))
 getSelectedTarget = do
   mtask <- preuse listSelectedElementL
   pure $ (\Task{_fromWorker = wid, _taskTarget = target} -> (wid, target)) <$> mtask

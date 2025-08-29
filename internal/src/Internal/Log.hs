@@ -41,7 +41,7 @@ import System.Directory (createDirectoryIfMissing, doesPathExist)
 import System.FilePath (addExtension, takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
 import System.IO.Error (tryIOError)
-import Types.State (Target (..))
+import Types.State (TargetSpec (..), renderTargetSpec)
 
 -- | Simple log level that decides whether non-diagnostic messages will be sent to Buck in addition to basic file
 -- logging.
@@ -61,7 +61,7 @@ data Log =
     diagnostics :: [String],
     other :: [(String, LogLevel)],
     traceId :: Maybe TraceId,
-    target :: Maybe Target
+    target :: Maybe TargetSpec
   }
   deriving stock (Eq, Show)
 
@@ -74,7 +74,7 @@ newLog traceId =
 
 -- | After the current request's target has been determined, the log state can be updated to generate more specific log
 -- file paths.
-setLogTarget :: MVar Log -> Target -> IO ()
+setLogTarget :: MVar Log -> TargetSpec -> IO ()
 setLogTarget logVar target =
   modifyMVar_ logVar \ log -> pure log {target = Just target}
 
@@ -107,7 +107,7 @@ logDir =
 --
 -- If the session fails before the target could be determined, this is 'Nothing', so we choose @unknown@ for the file
 -- name.
-writeLogFile :: Maybe TraceId -> Maybe Target -> [(String, LogLevel)] -> IO ()
+writeLogFile :: Maybe TraceId -> Maybe TargetSpec -> [(String, LogLevel)] -> IO ()
 writeLogFile traceId target logLines =
   either warn pure =<< tryIOError do
     createDirectoryIfMissing True (takeDirectory path)
@@ -123,7 +123,7 @@ writeLogFile traceId target logLines =
 
     warn err = dbg ("Failed to write log file for " ++ logName ++ ": " ++ show err)
 
-    logName = maybe "global" (.path) target
+    logName = maybe "global" renderTargetSpec target
 
 -- | Write the current session's log to a file, clear the fields in the 'MVar' and return the log lines.
 logFlush :: MVar Log -> IO [String]

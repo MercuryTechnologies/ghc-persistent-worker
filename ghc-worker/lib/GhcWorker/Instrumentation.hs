@@ -8,14 +8,14 @@ import Data.Foldable (traverse_)
 import Data.Int (Int32)
 import Data.Text qualified as Text
 import GhcWorker.Grpc (mkStats)
-import Internal.State (WorkerState)
 import Internal.Log (dbg)
+import Internal.State (WorkerState)
 import Network.GRPC.Common.Protobuf (Proto, defMessage, (&), (.~))
 import Prelude hiding (log)
 import qualified Proto.Instrument as Instr
 import Proto.Instrument_Fields qualified as Instr
 import Types.BuckArgs (BuckArgs (..))
-import Types.State (Target (..))
+import Types.State (TargetSpec, renderTargetSpec)
 
 -- | Rudimentary dummy state for instrumentation, counting concurrently compiling sessions.
 data WorkerStatus =
@@ -29,11 +29,11 @@ data Hooks =
     -- | A module compilation is started.
     -- If it can be determined at this point, the argument contains the file name.
     -- This is not available in multiplexer mode.
-    compileStart :: BuckArgs -> Maybe Target -> IO (),
+    compileStart :: BuckArgs -> Maybe TargetSpec -> IO (),
 
     -- | A module compilation has finished.
     -- If the job was successful, the argument contains 'Just' the stderr lines and the exit code, otherwise 'Nothing'.
-    compileFinish :: Maybe (Maybe Target, [String], Int32) -> IO ()
+    compileFinish :: Maybe (Maybe TargetSpec, [String], Int32) -> IO ()
   }
 
 -- | Dummy implementation of 'Hooks'.
@@ -114,12 +114,12 @@ withInstrumentation instrChan status stateVar handler =
         writeChan instrChan $
           defMessage &
             Instr.compileStart .~
-              messageCompileStart args target.path
+              messageCompileStart args (renderTargetSpec target)
 
     -- Note: This is WIP.
     compileFinish =
       traverse_ \ (target, output, exitCode) -> do
-        let tgt = maybe "" (.path) target
+        let tgt = maybe "" renderTargetSpec target
         writeChan instrChan $
           defMessage &
             Instr.compileEnd .~

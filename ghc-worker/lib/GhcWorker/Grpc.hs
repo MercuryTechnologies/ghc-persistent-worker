@@ -22,7 +22,7 @@ import qualified Proto.Instrument as Instr
 import Proto.Instrument (Instrument)
 import Proto.Instrument_Fields qualified as Instr
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
-import Types.State (Target (..))
+import Types.State (TargetSpec (..))
 
 -- | Fetch statistics about the current state of the RTS for instrumentation.
 mkStats :: WorkerState -> IO (Proto Instr.Stats)
@@ -76,7 +76,7 @@ triggerRebuild ::
   IO (Proto Instr.Empty)
 triggerRebuild stateVar recompile target = do
   state <- readMVar stateVar
-  let margs = Map.lookup (Target (Text.unpack target.target)) state.targetArgs
+  let margs = Map.lookup (TargetUnknown (Text.unpack target.target)) state.targetArgs
   for_ margs (uncurry recompile)
   pure defMessage
 

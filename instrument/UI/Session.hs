@@ -13,7 +13,7 @@ import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds
 import Lens.Micro.Platform (each, filtered, makeLenses, modifying, use, zoom)
 import Network.GRPC.Client (Connection)
 import Network.GRPC.Common.Protobuf (Proto(..))
-import Types.State (Target (..))
+import Types.State (TargetSpec (..))
 import UI.ActiveTasks qualified as ActiveTasks
 import UI.ModuleSelector qualified as ModuleSelector
 import UI.Types (Name, WorkerId)
@@ -100,11 +100,11 @@ handleEvent :: Event -> EventM Name State ()
 handleEvent (InstrEvent wid evt) =
   case evt of
     Instr.CompileStart cs -> do
-      zoom activeTasks $ ActiveTasks.addTask (Target $ Text.unpack $ cs.target) wid cs.canDebug
+      zoom activeTasks $ ActiveTasks.addTask (TargetUnknown $ Text.unpack $ cs.target) wid cs.canDebug
     Instr.CompileEnd ce -> do
       let content = stripEscSeqs (Text.unpack $ ce.stderr)
           target' = Text.unpack $ ce.target
-          target = Target $ if target' == "" then takeWhile (/= ':') content else target'
+          target = TargetUnknown $ if target' == "" then takeWhile (/= ':') content else target'
       if ce.exitCode == 0
         then do
           start <- zoom activeTasks $ ActiveTasks.removeTask target

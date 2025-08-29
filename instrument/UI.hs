@@ -25,7 +25,7 @@ import Grpc (sendOptions, triggerRebuild)
 import Internal.Debug (debugSocketPath)
 import Internal.State (Options (..), defaultOptions)
 import Lens.Micro.Platform (Lens', Traversal', each, filtered, lens, makeLenses, packed, preuse, use, zoom, (.=), _2)
-import Types.State (Target)
+import Types.State (TargetSpec)
 import UI.ActiveTasks qualified as ActiveTasks
 import UI.GhcDebug (debug)
 import UI.ModuleSelector qualified as ModuleSelector
@@ -38,7 +38,7 @@ data Event
   = SendOptions (Maybe WorkerId)
   | SetTime UTCTime
   | SessionSelectorEvent SessionSelector.Event
-  | TriggerRebuild WorkerId Target
+  | TriggerRebuild WorkerId TargetSpec
 
 data State = State
   { _sessions :: SessionSelector.State
@@ -103,7 +103,7 @@ beep = do
   vty <- getVtyHandle
   liftIO $ V.ringTerminalBell $ V.outputIface vty
 
-withTarget' :: Bool -> (WorkerId -> Target -> EventM Name State ()) -> EventM Name State ()
+withTarget' :: Bool -> (WorkerId -> TargetSpec -> EventM Name State ()) -> EventM Name State ()
 withTarget' forRebuild handler = do
   current <- use currentFocus
   First mtarget <- case current of
@@ -114,10 +114,10 @@ withTarget' forRebuild handler = do
     Nothing -> beep
     Just (wid, target) -> handler wid target
 
-withTarget :: (WorkerId -> Target -> EventM Name State ()) -> EventM Name State ()
+withTarget :: (WorkerId -> TargetSpec -> EventM Name State ()) -> EventM Name State ()
 withTarget = withTarget' False
 
-withTargetForRebuild :: (WorkerId -> Target -> EventM Name State ()) -> EventM Name State ()
+withTargetForRebuild :: (WorkerId -> TargetSpec -> EventM Name State ()) -> EventM Name State ()
 withTargetForRebuild = withTarget' True
 
 handleEvent :: BrickEvent Name Event -> EventM Name State ()

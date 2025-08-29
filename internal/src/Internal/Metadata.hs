@@ -9,7 +9,7 @@ import GHC.Driver.Monad (modifySession, modifySessionM, withSession, withTempSes
 import GHC.Driver.Session (updatePlatformConstants)
 import GHC.Platform.Ways (Way (WayDyn), addWay)
 import GHC.Runtime.Loader (initializeSessionPlugins)
-import GHC.Unit (HomeUnit, UnitDatabase, UnitId, UnitState, initUnits, unitIdString)
+import GHC.Unit (HomeUnit, UnitDatabase, UnitId, UnitState, initUnits)
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), unitEnv_insert, unitEnv_keys, updateHug)
 import GHC.Unit.Home.ModInfo (emptyHomePackageTable)
 import Internal.Log (setLogTarget)
@@ -18,7 +18,7 @@ import Internal.Session (Env (..), runSession, withDynFlags)
 import Internal.State (WorkerState (..), updateMakeStateVar)
 import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
 import Internal.State.Stats (logMemStats)
-import Types.State (Target (..))
+import Types.State (TargetSpec (..), UnitTarget (..))
 
 -- | 'doMkDependHS' needs this to be enabled.
 metadataTempSession :: HscEnv -> HscEnv
@@ -107,11 +107,11 @@ writeMetadata srcs = do
 --
 -- Before downsweep, we also create a fresh @Finder@ to prevent 'doMkDependHS' from polluting the cache with entries
 -- with different compilation ways and restore the previous unit env so dependencies are visible.
-computeMetadata :: Env -> IO (Bool, Maybe Target)
+computeMetadata :: Env -> IO (Bool, Maybe TargetSpec)
 computeMetadata env = do
   res <- runSession True env $ withDynFlags env \ dflags srcs -> do
     unit <- prepareMetadataSession env dflags
-    let target = Target (unitIdString unit)
+    let target = TargetUnit (UnitTarget unit)
     liftIO $ setLogTarget env.log target
     module_graph <- writeMetadata (fst <$> srcs)
     liftIO $ updateMakeStateVar env.state (storeModuleGraph module_graph)

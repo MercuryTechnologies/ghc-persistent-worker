@@ -33,7 +33,7 @@ import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
 import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (RequestArgs (..))
-import Types.State (Target (..))
+import Types.State (TargetSpec (..))
 
 data LockState = LockStart | LockFreeze Int | LockThaw Int | LockEnd
   deriving stock (Eq, Show)
@@ -59,10 +59,10 @@ withLock maxLock lock action = do
 -- make-style implementation.
 compileAndReadAbiHash ::
   GhcMode ->
-  (Target -> Ghc (Maybe ModuleArtifacts)) ->
+  (TargetSpec -> Ghc (Maybe ModuleArtifacts)) ->
   Hooks ->
   BuckArgs ->
-  Target ->
+  TargetSpec ->
   Ghc (Maybe CompileResult)
 compileAndReadAbiHash ghcMode compile hooks args target = do
   liftIO $ hooks.compileStart args (Just target)
@@ -85,8 +85,8 @@ dispatch ::
   Hooks ->
   Env ->
   BuckArgs ->
-  (Target -> IO FeatureInstrument) ->
-  IO (Int32, Maybe Target)
+  (TargetSpec -> IO FeatureInstrument) ->
+  IO (Int32, Maybe TargetSpec)
 dispatch lock workerMode hooks env args targetCallback =
   case args.mode of
     Just ModeCompile -> do
@@ -112,13 +112,14 @@ dispatch lock workerMode hooks env args targetCallback =
   where
     compile = case workerMode of
       WorkerOneshotMode ->
-        withGhc env (withTarget (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args))
+        withGhc env (withTarget (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args) . TargetSource)
       WorkerMakeMode ->
         withGhcMhu env \ _ ->
-          withTarget (compileAndReadAbiHash CompManager compileModuleWithDepsInHpt hooks args)
+          withTarget (compileAndReadAbiHash CompManager compileModuleWithDepsInHpt hooks args) . TargetSource
 
-    withTarget f target =
+    withTarget f (target :: TargetSpec) =
       reifyGhc $ \session -> do
+        setLogTarget env.log target
         instrument <- targetCallback target
         let path = debugSocketPath target
         (if instrument.flag then withGhcDebugUnix path else id) $
@@ -127,7 +128,7 @@ dispatch lock workerMode hooks env args targetCallback =
 processResult ::
   Hooks ->
   Env ->
-  Either IOError (Int32, Maybe Target) ->
+  Either IOError (Int32, Maybe TargetSpec) ->
   IO ([String], Int32)
 processResult hooks env result = do
   when (exitCode /= 0) do
@@ -169,7 +170,6 @@ ghcHandler lock state workerMode instrument traceId =
     logDebug log (unlines (coerce argv))
     let env = Env {log, state, args}
     result <- try $ dispatch lock workerMode hooks env buckArgs $ \ target -> do
-      setLogTarget log target
       when instrument.flag $
         modifyMVar_ state \ st ->
           pure $ st {targetArgs = Map.insert target (commandEnv, argv) st.targetArgs}

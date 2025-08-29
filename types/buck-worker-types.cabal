@@ -34,7 +34,6 @@ library
   build-depends:
     aeson,
     base ==4.*,
-    bytestring,
     containers,
     filepath,
     ghc,

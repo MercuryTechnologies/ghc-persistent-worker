@@ -45,7 +45,6 @@ library
     containers,
     deepseq,
     directory,
-    exceptions,
     filepath,
     ghc,
     ghc-debug-stub,

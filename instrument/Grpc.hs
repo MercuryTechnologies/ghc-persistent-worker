@@ -10,7 +10,7 @@ import Network.GRPC.Client.StreamType.IO (nonStreaming)
 import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (&), (.~))
 import Proto.Instrument qualified as Instr
 import Proto.Instrument_Fields qualified as Fields
-import Types.State (Target (..))
+import Types.State (TargetSpec, renderTargetSpec)
 
 sendOptions :: Connection -> Options -> IO ()
 sendOptions conn options =
@@ -24,10 +24,10 @@ mkOptions Options{..} =
     & Fields.extraGhcOptions
     .~ Text.pack extraGhcOptions
 
-triggerRebuild :: Connection -> Target -> IO ()
-triggerRebuild conn (Target target) =
+triggerRebuild :: Connection -> TargetSpec -> IO ()
+triggerRebuild conn target =
   void $ forkIO $ void $
     nonStreaming conn (rpc @(Protobuf Instrument "triggerRebuild")) $
       defMessage
         & Fields.target
-        .~ Text.pack target
+        .~ Text.pack (renderTargetSpec target)

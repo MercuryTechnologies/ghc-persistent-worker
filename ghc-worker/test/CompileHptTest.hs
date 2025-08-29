@@ -29,7 +29,7 @@ import System.Directory (createDirectoryIfMissing, listDirectory, removeDirector
 import System.FilePath (dropExtension, takeBaseName, takeExtension, takeFileName, (</>))
 import TestSetup (Conf (..), Module (..), ModuleSpec (..), Unit (..), UnitSpec (..), withProject)
 import Types.Args (Args (..))
-import Types.State (Target (..))
+import Types.State (Target (..), TargetSpec (..))
 
 -- | Parse command line flags, used to create unit-specific @DynFlags@.
 unitFlags :: [String] -> HscEnv -> Ghc DynFlags
@@ -79,7 +79,7 @@ stepCompile Conf {state, tmp, args0} Module {unit, src} = do
     dbg ""
     dbg (">>> compiling " ++ takeFileName target.path)
     modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
-    compileModuleWithDepsInHpt target
+    compileModuleWithDepsInHpt log (TargetSource target)
   when (isNothing result) do
       liftIO $ throwGhcExceptionIO (ProgramError "Compile failed")
   dbgs result

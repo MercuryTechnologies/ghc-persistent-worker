@@ -23,7 +23,7 @@ import qualified Internal.State.Stats as Stats
 import System.Environment (lookupEnv)
 import Types.Args (TargetId (..))
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
-import Types.State (Target)
+import Types.State (Target, TargetSpec)
 
 data ModuleArtifacts =
   ModuleArtifacts {
@@ -49,7 +49,7 @@ data WorkerState =
     options :: Options,
     make :: MakeState,
     oneshot :: OneshotState,
-    targetArgs :: Map Target (CommandEnv, RequestArgs)
+    targetArgs :: Map TargetSpec (CommandEnv, RequestArgs)
   }
 
 data Options =

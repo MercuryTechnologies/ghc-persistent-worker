@@ -2,7 +2,7 @@
 
 module Internal.CompileHpt where
 
-import GHC (DynFlags (..), GeneralFlag (..), Ghc, GhcMonad (..), Logger, ModLocation (..), ModSummary (..), gopt)
+import GHC (DynFlags (..), GeneralFlag (..), Ghc, GhcMonad (..), Logger, ModLocation (..), ModSummary (..), gopt, GhcException (..))
 import GHC.Driver.Env (HscEnv (..), hscUpdateHUG)
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
@@ -15,7 +15,8 @@ import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
 import Internal.State (ModuleArtifacts (..))
 import Internal.Error (eitherMessages)
-import Types.State (Target (Target))
+import Types.State (Target (..), TargetSpec (..))
+import GHC.Utils.Panic (throwGhcExceptionIO)
 
 -- | Insert a compilation result into the current unit's home package table, as it is done by upsweep.
 addDepsToHscEnv :: [HomeModInfo] -> HscEnv -> HscEnv
@@ -48,9 +49,9 @@ cleanCurrentModuleTempFilesMaybe logger tmpfs dflags =
 -- - Call the module compilation function @compileOne@
 -- - Store the resulting @HomeModInfo@ in the current unit's home package table.
 compileModuleWithDepsInHpt ::
-  Target ->
+  TargetSpec ->
   Ghc (Maybe ModuleArtifacts)
-compileModuleWithDepsInHpt (Target src) = do
+compileModuleWithDepsInHpt (TargetSource (Target src)) = do
   initializeSessionPlugins
   hsc_env <- getSession
   hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
@@ -61,3 +62,5 @@ compileModuleWithDepsInHpt (Target src) = do
     pure result
   modifySession (addDepsToHscEnv [hmi])
   pure (Just ModuleArtifacts {iface, bytecode = homeMod_bytecode hm_linkable})
+compileModuleWithDepsInHpt _ =
+  liftIO $ throwGhcExceptionIO (CmdLineError "Target specification other than source not supported yet")
