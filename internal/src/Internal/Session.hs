@@ -8,7 +8,7 @@ import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (toList, traverse_)
 import Data.IORef (newIORef)
-import Data.List (intercalate, isPrefixOf)
+import Data.List (intercalate)
 import Data.List.NonEmpty (nonEmpty)
 import Data.Maybe (maybeToList)
 import qualified Data.Set as Set
@@ -47,7 +47,7 @@ import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Cache.Hpt (loadCachedDeps)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log (..), logDebugD, logToState)
-import Internal.State (BinPath (..), ModuleArtifacts, Options (..), WorkerState (..), withCacheMake, withCacheOneshot)
+import Internal.State (BinPath (..), Options (..), WorkerState (..), withCacheMake, withCacheOneshot)
 import Internal.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 import Prelude hiding (log)
 import System.Environment (setEnv)
@@ -221,12 +221,12 @@ withGhcUsingCache :: (Target -> Ghc a -> Ghc (Maybe b)) -> Env -> (Target -> Ghc
 withGhcUsingCache cacheHandler env prog =
   runSession True env $ withGhcInSession env \ srcs -> do
     target <- ensureSingleTarget srcs
+    logDebugD env.log (text "Compiling source target " <+> ppr target)
     cacheHandler target do
       initializeSessionPlugins
       prog target
 
 -- | Run a @Ghc@ program to completion with a fresh clone of the base session augmented by some persisted state.
--- This is a compat shim for the multiplex worker.
 withGhc :: Env -> (Target -> Ghc (Maybe a)) -> IO (Maybe a)
 withGhc env =
   withGhcUsingCache cacheHandler env
@@ -239,99 +239,10 @@ withGhc env =
           pure (Nothing, a)
       pure (snd <$> result)
 
--- | Run a @Ghc@ program to completion with a fresh clone of the base session augmented by some persisted state.
--- Return the interface and bytecode.
-withGhcDefault :: Env -> (Target -> Ghc (Maybe (Maybe ModuleArtifacts, a))) -> IO (Maybe (Maybe ModuleArtifacts, a))
-withGhcDefault env =
-  withGhcUsingCache (withCacheOneshot env.log env.args.workerTargetId env.state) env
-
--- | Command line args that have to be stored in the current home unit env.
--- These are specified as a single program argument with their option argument, without whitespace in between.
-specificPrefixSwitches :: [String]
-specificPrefixSwitches =
-  [
-    "-i"
-  ]
-
-specificPrefixExcludes :: [String]
-specificPrefixExcludes =
-  [
-    "-include-pkg-deps"
-  ]
-
--- | Command line args that have to be stored in the current home unit env.
-specificSwitches :: [String]
-specificSwitches =
-  [
-    "-package",
-    "-package-id"
-  ]
-
--- | Indicate whether the CLI arg starts with any of the values in 'specificPrefixSwitches'.
-isSpecificPrefix :: String -> Bool
-isSpecificPrefix arg =
-  not (any (`isPrefixOf` arg) specificPrefixExcludes) &&
-  any (`isPrefixOf` arg) specificPrefixSwitches
-
--- | Indicate whether the CLI arg is in 'specificSwitches'.
-isSpecific :: String -> Bool
-isSpecific =
-  flip elem specificSwitches
-
--- | Separate the command line given by Buck into options pertaining to the target home unit and the rest.
--- Write the rest back to the 'Env' passed to the continuation for processing as global args, and pass the home unit
--- specific args as the second argument to the continuation.
---
--- @-hide-all-packages@ is removed entirely, which may be obsolete.
--- @-this-unit-id@ is added to both parts, since the global session is always initialized with a default session.
-withUnitSpecificOptions :: Bool -> Env -> (Env -> [String] -> [Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
-withUnitSpecificOptions reuse env use =
-  runSession reuse env1 $ use env1 specific
-  where
-    env1 = env {args = env.args {ghcOptions = general}}
-    (general, specific) = spin ([], []) env.args.ghcOptions
-
-    spin (g, s) = \case
-      [] -> (reverse g, reverse s)
-      "-hide-all-packages" : rest
-        -> spin (g, s) rest
-      "-this-unit-id" : uid : rest
-        -> spin (uid : "-this-unit-id" : g, uid : "-this-unit-id" : s) rest
-      switch : arg : rest
-        | isSpecific switch
-        -> spin (g, arg : switch : s) rest
-      arg : rest
-        | isSpecificPrefix arg
-        -> spin (g, arg : s) rest
-        | otherwise
-        -> spin (arg : g, s) rest
-
--- | Run a GHC session with multiple home unit support, separating the CLI args for the current unit from the rest.
-withGhcInSessionForSource ::
-  Env ->
-  ([String] -> [(String, Maybe Phase)] -> Ghc (Maybe a)) ->
-  IO (Maybe a)
-withGhcInSessionForSource env prog =
-  withUnitSpecificOptions True env \ env1 specific -> withGhcInSession env1 (prog specific)
-
--- | Like @withGhcInSessionMhu@, but wrap with the given function operating on the current target for caching purposes.
-withGhcUsingCacheForSource ::
-  (Target -> Ghc a -> Ghc (Maybe b)) ->
-  Env ->
-  ([String] -> Target -> Ghc a) ->
-  IO (Maybe b)
-withGhcUsingCacheForSource cacheHandler env prog =
-  withGhcInSessionForSource env \ specific srcs -> do
-    target <- ensureSingleTarget srcs
-    logDebugD env.log (text "Compiling source target " <+> ppr target)
-    cacheHandler target do
-      initializeSessionPlugins
-      prog specific target
-
--- | Like @withGhcUsingCacheMhu@, using the default cache handler @withCache@.
-withGhcForSource :: Env -> (Target -> Ghc (Maybe a)) -> IO (Maybe a)
-withGhcForSource env f =
-  withGhcUsingCacheForSource cacheHandler env (const f)
+-- | Like @withGhcUsingCache@, using the make cache handler @withCacheMake@.
+withGhcMakeSource :: Env -> (Target -> Ghc (Maybe a)) -> IO (Maybe a)
+withGhcMakeSource env =
+  withGhcUsingCache cacheHandler env
   where
     cacheHandler _ prog = do
       result <- withCacheMake env.log env.state do
@@ -346,12 +257,12 @@ withGhcForSource env f =
 -- Before compilation, ensure that the session's home package tables contain the module's dependencies, restoring them
 -- from cache if necessary.
 -- Since this mode does not process any new command line arguments, we set the active home unit manually.
-withGhcForModule ::
+withGhcMakeModule ::
   Env ->
   ModuleTarget ->
   (TargetSpec -> Ghc (Maybe a)) ->
   IO (Maybe a)
-withGhcForModule env target prog = do
+withGhcMakeModule env target prog = do
   logDebugD env.log (text "Compiling module target" <+> ppr target)
   runSession True env $ withGhcInSession env \case
     [] -> run

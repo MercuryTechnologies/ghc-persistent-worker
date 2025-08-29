@@ -24,7 +24,7 @@ import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Debug (debugSocketPath)
 import Internal.Log (Log, TraceId, dbg, logDebug, logFlush, newLog, setLogTarget)
 import Internal.Metadata (computeMetadata)
-import Internal.Session (Env (..), withGhc, withGhcForModule, withGhcForSource)
+import Internal.Session (Env (..), withGhc, withGhcMakeModule, withGhcMakeSource)
 import Internal.State (ModuleArtifacts (..), WorkerState (..), dumpState)
 import Prelude hiding (log)
 import System.Exit (ExitCode (ExitSuccess))
@@ -117,10 +117,10 @@ dispatch lock workerMode hooks env args targetCallback =
       WorkerMakeMode
         | Just target <- env.args.moduleTarget -> do
           setLogTarget env.log (TargetModule target)
-          withGhcForModule env target do
+          withGhcMakeModule env target do
             withTarget compileHpt
         | otherwise ->
-          withGhcForSource env (withTarget compileHpt . TargetSource)
+          withGhcMakeSource env (withTarget compileHpt . TargetSource)
 
     compileHpt = compileAndReadAbiHash CompManager (compileModuleWithDepsInHpt env.log) hooks args
 
