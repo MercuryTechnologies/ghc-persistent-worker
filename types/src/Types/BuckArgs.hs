@@ -2,8 +2,7 @@ module Types.BuckArgs where
 
 import Control.Applicative ((<|>))
 import Control.Exception (throwIO)
-import Control.Monad ((>=>))
-import Data.Aeson (eitherDecodeFileStrict')
+import Data.Aeson (FromJSON, eitherDecodeFileStrict')
 import Data.Coerce (coerce)
 import Data.List (dropWhileEnd)
 import Data.Map (Map)
@@ -45,9 +44,9 @@ data BuckArgs =
     buck2Dep :: Maybe String,
     buck2PackageDb :: [String],
     buck2PackageDbDep :: Maybe String,
-    buck2DepGraph :: Maybe String,
     unit :: Maybe String,
     moduleName :: Maybe String,
+    depModules :: Maybe String,
     workerTargetId :: Maybe TargetId,
     pluginDb :: Maybe String,
     env :: Map String String,
@@ -72,9 +71,9 @@ emptyBuckArgs env =
     buck2Dep = Nothing,
     buck2PackageDb = [],
     buck2PackageDbDep = Nothing,
-    buck2DepGraph = Nothing,
     unit = Nothing,
     moduleName = Nothing,
+    depModules = Nothing,
     workerTargetId = Nothing,
     pluginDb = Nothing,
     env,
@@ -97,7 +96,7 @@ options =
     withArg "--buck2-dep" \ z a -> z {buck2Dep = Just a},
     withArg "--buck2-package-db" \ z a -> z {buck2PackageDb = a : z.buck2PackageDb},
     withArg "--buck2-packagedb-dep" \ z a -> z {buck2PackageDbDep = Just a},
-    withArg "--buck2-dep-graph" \ z a -> z {buck2DepGraph = Just a},
+    withArg "--dep-modules" \ z a -> z {depModules = Just a},
     withArg "--extra-env-key" \ z a -> z {envKey = Just a},
     withArgErr "--extra-env-value" \ z a -> addEnv z a,
     withArg "--worker-target-id" \ z a -> z {workerTargetId = Just (TargetId a)},
@@ -156,15 +155,19 @@ parseBuckArgs env =
     -- Let GHC handle the arg
     ghcOption arg rest z = Right (rest, z {ghcOptions = arg : z.ghcOptions})
 
-decodeCachedDeps :: String -> IO CachedDeps
-decodeCachedDeps =
-  eitherDecodeFileStrict' >=> \case
+decodeJsonArg ::
+  FromJSON a =>
+  String ->
+  String ->
+  IO a
+decodeJsonArg desc file =
+  eitherDecodeFileStrict' file >>= \case
     Right a -> pure a
-    Left err -> throwIO (userError err)
+    Left err -> throwIO (userError ("Invalid JSON in file for " ++ desc ++ ": " ++ err ++ " (" ++ file ++ ")"))
 
 toGhcArgs :: BuckArgs -> IO Args
 toGhcArgs args = do
-  cachedDeps <- traverse decodeCachedDeps args.buck2DepGraph
+  cachedDeps <- traverse (decodeJsonArg "--dep-modules") args.depModules
   topdir <- (<|> args.topdir) <$> readPath args.ghcDirFile
   packageDb <- readPath args.ghcDbFile
   pure Args {
