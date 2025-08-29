@@ -40,7 +40,7 @@ import GHC.Driver.Monad (Session (Session), modifySession, modifySessionM, unGhc
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
-import GHC.Utils.Panic (panic, throwGhcException)
+import GHC.Utils.Panic (panic, throwGhcExceptionIO)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Cache.Hpt (loadCachedDeps)
 import Internal.Error (handleExceptions)
@@ -99,14 +99,16 @@ instrumentLocation = mkGeneralLocated "by instrument"
 
 -- | Parse command line flags into @DynFlags@ and set up the logger. Extracted from GHC.
 -- Returns the subset of args that have not been recognized as options.
-parseFlags :: [Located String] -> Ghc (DynFlags, Logger, [Located String], DriverMessages)
-parseFlags argv = do
-  dflags0 <- GHC.getSessionDynFlags
+parseFlags ::
+  DynFlags ->
+  Logger ->
+  [Located String] ->
+  IO (DynFlags, Logger, [Located String], DriverMessages)
+parseFlags dflags0 logger0 argv = do
   let dflags1 = dflags0 {ghcLink = LinkBinary, verbosity = 0}
-  logger1 <- getLogger
-  let logger2 = setLogFlags logger1 (initLogFlags dflags1)
-  (dflags, fileish_args, dynamicFlagWarnings) <- parseDynamicFlags logger2 dflags1 argv
-  pure (dflags, setLogFlags logger2 (initLogFlags dflags), fileish_args, dynamicFlagWarnings)
+  let logger1 = setLogFlags logger0 (initLogFlags dflags1)
+  (dflags, fileish_args, dynamicFlagWarnings) <- parseDynamicFlags logger1 dflags1 argv
+  pure (dflags, setLogFlags logger1 (initLogFlags dflags), fileish_args, dynamicFlagWarnings)
 
 -- | Parse CLI args and initialize 'DynFlags'.
 -- Returns the subset of args that have not been recognized as options.
@@ -115,11 +117,11 @@ initDynFlags ::
   Logger ->
   [Located String] ->
   DriverMessages ->
-  Ghc (DynFlags, [(String, Maybe Phase)])
+  IO (DynFlags, [(String, Maybe Phase)])
 initDynFlags dflags0 logger fileish_args dynamicFlagWarnings = do
-  liftIO $ printOrThrowDiagnostics logger (initPrintConfig dflags0) (initDiagOpts dflags0) flagWarnings'
+  printOrThrowDiagnostics logger (initPrintConfig dflags0) (initDiagOpts dflags0) flagWarnings'
   let (dflags1, srcs, objs) = parseTargetFiles dflags0 (map unLoc fileish_args)
-  unless (null objs) $ throwGhcException (UsageError ("Targets contain object files: " ++ show objs))
+  unless (null objs) $ throwGhcExceptionIO (UsageError ("Targets contain object files: " ++ show objs))
   pure (dflags1, srcs)
   where
     flagWarnings' = GhcDriverMessage <$> dynamicFlagWarnings
@@ -133,7 +135,7 @@ initGhc ::
   DriverMessages ->
   Ghc [(String, Maybe Phase)]
 initGhc dflags0 logger fileish_args dynamicFlagWarnings = do
-  (dflags1, srcs) <- initDynFlags dflags0 logger fileish_args dynamicFlagWarnings
+  (dflags1, srcs) <- liftIO $ initDynFlags dflags0 logger fileish_args dynamicFlagWarnings
   setSessionDynFlags dflags1
   pure srcs
 
@@ -146,9 +148,11 @@ withDynFlags env prog argv = do
   let !log = env.log
   pushLogHookM (const (logToState log))
   state <- liftIO $ readMVar env.state
-  (dflags0, logger, fileish_args, dynamicFlagWarnings) <- parseFlags (argv ++ map instrumentLocation (words state.options.extraGhcOptions))
+  dflags0 <- GHC.getSessionDynFlags
+  logger0 <- getLogger
+  (dflags1, logger, fileish_args, dynamicFlagWarnings) <- liftIO $ parseFlags dflags0 logger0 (argv ++ map instrumentLocation (words state.options.extraGhcOptions))
   result <- prettyPrintGhcErrors logger do
-    (dflags, srcs) <- initDynFlags dflags0 logger fileish_args dynamicFlagWarnings
+    (dflags, srcs) <- liftIO $ initDynFlags dflags1 logger fileish_args dynamicFlagWarnings
     prog dflags srcs
   result <$ popLogHookM
 
