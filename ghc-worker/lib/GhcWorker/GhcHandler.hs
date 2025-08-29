@@ -24,7 +24,7 @@ import Internal.CompileHpt (compileModuleWithDepsInHpt)
 import Internal.Debug (debugSocketPath)
 import Internal.Log (Log, TraceId, dbg, logDebug, logFlush, newLog, setLogTarget)
 import Internal.Metadata (computeMetadata)
-import Internal.Session (Env (..), withGhc, withGhcMakeModule, withGhcMakeSource)
+import Internal.Session (Env (..), withGhcOneshotSource, withGhcMakeModule, withGhcMakeSource)
 import Internal.State (ModuleArtifacts (..), WorkerState (..), dumpState)
 import Prelude hiding (log)
 import System.Exit (ExitCode (ExitSuccess))
@@ -113,12 +113,11 @@ dispatch lock workerMode hooks env args targetCallback =
   where
     compile = case workerMode of
       WorkerOneshotMode ->
-        withGhc env (withTarget (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args) . TargetSource)
+        withGhcOneshotSource env (withTarget (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args) . TargetSource)
       WorkerMakeMode
         | Just target <- env.args.moduleTarget -> do
           setLogTarget env.log (TargetModule target)
-          withGhcMakeModule env target do
-            withTarget compileHpt
+          withGhcMakeModule target env (withTarget compileHpt)
         | otherwise ->
           withGhcMakeSource env (withTarget compileHpt . TargetSource)
 

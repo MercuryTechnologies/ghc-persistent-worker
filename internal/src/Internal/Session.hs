@@ -42,7 +42,7 @@ import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Unit (moduleUnitId)
 import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
 import GHC.Utils.Outputable (ppr, text, (<+>))
-import GHC.Utils.Panic (panic, throwGhcExceptionIO)
+import GHC.Utils.Panic (panic, throwGhcExceptionIO, pprPanic)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Cache.Hpt (loadCachedDeps)
 import Internal.Error (handleExceptions)
@@ -207,50 +207,57 @@ runSession reuse Env {log, args, state} prog = do
           cleanTempFiles logger tmpfs
           cleanTempDirs logger tmpfs
 
--- | When compiling a module, the leftover arguments from parsing @DynFlags@ should be a single source file path.
+-- | When compiling a source target, the leftover arguments from parsing @DynFlags@ should be a single source file path.
 -- Wrap it in 'Target' or terminate.
 ensureSingleTarget :: [(String, Maybe Phase)] -> Ghc Target
 ensureSingleTarget = \case
   [(src, Nothing)] -> pure (Target src)
   [(_, phase)] -> panic ("Called worker with unexpected start phase: " ++ show phase)
-  args -> panic ("Called worker with multiple targets: " ++ show args)
+  args -> panic ("Called worker with multiple source targets: " ++ show args)
 
--- | Run a @Ghc@ program to completion with a fresh clone of the base session, wrapped in a handler operating on a
--- compilation target.
-withGhcUsingCache :: (Target -> Ghc a -> Ghc (Maybe b)) -> Env -> (Target -> Ghc a) -> IO (Maybe b)
-withGhcUsingCache cacheHandler env prog =
-  runSession True env $ withGhcInSession env \ srcs -> do
-    target <- ensureSingleTarget srcs
-    logDebugD env.log (text "Compiling source target " <+> ppr target)
-    cacheHandler target do
+-- | When compiling a module target, there should not be any leftover arguments.
+ensureNoArgs :: [(String, Maybe Phase)] -> Ghc ()
+ensureNoArgs = \case
+  [] -> pure ()
+  args -> pprPanic "Extraneous arguments for GHC in module graph mode" (text (unwords (fst <$> args)))
+
+-- | Run a @Ghc@ program to completion with a fresh clone of the base session.
+-- Passes the args GHC did not process to a handler for extracting the compilation target.
+withGhc ::
+  (Env -> [(String, Maybe Phase)] -> (t -> Ghc a) -> Ghc (Maybe b)) ->
+  Env ->
+  (t -> Ghc a) ->
+  IO (Maybe b)
+withGhc targetWrapper env prog =
+  runSession True env $ withGhcInSession env \ srcs ->
+    targetWrapper env srcs \ target -> do
       initializeSessionPlugins
       prog target
 
--- | Run a @Ghc@ program to completion with a fresh clone of the base session augmented by some persisted state.
-withGhc :: Env -> (Target -> Ghc (Maybe a)) -> IO (Maybe a)
-withGhc env =
-  withGhcUsingCache cacheHandler env
-  where
-    cacheHandler target prog = do
-      result <- withCacheOneshot env.log env.args.workerTargetId env.state target do
-        res <- prog
-        pure do
-          a <- res
-          pure (Nothing, a)
-      pure (snd <$> result)
+-- | Run a @Ghc@ program to completion with a fresh clone of the base session.
+-- Extracts a single source file target from the leftover args and passes it to a cache wrapper before running the main
+-- program.
+withGhcSource ::
+  (Target -> MVar Log -> MVar WorkerState -> Ghc a -> Ghc (Maybe b)) ->
+  Env ->
+  (Target -> Ghc a) ->
+  IO (Maybe b)
+withGhcSource cacheWrapper =
+  withGhc \ env srcs run -> do
+    target <- ensureSingleTarget srcs
+    logDebugD env.log (text "Compiling source target" <+> ppr target)
+    cacheWrapper target env.log env.state do
+      run target
 
--- | Like @withGhcUsingCache@, using the make cache handler @withCacheMake@.
+-- | Like @withGhcSource@, using the oneshot cache handler @withCacheOneshot@.
+withGhcOneshotSource :: Env -> (Target -> Ghc (Maybe a)) -> IO (Maybe a)
+withGhcOneshotSource env =
+  withGhcSource (withCacheOneshot env.args.workerTargetId) env
+
+-- | Like @withGhcSource@, using the make cache handler @withCacheMake@.
 withGhcMakeSource :: Env -> (Target -> Ghc (Maybe a)) -> IO (Maybe a)
-withGhcMakeSource env =
-  withGhcUsingCache cacheHandler env
-  where
-    cacheHandler _ prog = do
-      result <- withCacheMake env.log env.state do
-        res <- prog
-        pure do
-          a <- res
-          pure (Nothing, a)
-      pure (snd <$> result)
+withGhcMakeSource =
+  withGhcSource (const withCacheMake)
 
 -- | Run a GHC session with multiple home unit support for a module target.
 --
@@ -258,27 +265,16 @@ withGhcMakeSource env =
 -- from cache if necessary.
 -- Since this mode does not process any new command line arguments, we set the active home unit manually.
 withGhcMakeModule ::
-  Env ->
   ModuleTarget ->
+  Env ->
   (TargetSpec -> Ghc (Maybe a)) ->
   IO (Maybe a)
-withGhcMakeModule env target prog = do
-  logDebugD env.log (text "Compiling module target" <+> ppr target)
-  runSession True env $ withGhcInSession env \case
-    [] -> run
-    srcs -> failExtraArgs srcs
-  where
-    run = do
-      result <- withCacheMake env.log env.state do
-        modifySession (hscSetActiveUnitId (moduleUnitId target.mod))
-        traverse_ (modifySessionM . loadCachedDeps env.log) env.args.cachedDeps
-        initializeSessionPlugins
-        res <- prog (TargetModule target)
-        pure do
-          a <- res
-          pure (Nothing, a)
-      pure (snd <$> result)
-
-    failExtraArgs srcs =
-      liftIO $
-      throwGhcExceptionIO (PprProgramError "Extraneous arguments for GHC in module graph mode" (text (unwords (fst <$> srcs))))
+withGhcMakeModule target =
+  withGhc \ env srcs run -> do
+    ensureNoArgs srcs
+    logDebugD env.log (text "Compiling module target" <+> ppr target)
+    withCacheMake env.log env.state do
+      modifySession (hscSetActiveUnitId (moduleUnitId target.mod))
+      traverse_ (modifySessionM . loadCachedDeps env.log) env.args.cachedDeps
+      initializeSessionPlugins
+      run (TargetModule target)

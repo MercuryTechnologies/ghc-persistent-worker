@@ -129,10 +129,9 @@ finalizeCache ::
   Maybe TargetId ->
   HscEnv ->
   Target ->
-  Maybe ModuleArtifacts ->
   WorkerState ->
   IO WorkerState
-finalizeCache logVar workerId hsc_env target _ cache0 = do
+finalizeCache logVar workerId hsc_env target cache0 = do
   oneshot <- Oneshot.storeState hsc_env target cache0.oneshot
   let cache1 = cache0 {oneshot}
   report logVar workerId target cache1
@@ -146,24 +145,24 @@ withSessionM use =
     pure a
 
 withCacheOneshot ::
-  MVar Log ->
   -- | A description of the current worker process.
   Maybe TargetId ->
-  MVar WorkerState ->
   Target ->
-  Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
-  Ghc (Maybe (Maybe ModuleArtifacts, a))
-withCacheOneshot logVar workerId stateVar target prog = do
+  MVar Log ->
+  MVar WorkerState ->
+  Ghc a ->
+  Ghc a
+withCacheOneshot workerId target logVar stateVar prog = do
   _ <- withSessionM \ hsc_env -> modifyMVar stateVar \ state -> do
     (oneshot, result) <- Oneshot.loadState (updateOneshotStateVar stateVar) target hsc_env state.oneshot
     pure (state {oneshot}, result)
   result <- prog
-  finalize (fst =<< result)
+  finalize
   pure result
   where
-    finalize art =
+    finalize =
       withSession \ hsc_env ->
-        liftIO (modifyMVar_ stateVar (finalizeCache logVar workerId hsc_env target art))
+        liftIO (modifyMVar_ stateVar (finalizeCache logVar workerId hsc_env target))
 
 -- | This reduced version of 'withCache' is tailored specifically to make mode, only restoring the HUG, module graph and
 -- interpreter state from the cache, since those are the only two components modified by the worker that aren't already
@@ -174,8 +173,8 @@ withCacheOneshot logVar workerId stateVar target prog = do
 withCacheMake ::
   MVar Log ->
   MVar WorkerState ->
-  Ghc (Maybe (Maybe ModuleArtifacts, a)) ->
-  Ghc (Maybe (Maybe ModuleArtifacts, a))
+  Ghc a ->
+  Ghc a
 withCacheMake logVar stateVar prog = do
   modifySessionM restore
   prog <* withSession store
