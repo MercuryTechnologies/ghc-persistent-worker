@@ -22,6 +22,7 @@ library
     ghc-options:      -Wall
     hs-source-dirs:   src
     exposed-modules:  Internal.AbiHash
+                      Internal.Cache.Hpt
                       Internal.Compile
                       Internal.CompileHpt
                       Internal.Debug
