@@ -8,7 +8,7 @@ import Data.List (dropWhileEnd)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict ((!?))
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import GHC (mkModuleName)
 import GHC.Unit (stringToUnitId)
 import System.FilePath (takeDirectory)
@@ -54,6 +54,7 @@ data BuckArgs =
     tempDir :: Maybe String,
     ghcDirFile :: Maybe String,
     ghcDbFile :: Maybe String,
+    ghcArgsFile :: Maybe String,
     ghcOptions :: [String],
     multiplexerCustom :: Bool,
     mode :: Maybe Mode,
@@ -82,6 +83,7 @@ emptyBuckArgs env =
     tempDir = env !? "TMPDIR",
     ghcDirFile = Nothing,
     ghcDbFile = Nothing,
+    ghcArgsFile = Nothing,
     ghcOptions = [],
     multiplexerCustom = False,
     mode = Nothing,
@@ -107,6 +109,7 @@ options =
     withArg "--ghc-dir" \ z a -> z {ghcDirFile = Just a},
     withArg "--unit" \ z a -> z {unit = Just a},
     withArg "--module" \ z a -> z {moduleName = Just a, mode = Just ModeCompile},
+    withArg "--ghc-args" \ z a -> z {ghcArgsFile = Just a},
     withArg "--extra-pkg-db" \ z a -> z {ghcDbFile = Just a},
     withArg "--bin-path" \ z a -> z {binPath = a : z.binPath},
     withArg "--bin-exe" \ z a -> z {binPath = takeDirectory a : z.binPath},
@@ -173,14 +176,20 @@ toGhcArgs args = do
   cachedBuildPlans <- traverse (decodeJsonArg "--dep-units") args.depUnits
   topdir <- (<|> args.topdir) <$> readPath args.ghcDirFile
   packageDb <- readPath args.ghcDbFile
+  -- When a module name was specified, we don't read any args because we can't use them when picking @ModSummary@ from
+  -- the module graph.
+  ghcArgs <-
+    if isJust args.moduleName
+    then pure [] else
+    maybe args.ghcOptions lines <$> traverse readFile args.ghcArgsFile
   pure Args {
     topdir,
     workerTargetId = args.workerTargetId,
     binPath = args.binPath,
     tempDir = args.tempDir,
-    ghcOptions = args.ghcOptions ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
     unit = UnitName . stringToUnitId <$> args.unit,
     moduleName = mkModuleName <$> args.moduleName,
+    ghcOptions = ghcArgs ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
     cachedBuildPlans,
     cachedDeps
   }
