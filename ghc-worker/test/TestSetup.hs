@@ -132,7 +132,6 @@ baseArgs topdir tmp =
     workerTargetId = Just (TargetId "test"),
     binPath = [],
     tempDir = Nothing,
-    ghcPath = Nothing,
     unit = Nothing,
     moduleName = Nothing,
     ghcOptions = (artifactDir =<< ["o", "hie", "dump"]) ++ [
