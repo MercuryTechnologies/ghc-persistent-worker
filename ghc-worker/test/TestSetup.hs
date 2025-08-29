@@ -133,6 +133,8 @@ baseArgs topdir tmp =
     binPath = [],
     tempDir = Nothing,
     ghcPath = Nothing,
+    unit = Nothing,
+    moduleName = Nothing,
     ghcOptions = (artifactDir =<< ["o", "hie", "dump"]) ++ [
       "-fwrite-ide-info",
       "-no-link",

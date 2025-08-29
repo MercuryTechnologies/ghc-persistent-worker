@@ -10,10 +10,12 @@ import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict ((!?))
 import Data.Maybe (fromMaybe)
+import GHC (mkModuleName)
+import GHC.Unit (stringToUnitId)
 import System.FilePath (takeDirectory)
 import qualified Types.Args
-import Types.Args (Args (Args), TargetId (..))
 import Types.CachedDeps (CachedDeps)
+import Types.Args (Args (Args), TargetId (..), UnitName (..))
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
 
 data Mode =
@@ -44,6 +46,8 @@ data BuckArgs =
     buck2PackageDb :: [String],
     buck2PackageDbDep :: Maybe String,
     buck2DepGraph :: Maybe String,
+    unit :: Maybe String,
+    moduleName :: Maybe String,
     workerTargetId :: Maybe TargetId,
     pluginDb :: Maybe String,
     env :: Map String String,
@@ -70,6 +74,8 @@ emptyBuckArgs env =
     buck2PackageDb = [],
     buck2PackageDbDep = Nothing,
     buck2DepGraph = Nothing,
+    unit = Nothing,
+    moduleName = Nothing,
     workerTargetId = Nothing,
     pluginDb = Nothing,
     env,
@@ -101,6 +107,8 @@ options =
     withArg "--plugin-db" \ z a -> z {pluginDb = Just a},
     withArg "--ghc" \ z a -> z {ghcOptions = [], ghcPath = Just a},
     withArg "--ghc-dir" \ z a -> z {ghcDirFile = Just a},
+    withArg "--unit" \ z a -> z {unit = Just a},
+    withArg "--module" \ z a -> z {moduleName = Just a, mode = Just ModeCompile},
     withArg "--extra-pkg-db" \ z a -> z {ghcDbFile = Just a},
     withArg "--bin-path" \ z a -> z {binPath = a : z.binPath},
     withArg "--bin-exe" \ z a -> z {binPath = takeDirectory a : z.binPath},
@@ -169,6 +177,8 @@ toGhcArgs args = do
     tempDir = args.tempDir,
     ghcPath = args.ghcPath,
     ghcOptions = args.ghcOptions ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
+    unit = UnitName . stringToUnitId <$> args.unit,
+    moduleName = mkModuleName <$> args.moduleName,
     cachedDeps
   }
   where
