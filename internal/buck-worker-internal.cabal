@@ -23,6 +23,7 @@ library
     hs-source-dirs:   src
     exposed-modules:  Internal.AbiHash
                       Internal.Cache.Hpt
+                      Internal.Cache.Metadata
                       Internal.Compile
                       Internal.CompileHpt
                       Internal.Debug
