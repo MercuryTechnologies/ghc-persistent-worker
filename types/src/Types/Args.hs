@@ -1,11 +1,13 @@
+{-# LANGUAGE NoFieldSelectors #-}
+
 module Types.Args where
 
 import Data.Map (Map)
 import Data.Map.Strict ((!?))
-import Types.CachedDeps (CachedDeps)
 import GHC (ModuleName)
 import GHC.Unit (UnitId)
 import GHC.Utils.Outputable (showPprUnsafe)
+import Types.CachedDeps (CachedBuildPlans, CachedDeps)
 
 newtype TargetId = TargetId {string :: String}
   deriving newtype (Show, Eq, Ord)
@@ -26,6 +28,7 @@ data Args =
     unit :: Maybe UnitName,
     moduleName :: Maybe ModuleName,
     ghcOptions :: [String],
+    cachedBuildPlans :: Maybe CachedBuildPlans,
     cachedDeps :: Maybe CachedDeps
   }
   deriving stock (Eq, Show)
@@ -40,5 +43,6 @@ emptyArgs env =
     unit = Nothing,
     moduleName = Nothing,
     ghcOptions = [],
+    cachedBuildPlans = Nothing,
     cachedDeps = Nothing
   }

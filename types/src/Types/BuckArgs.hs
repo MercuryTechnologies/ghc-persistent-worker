@@ -13,7 +13,6 @@ import GHC (mkModuleName)
 import GHC.Unit (stringToUnitId)
 import System.FilePath (takeDirectory)
 import qualified Types.Args
-import Types.CachedDeps (CachedDeps)
 import Types.Args (Args (Args), TargetId (..), UnitName (..))
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
 
@@ -47,6 +46,7 @@ data BuckArgs =
     unit :: Maybe String,
     moduleName :: Maybe String,
     depModules :: Maybe String,
+    depUnits :: Maybe String,
     workerTargetId :: Maybe TargetId,
     pluginDb :: Maybe String,
     env :: Map String String,
@@ -74,6 +74,7 @@ emptyBuckArgs env =
     unit = Nothing,
     moduleName = Nothing,
     depModules = Nothing,
+    depUnits = Nothing,
     workerTargetId = Nothing,
     pluginDb = Nothing,
     env,
@@ -97,6 +98,7 @@ options =
     withArg "--buck2-package-db" \ z a -> z {buck2PackageDb = a : z.buck2PackageDb},
     withArg "--buck2-packagedb-dep" \ z a -> z {buck2PackageDbDep = Just a},
     withArg "--dep-modules" \ z a -> z {depModules = Just a},
+    withArg "--dep-units" \ z a -> z {depUnits = Just a},
     withArg "--extra-env-key" \ z a -> z {envKey = Just a},
     withArgErr "--extra-env-value" \ z a -> addEnv z a,
     withArg "--worker-target-id" \ z a -> z {workerTargetId = Just (TargetId a)},
@@ -168,6 +170,7 @@ decodeJsonArg desc file =
 toGhcArgs :: BuckArgs -> IO Args
 toGhcArgs args = do
   cachedDeps <- traverse (decodeJsonArg "--dep-modules") args.depModules
+  cachedBuildPlans <- traverse (decodeJsonArg "--dep-units") args.depUnits
   topdir <- (<|> args.topdir) <$> readPath args.ghcDirFile
   packageDb <- readPath args.ghcDbFile
   pure Args {
@@ -178,6 +181,7 @@ toGhcArgs args = do
     ghcOptions = args.ghcOptions ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
     unit = UnitName . stringToUnitId <$> args.unit,
     moduleName = mkModuleName <$> args.moduleName,
+    cachedBuildPlans,
     cachedDeps
   }
   where
