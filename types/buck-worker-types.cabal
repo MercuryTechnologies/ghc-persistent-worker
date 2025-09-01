@@ -31,6 +31,7 @@ library
     Types.Grpc
     Types.Orchestration
     Types.State
+    Types.State.Stats
     Types.Target
   build-depends:
     aeson,

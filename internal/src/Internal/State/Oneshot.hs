@@ -22,15 +22,13 @@ import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
 import GHC.Unit.Finder (InstalledFindResult (..))
 import GHC.Unit.Finder.Types (FinderCache (..))
 import GHC.Unit.Module.Env (InstalledModuleEnv, emptyModuleEnv, plusModuleEnv)
-import Internal.State.Stats (
+import Internal.State.Stats (basicLinkerStats, basicLoaderStats, basicSymbolsStats)
+import Types.State.Stats (
   CacheStats (..),
   LinkerStats (..),
   LoaderStats (..),
   StatsUpdate (..),
   SymbolsStats (..),
-  basicLinkerStats,
-  basicLoaderStats,
-  basicSymbolsStats,
   emptyLinkerStats,
   emptyStats,
   )
