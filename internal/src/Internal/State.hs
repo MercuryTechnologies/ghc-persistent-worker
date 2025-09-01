@@ -11,11 +11,12 @@ import GHC.Driver.Monad (modifySessionM, withSession)
 import GHC.Linker.Types (Linkable)
 import GHC.Unit.Module.Graph (ModuleGraph)
 import Internal.Debug (showHugShort, showModGraph)
-import Internal.Log (Log, logDebug, logDebugD)
+import Internal.Log (logDebug, logDebugD)
 import qualified Internal.State.Make as Make
 import qualified Internal.State.Oneshot as Oneshot
 import qualified Internal.State.Stats as Stats
 import Types.Args (TargetId (..))
+import Types.Log (Log)
 import Types.State (WorkerState (..))
 import Types.State.Make (MakeState (..))
 import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))

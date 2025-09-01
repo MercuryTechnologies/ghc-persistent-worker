@@ -20,7 +20,7 @@ import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.Compile.Make (compileModuleWithDepsInHpt)
-import Internal.Log (dbg, dbgp, dbgs, newLog)
+import Internal.Log (dbg, dbgp, dbgs)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (Env (..), withGhcMakeSource)
 import Internal.State.Stats (logMemStats)
@@ -29,6 +29,7 @@ import System.Directory (createDirectoryIfMissing, listDirectory, removeDirector
 import System.FilePath (dropExtension, takeBaseName, takeExtension, takeFileName, (</>))
 import TestSetup (Conf (..), Module (..), ModuleSpec (..), Unit (..), UnitSpec (..), withProject)
 import Types.Args (Args (..))
+import Types.Log (newLog)
 import Types.Target (Target (..), TargetSpec (..))
 
 -- | Parse command line flags, used to create unit-specific @DynFlags@.

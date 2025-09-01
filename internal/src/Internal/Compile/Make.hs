@@ -30,8 +30,9 @@ import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
 import Internal.Error (eitherMessages, noteGhc)
-import Internal.Log (Log, logDebugD)
+import Internal.Log (logDebugD)
 import Internal.State (ModuleArtifacts (..))
+import Types.Log (Log)
 import Types.Target (ModuleTarget (..), Target (..), TargetSpec (..))
 
 -- | Insert a compilation result into the current unit's home package table, as it is done by upsweep.

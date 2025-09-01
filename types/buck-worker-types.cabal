@@ -29,6 +29,7 @@ library
     Types.CachedDeps
     Types.GhcHandler
     Types.Grpc
+    Types.Log
     Types.Orchestration
     Types.State
     Types.State.Make

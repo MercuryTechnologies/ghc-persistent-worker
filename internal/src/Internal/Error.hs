@@ -11,9 +11,10 @@ import GHC.Driver.Errors.Types (GhcMessage)
 import GHC.Types.Error (Messages)
 import GHC.Types.SourceError (SourceError, throwErrors)
 import GHC.Utils.Outputable (Outputable (..))
-import Internal.Log (Log, LogLevel (..), logOther)
+import Internal.Log (logOther)
 import System.Environment (getProgName)
 import System.Exit (ExitCode)
+import Types.Log (Log, LogLevel (..))
 
 handleExceptions :: MVar Log -> a -> Ghc a -> Ghc a
 handleExceptions logVar errResult =

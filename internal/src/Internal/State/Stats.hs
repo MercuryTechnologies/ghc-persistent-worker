@@ -16,8 +16,9 @@ import GHC.Types.Unique.FM (minusUFM, nonDetEltsUFM, sizeUFM)
 import GHC.Unit.Module.Env (moduleEnvKeys)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
-import Internal.Log (Log, logDebugD, logd)
+import Internal.Log (logDebugD, logd)
 import Types.Args (TargetId (..))
+import Types.Log (Log)
 import Types.State.Oneshot (SymbolCache (..))
 import Types.State.Stats (
   CacheStats (..),

@@ -28,7 +28,7 @@ import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
 import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO)
-import Internal.Log (Log (..), logDebug)
+import Internal.Log (logDebug)
 import Prelude hiding (log)
 import Types.CachedDeps (
   CachedDeps (..),
@@ -37,6 +37,7 @@ import Types.CachedDeps (
   JsonFs (..),
   cachedProjectDepInterface,
   )
+import Types.Log (Log (..))
 
 -- This preprocessor variable indicates that we're building with a GHC that has the final version of the oneshot
 -- bytecode patch.
