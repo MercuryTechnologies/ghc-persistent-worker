@@ -1,6 +1,6 @@
 {-# language ViewPatterns, CPP #-}
 
-module Internal.Compile where
+module Internal.Compile.Oneshot where
 
 import Data.Maybe (isJust)
 import GHC (DynFlags (..), Ghc, GhcException (..), GhcMonad (..), HscEnv, Phase)

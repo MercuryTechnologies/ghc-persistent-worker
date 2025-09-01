@@ -1,6 +1,6 @@
 {-# LANGUAGE ViewPatterns, CPP, OverloadedStrings #-}
 
-module Internal.CompileHpt where
+module Internal.Compile.Make where
 
 import Control.Concurrent (MVar)
 import GHC (

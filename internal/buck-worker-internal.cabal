@@ -24,8 +24,8 @@ library
     exposed-modules:  Internal.AbiHash
                       Internal.Cache.Hpt
                       Internal.Cache.Metadata
-                      Internal.Compile
-                      Internal.CompileHpt
+                      Internal.Compile.Make
+                      Internal.Compile.Oneshot
                       Internal.Debug
                       Internal.Error
                       Internal.Log

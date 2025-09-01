@@ -19,15 +19,14 @@ import GHC.Driver.Main (initModDetails, initWholeCoreBindings)
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
 import GHC.Iface.Load (readIface)
 import GHC.Linker.Types (Linkable (..))
-import GHC.Platform.Ways (Way (..), addWay)
 import GHC.Types.Unique.DFM (addToUDFM, elemUDFM)
 import GHC.Unit (Definite (..), GenUnit (..))
 import GHC.Unit.Env (UnitEnv (..), unitEnv_member)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Unit.Module.ModDetails (ModDetails (..))
-import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
 import GHC.Utils.Misc (modificationTimeIfExists)
+import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.Log (Log (..), logDebug)
 import Prelude hiding (log)
@@ -152,7 +151,7 @@ loadCachedDeps log CachedDeps {home_unit, project} hsc_env0 = do
   let hsc_env2 = hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1
   loadActiveUnit (setDyn hsc_env2) home_unit
   where
-    setDyn = hscUpdateFlags \ d -> d {ghcMode = CompManager, targetWays_ = addWay WayDyn (targetWays_ d)}
+    setDyn = hscUpdateFlags \ d -> d {ghcMode = CompManager}
 
     -- If the unit isn't present in the unit env, it wasn't built by a worker, since it would have been loaded in the
     -- metadata restoration step.
