@@ -27,6 +27,7 @@ library
     Types.Args
     Types.BuckArgs
     Types.CachedDeps
+    Types.Env
     Types.GhcHandler
     Types.Grpc
     Types.Log

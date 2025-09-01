@@ -51,23 +51,11 @@ import Internal.State (withCacheMake, withCacheOneshot)
 import Prelude hiding (log)
 import System.Environment (setEnv)
 import Types.Args (Args (..))
+import Types.Env (Env (..))
 import Types.Log (Log)
 import Types.State (BinPath (..), Options (..), WorkerState (..))
 import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
-
--- | Data used by a single worker request session, consisting of a logger, shared state, and request arguments.
-data Env =
-  Env {
-    -- | Logger used to receive messages from GHC and relay them to Buck.
-    log :: MVar Log,
-
-    -- | The entirety of the persistent state of a worker thats's shared across sessions.
-    state :: MVar WorkerState,
-
-    -- | Preprocessed command line args from Buck.
-    args :: Args
-  }
 
 -- | Add all the directories passed by Buck in @--bin-path@ options to the global @$PATH@.
 -- Although Buck intends these to be module specific, all subsequent compile jobs will see all previous jobs' entries,
