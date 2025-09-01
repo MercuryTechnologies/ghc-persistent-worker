@@ -22,7 +22,7 @@ import qualified Proto.Instrument as Instr
 import Proto.Instrument (Instrument)
 import Proto.Instrument_Fields qualified as Instr
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
-import Types.State (TargetSpec (..))
+import Types.Target (TargetSpec (..))
 
 -- | Fetch statistics about the current state of the RTS for instrumentation.
 mkStats :: WorkerState -> IO (Proto Instr.Stats)

@@ -13,7 +13,7 @@ import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomePackageTable, hm_iface)
 import GHC.Unit.Module.Graph (ModuleGraph)
 import GHC.Utils.Outputable (Outputable, SDoc, comma, hang, hcat, ppr, punctuate, text, vcat, (<+>))
 import System.FilePath ((</>))
-import Types.State (TargetSpec, renderTargetSpec)
+import Types.Target (TargetSpec, renderTargetSpec)
 
 #if !MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) && !defined(MWB)
 

@@ -20,7 +20,7 @@ import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
 import Internal.State.Stats (logMemStats)
 import System.Directory (createDirectoryIfMissing)
 import Types.Args (Args (..))
-import Types.State (TargetSpec (..), UnitTarget (..))
+import Types.Target (TargetSpec (..), UnitTarget (..))
 
 -- | 'doMkDependHS' needs this to be enabled.
 metadataTempSession :: HscEnv -> HscEnv

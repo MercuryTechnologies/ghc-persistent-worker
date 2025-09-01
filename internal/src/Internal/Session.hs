@@ -52,7 +52,7 @@ import Internal.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 import Prelude hiding (log)
 import System.Environment (setEnv)
 import Types.Args (Args (..))
-import Types.State (ModuleTarget (..), Target (Target), TargetSpec (..))
+import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
 
 -- | Data used by a single worker request session, consisting of a logger, shared state, and request arguments.
 data Env =

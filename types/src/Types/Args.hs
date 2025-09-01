@@ -7,7 +7,7 @@ import Data.Map.Strict ((!?))
 import GHC.Unit (UnitId)
 import GHC.Utils.Outputable (showPprUnsafe)
 import Types.CachedDeps (CachedBuildPlans, CachedDeps)
-import Types.State (ModuleTarget)
+import Types.Target (ModuleTarget)
 
 newtype TargetId = TargetId {string :: String}
   deriving newtype (Show, Eq, Ord)

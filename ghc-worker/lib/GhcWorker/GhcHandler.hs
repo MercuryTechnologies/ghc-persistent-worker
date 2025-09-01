@@ -34,7 +34,7 @@ import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
 import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (RequestArgs (..))
-import Types.State (TargetSpec (..))
+import Types.Target (TargetSpec (..))
 
 data LockState = LockStart | LockFreeze Int | LockThaw Int | LockEnd
   deriving stock (Eq, Show)

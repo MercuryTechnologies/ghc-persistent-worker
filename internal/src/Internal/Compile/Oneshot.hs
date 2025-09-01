@@ -31,7 +31,7 @@ import GHC.Utils.Outputable (ppr, text)
 import GHC.Utils.Panic (panic, throwGhcExceptionIO)
 import Internal.State (ModuleArtifacts (..))
 import System.Directory (doesFileExist)
-import Types.State (Target (Target), TargetSpec (..))
+import Types.Target (Target (Target), TargetSpec (..))
 
 type P m = TPipelineClass TPhase m
 

@@ -15,7 +15,7 @@ import System.FilePath (takeDirectory)
 import qualified Types.Args
 import Types.Args (Args (Args), TargetId (..), UnitName (..))
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
-import Types.State (ModuleTarget (..))
+import Types.Target (ModuleTarget (..))
 
 data Mode =
   ModeCompile

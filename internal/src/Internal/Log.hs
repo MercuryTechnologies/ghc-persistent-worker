@@ -41,7 +41,7 @@ import System.Directory (createDirectoryIfMissing, doesPathExist)
 import System.FilePath (addExtension, takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
 import System.IO.Error (tryIOError)
-import Types.State (TargetSpec (..), renderTargetSpec)
+import Types.Target (TargetSpec (..), renderTargetSpec)
 
 -- | Simple log level that decides whether non-diagnostic messages will be sent to Buck in addition to basic file
 -- logging.

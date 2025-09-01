@@ -15,7 +15,7 @@ import Prelude hiding (log)
 import qualified Proto.Instrument as Instr
 import Proto.Instrument_Fields qualified as Instr
 import Types.BuckArgs (BuckArgs (..))
-import Types.State (TargetSpec, renderTargetSpec)
+import Types.Target (TargetSpec, renderTargetSpec)
 
 -- | Rudimentary dummy state for instrumentation, counting concurrently compiling sessions.
 data WorkerStatus =

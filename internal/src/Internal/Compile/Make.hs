@@ -32,7 +32,7 @@ import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTem
 import Internal.Error (eitherMessages, noteGhc)
 import Internal.Log (Log, logDebugD)
 import Internal.State (ModuleArtifacts (..))
-import Types.State (ModuleTarget (..), Target (..), TargetSpec (..))
+import Types.Target (ModuleTarget (..), Target (..), TargetSpec (..))
 
 -- | Insert a compilation result into the current unit's home package table, as it is done by upsweep.
 addDepsToHscEnv :: [HomeModInfo] -> HscEnv -> HscEnv

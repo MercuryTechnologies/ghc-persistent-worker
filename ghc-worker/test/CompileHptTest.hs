@@ -29,7 +29,7 @@ import System.Directory (createDirectoryIfMissing, listDirectory, removeDirector
 import System.FilePath (dropExtension, takeBaseName, takeExtension, takeFileName, (</>))
 import TestSetup (Conf (..), Module (..), ModuleSpec (..), Unit (..), UnitSpec (..), withProject)
 import Types.Args (Args (..))
-import Types.State (Target (..), TargetSpec (..))
+import Types.Target (Target (..), TargetSpec (..))
 
 -- | Parse command line flags, used to create unit-specific @DynFlags@.
 unitFlags :: [String] -> HscEnv -> Ghc DynFlags

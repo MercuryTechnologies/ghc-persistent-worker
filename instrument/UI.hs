@@ -25,7 +25,7 @@ import Grpc (sendOptions, triggerRebuild)
 import Internal.Debug (debugSocketPath)
 import Internal.State (Options (..), defaultOptions)
 import Lens.Micro.Platform (Lens', Traversal', each, filtered, lens, makeLenses, packed, preuse, use, zoom, (.=), _2)
-import Types.State (TargetSpec)
+import Types.Target (TargetSpec)
 import UI.ActiveTasks qualified as ActiveTasks
 import UI.GhcDebug (debug)
 import UI.ModuleSelector qualified as ModuleSelector

@@ -7,7 +7,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Maybe (fromMaybe)
 import Data.Sequence qualified as Seq
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
-import Types.State (TargetSpec (..), renderTargetSpec)
+import Types.Target (TargetSpec (..), renderTargetSpec)
 import Lens.Micro.Platform (modifying, use, (.=), preuse)
 import UI.Types (Name (ActiveTasks), WorkerId, canDebugAttr)
 import UI.Utils (formatPico, popup)

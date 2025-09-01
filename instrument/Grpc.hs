@@ -10,7 +10,7 @@ import Network.GRPC.Client.StreamType.IO (nonStreaming)
 import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (&), (.~))
 import Proto.Instrument qualified as Instr
 import Proto.Instrument_Fields qualified as Fields
-import Types.State (TargetSpec, renderTargetSpec)
+import Types.Target (TargetSpec, renderTargetSpec)
 
 sendOptions :: Connection -> Options -> IO ()
 sendOptions conn options =

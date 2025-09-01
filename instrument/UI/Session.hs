@@ -13,7 +13,7 @@ import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds
 import Lens.Micro.Platform (each, filtered, makeLenses, modifying, use, zoom)
 import Network.GRPC.Client (Connection)
 import Network.GRPC.Common.Protobuf (Proto(..))
-import Types.State (TargetSpec (..))
+import Types.Target (TargetSpec (..))
 import UI.ActiveTasks qualified as ActiveTasks
 import UI.ModuleSelector qualified as ModuleSelector
 import UI.Types (Name, WorkerId)

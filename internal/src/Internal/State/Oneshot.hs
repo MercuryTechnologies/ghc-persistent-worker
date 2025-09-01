@@ -34,7 +34,8 @@ import Internal.State.Stats (
   emptyLinkerStats,
   emptyStats,
   )
-import Types.State (SymbolCache (..), SymbolMap, Target)
+import Types.State (SymbolCache (..), SymbolMap)
+import Types.Target (Target)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 

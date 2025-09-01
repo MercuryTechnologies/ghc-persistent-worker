@@ -23,7 +23,7 @@ import qualified Internal.State.Stats as Stats
 import System.Environment (lookupEnv)
 import Types.Args (TargetId (..))
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
-import Types.State (Target, TargetSpec)
+import Types.Target (Target, TargetSpec)
 
 data ModuleArtifacts =
   ModuleArtifacts {

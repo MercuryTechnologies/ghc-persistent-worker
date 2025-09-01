@@ -7,7 +7,7 @@ import Control.Monad (when)
 import Data.Fixed (Fixed (..), Pico)
 import Data.Sequence qualified as Seq
 import Lens.Micro.Platform (modifying, preuse, use, (.=))
-import Types.State (TargetSpec (..), renderTargetSpec)
+import Types.Target (TargetSpec (..), renderTargetSpec)
 import UI.Types (Name (ModuleSelector), WorkerId, disabledAttr)
 import UI.Utils (formatPico, formatPs, popup, upsertAscSeq)
 
