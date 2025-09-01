@@ -16,7 +16,6 @@ import GHC.Unit.Module.Graph (ModuleGraph)
 import Internal.Debug (showHugShort, showModGraph)
 import Internal.Log (Log, logDebug, logDebugD)
 import qualified Internal.State.Make as Make
-import Internal.State.Make (MakeState (..))
 import qualified Internal.State.Oneshot as Oneshot
 import Internal.State.Oneshot (newOneshotCacheFeatures, newOneshotStateWith)
 import qualified Internal.State.Stats as Stats
@@ -24,6 +23,7 @@ import System.Environment (lookupEnv)
 import Types.Args (TargetId (..))
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
 import Types.Target (Target, TargetSpec)
+import Types.State.Make (MakeState (..))
 import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 
 data ModuleArtifacts =
