@@ -2,29 +2,24 @@
 
 module Internal.State where
 
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, withMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, withMVar)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Foldable (traverse_)
-import Data.Map (Map)
-import Data.Set (Set)
-import GHC (Ghc, ModIface, emptyMG, mi_module, moduleName, moduleNameString, setSession)
+import GHC (Ghc, ModIface, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Monad (modifySessionM, withSession)
 import GHC.Linker.Types (Linkable)
-import GHC.Unit.Env (unitEnv_new)
 import GHC.Unit.Module.Graph (ModuleGraph)
 import Internal.Debug (showHugShort, showModGraph)
 import Internal.Log (Log, logDebug, logDebugD)
 import qualified Internal.State.Make as Make
 import qualified Internal.State.Oneshot as Oneshot
-import Internal.State.Oneshot (newOneshotCacheFeatures, newOneshotStateWith)
 import qualified Internal.State.Stats as Stats
-import System.Environment (lookupEnv)
 import Types.Args (TargetId (..))
-import Types.Grpc (CommandEnv (..), RequestArgs (..))
-import Types.Target (Target, TargetSpec)
+import Types.State (WorkerState (..))
 import Types.State.Make (MakeState (..))
 import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
+import Types.Target (Target)
 
 data ModuleArtifacts =
   ModuleArtifacts {
@@ -35,51 +30,6 @@ data ModuleArtifacts =
 instance Show ModuleArtifacts where
   show ModuleArtifacts {iface} =
     "ModuleArtifacts { iface = " ++ moduleNameString (moduleName (mi_module iface)) ++ " }"
-
-data BinPath =
-  BinPath {
-    initial :: Maybe String,
-    extra :: Set String
-  }
-  deriving stock (Eq, Show)
-
-data WorkerState =
-  WorkerState {
-    path :: BinPath,
-    baseSession :: Maybe HscEnv,
-    options :: Options,
-    make :: MakeState,
-    oneshot :: OneshotState,
-    targetArgs :: Map TargetSpec (CommandEnv, RequestArgs)
-  }
-
-data Options =
-  Options {
-    extraGhcOptions :: String
-  }
-
-newStateWith :: OneshotCacheFeatures -> IO (MVar WorkerState)
-newStateWith features = do
-  initialPath <- lookupEnv "PATH"
-  oneshot <- newOneshotStateWith features
-  newMVar WorkerState {
-    path = BinPath {
-      initial = initialPath,
-      extra = mempty
-    },
-    baseSession = Nothing,
-    options = defaultOptions,
-    make = MakeState {
-      moduleGraph = emptyMG,
-      hug = unitEnv_new mempty,
-      interp = Nothing
-    },
-    oneshot,
-    targetArgs = mempty
-  }
-
-newState :: Bool -> IO (MVar WorkerState)
-newState enable = newStateWith newOneshotCacheFeatures {enable}
 
 modifyMakeState :: MVar WorkerState -> (MakeState -> IO (MakeState, a)) -> IO a
 modifyMakeState var f =
@@ -99,12 +49,6 @@ updateOneshotState f state = state {oneshot = f state.oneshot}
 
 updateOneshotStateVar :: MVar WorkerState -> (OneshotState -> OneshotState) -> IO ()
 updateOneshotStateVar var f = modifyMVar_ var (pure . updateOneshotState f)
-
-defaultOptions :: Options
-defaultOptions =
-  Options {
-    extraGhcOptions = ""
-  }
 
 -- | Log a report for a completed compilation, using 'reportMessages' to assemble the content.
 report ::

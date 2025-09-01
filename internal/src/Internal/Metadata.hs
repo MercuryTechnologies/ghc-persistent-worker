@@ -15,11 +15,12 @@ import Internal.Cache.Metadata (addHomeUnitTo, loadCachedUnits)
 import Internal.Log (logDebug, setLogTarget)
 import Internal.MakeFile (doMkDependHS)
 import Internal.Session (Env (..), runSession, withDynFlags)
-import Internal.State (WorkerState (..), updateMakeStateVar)
+import Internal.State (updateMakeStateVar)
 import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
 import Internal.State.Stats (logMemStats)
 import System.Directory (createDirectoryIfMissing)
 import Types.Args (Args (..))
+import Types.State (WorkerState (..))
 import Types.Target (TargetSpec (..), UnitTarget (..))
 
 -- | 'doMkDependHS' needs this to be enabled.

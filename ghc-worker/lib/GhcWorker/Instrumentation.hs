@@ -9,12 +9,12 @@ import Data.Int (Int32)
 import Data.Text qualified as Text
 import GhcWorker.Grpc (mkStats)
 import Internal.Log (dbg)
-import Internal.State (WorkerState)
 import Network.GRPC.Common.Protobuf (Proto, defMessage, (&), (.~))
 import Prelude hiding (log)
 import qualified Proto.Instrument as Instr
 import Proto.Instrument_Fields qualified as Instr
 import Types.BuckArgs (BuckArgs (..))
+import Types.State (WorkerState)
 import Types.Target (TargetSpec, renderTargetSpec)
 
 -- | Rudimentary dummy state for instrumentation, counting concurrently compiling sessions.

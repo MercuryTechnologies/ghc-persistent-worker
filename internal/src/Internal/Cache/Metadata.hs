@@ -22,9 +22,10 @@ import GHC.Utils.Outputable (ppr, quotes, text, (<+>))
 import Internal.Error (eitherMessages, notePpr)
 import Internal.Log (Log, logDebugD)
 import Internal.Session (buckLocation, parseFlags)
-import Internal.State (WorkerState (..), modifyMakeState)
+import Internal.State (modifyMakeState)
 import Internal.State.Make (insertUnitEnv, storeModuleGraph)
 import Types.CachedDeps (CachedBuildPlan (..), CachedBuildPlans (..), CachedModule (..), CachedUnit (..), JsonFs (..))
+import Types.State (WorkerState)
 import Types.State.Make (MakeState (..))
 
 -- | Add a fresh 'HomeUnitEnv' to the home unit graph using the supplied unit state and dependencies.

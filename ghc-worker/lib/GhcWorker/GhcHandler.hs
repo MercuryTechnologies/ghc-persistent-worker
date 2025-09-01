@@ -24,8 +24,8 @@ import Internal.Compile.Oneshot (compileModuleWithDepsInEps)
 import Internal.Debug (debugSocketPath)
 import Internal.Log (Log, TraceId, dbg, logDebug, logFlush, newLog, setLogTarget)
 import Internal.Metadata (computeMetadata)
-import Internal.Session (Env (..), withGhcOneshotSource, withGhcMakeModule, withGhcMakeSource)
-import Internal.State (ModuleArtifacts (..), WorkerState (..), dumpState)
+import Internal.Session (Env (..), withGhcMakeModule, withGhcMakeSource, withGhcOneshotSource)
+import Internal.State (ModuleArtifacts (..), dumpState)
 import Prelude hiding (log)
 import System.Exit (ExitCode (ExitSuccess))
 import System.Posix.Process (exitImmediately)
@@ -34,6 +34,7 @@ import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
 import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (RequestArgs (..))
+import Types.State (WorkerState (..))
 import Types.Target (TargetSpec (..))
 
 data LockState = LockStart | LockFreeze Int | LockThaw Int | LockEnd

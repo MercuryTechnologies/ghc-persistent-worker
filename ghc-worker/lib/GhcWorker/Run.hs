@@ -1,7 +1,7 @@
 module GhcWorker.Run where
 
 import BuckWorkerProto (Instrument, Worker)
-import Common.Grpc (fromGrpcHandler, GrpcHandler(..))
+import Common.Grpc (GrpcHandler (..), fromGrpcHandler)
 import Control.Concurrent (MVar, newChan, newMVar)
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.STM (TVar, newTVarIO)
@@ -12,18 +12,15 @@ import GhcWorker.Grpc (instrumentMethods)
 import GhcWorker.Instrumentation (WorkerStatus (..), toGrpcHandler)
 import GhcWorker.Orchestration (CreateMethods (..), FeatureInstrument (..), runCentralGhcSpawned)
 import Internal.Log (TraceId (..))
-import Internal.State (WorkerState (..), newState, newStateWith)
-import Types.State.Oneshot (OneshotCacheFeatures (..))
 import Network.GRPC.Common.Protobuf (Proto)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
 import Network.GRPC.Server.StreamType (Methods)
 import qualified Proto.Instrument as Instr
 import Types.GhcHandler (WorkerMode (..))
-import Types.Orchestration (
-  ServerSocketPath (..),
-  serverSocketFromPath,
-  )
 import Types.Grpc (CommandEnv, RequestArgs)
+import Types.Orchestration (ServerSocketPath (..), serverSocketFromPath)
+import Types.State (WorkerState (..), newState, newStateWith)
+import Types.State.Oneshot (OneshotCacheFeatures (..))
 
 -- | Global options for the worker, passed when the process is started, in contrast to request options stored in
 -- 'BuckArgs'.

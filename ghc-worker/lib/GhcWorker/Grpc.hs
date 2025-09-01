@@ -8,7 +8,6 @@ import Data.Foldable (for_)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
-import Internal.State (WorkerState (..), Options (..))
 import Network.GRPC.Common (NextElem (..))
 import Network.GRPC.Common.Protobuf (Proto, defMessage, (&), (.~))
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
@@ -22,6 +21,7 @@ import qualified Proto.Instrument as Instr
 import Proto.Instrument (Instrument)
 import Proto.Instrument_Fields qualified as Instr
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
+import Types.State (WorkerState (..), Options (..))
 import Types.Target (TargetSpec (..))
 
 -- | Fetch statistics about the current state of the RTS for instrumentation.
