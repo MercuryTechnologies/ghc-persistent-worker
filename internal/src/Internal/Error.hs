@@ -2,7 +2,6 @@
 
 module Internal.Error where
 
-import Control.Concurrent.MVar (MVar)
 import Control.Exception (AsyncException (..), Exception (..), IOException, throwIO)
 import qualified Control.Monad.Catch as MC
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -14,10 +13,10 @@ import GHC.Utils.Outputable (Outputable (..))
 import Internal.Log (logOther)
 import System.Environment (getProgName)
 import System.Exit (ExitCode)
-import Types.Log (Log, LogLevel (..))
+import Types.Log (LogLevel (..), Logger)
 
-handleExceptions :: MVar Log -> a -> Ghc a -> Ghc a
-handleExceptions logVar errResult =
+handleExceptions :: Logger -> a -> Ghc a -> Ghc a
+handleExceptions logger errResult =
   MC.handle \ e -> do
     handler e
     pure errResult
@@ -50,7 +49,7 @@ handleExceptions logVar errResult =
       | otherwise
       = fm (show (Panic (show exception)))
 
-    fm = logOther logVar LogInfo
+    fm = logOther logger LogInfo
 
 eitherMessages ::
   MonadIO m =>

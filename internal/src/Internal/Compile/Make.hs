@@ -2,22 +2,21 @@
 
 module Internal.Compile.Make where
 
-import Control.Concurrent (MVar)
+import qualified GHC
 import GHC (
   DynFlags (..),
   GeneralFlag (..),
   Ghc,
   GhcException (..),
   GhcMonad (..),
-  Logger,
   ModLocation (..),
   ModSummary (..),
   Module,
   gopt,
   mgLookupModule,
   )
-import GHC.Driver.Env (HscEnv (..), hscUpdateHUG)
 import GHC.Driver.DynFlags (gopt_set)
+import GHC.Driver.Env (HscEnv (..), hscUpdateHUG)
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
 import GHC.Driver.Monad (modifySession)
@@ -30,9 +29,8 @@ import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
 import Internal.Error (eitherMessages, noteGhc)
-import Internal.Log (logDebugD)
 import Internal.State (ModuleArtifacts (..))
-import Types.Log (Log)
+import Types.Log (Logger (..))
 import Types.Target (ModuleTarget (..), Target (..), TargetSpec (..))
 
 -- | Insert a compilation result into the current unit's home package table, as it is done by upsweep.
@@ -46,7 +44,7 @@ setHiLocation HscEnv {hsc_dflags = DynFlags {outputHi = Just ml_hi_file, outputF
   summ {ms_location = summ.ms_location {ml_hi_file, ml_obj_file}}
 setHiLocation _ summ = summ
 
-cleanCurrentModuleTempFilesMaybe :: MonadIO m => Logger -> TmpFs -> DynFlags -> m ()
+cleanCurrentModuleTempFilesMaybe :: MonadIO m => GHC.Logger -> TmpFs -> DynFlags -> m ()
 cleanCurrentModuleTempFilesMaybe logger tmpfs dflags =
   if gopt Opt_KeepTmpFiles dflags
     then liftIO $ keepCurrentModuleTempFiles logger tmpfs
@@ -68,16 +66,16 @@ lookupSummary hsc_env target = do
 --
 -- Otherwise, the source file path is used to generate a fresh summary.
 ensureSummary ::
-  MVar Log ->
+  Logger ->
   HscEnv ->
   TargetSpec ->
   IO ModSummary
-ensureSummary logVar hsc_env = \case
+ensureSummary logger hsc_env = \case
   TargetModule (ModuleTarget m) -> do
-    logDebugD logVar ("Fetching ModSummary for" <+> ppr m <+> "from module graph")
+    logger.debugD ("Fetching ModSummary for" <+> ppr m <+> "from module graph")
     lookupSummary hsc_env m
   TargetSource (Target src) -> do
-    logDebugD logVar ("Computing fresh ModSummary for" <+> text src)
+    logger.debugD ("Computing fresh ModSummary for" <+> text src)
     summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
     setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
   TargetUnit unit ->
@@ -98,14 +96,14 @@ ensureSummary logVar hsc_env = \case
 -- - Call the module compilation function @compileOne@
 -- - Store the resulting @HomeModInfo@ in the current unit's home package table.
 compileModuleWithDepsInHpt ::
-  MVar Log ->
+  Logger ->
   TargetSpec ->
   Ghc (Maybe ModuleArtifacts)
-compileModuleWithDepsInHpt logVar target = do
+compileModuleWithDepsInHpt logger target = do
   initializeSessionPlugins
   hsc_env <- getSession
   hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
-    summary <- ensureSummary logVar hsc_env target
+    summary <- ensureSummary logger hsc_env target
     result <- compileOne hsc_env (forceRecomp summary) 1 100000 Nothing (HomeModLinkable Nothing Nothing)
     cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts
     pure result

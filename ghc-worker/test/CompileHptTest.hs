@@ -20,7 +20,7 @@ import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.Compile.Make (compileModuleWithDepsInHpt)
-import Internal.Log (dbg, dbgp, dbgs)
+import Internal.Log (dbg, dbgp, dbgs, newLogger)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (withGhcMakeSource)
 import Internal.State.Stats (logMemStats)
@@ -42,11 +42,11 @@ unitFlags args HscEnv {hsc_logger, hsc_dflags = dflags0} = do
 
 stepMetadata :: Conf -> Unit -> [Unit] -> IO ()
 stepMetadata Conf {state, tmp, args0} unit deps = do
-  log <- newLog Nothing
+  logVar <- newLog Nothing
   createDirectoryIfMissing False sessionTmpDir
   names <- listDirectory unit.dir
   let srcs = [unit.dir </> name | name <- names, takeExtension name == ".hs"]
-      env = Env {log, state, args = args srcs}
+      env = Env {log = newLogger logVar, state, args = args srcs}
   dbgp (text ">>> metadata for" <+> ppr unit.uid)
   (success, _) <- computeMetadata env
   unless success do
@@ -74,14 +74,14 @@ stepMetadata Conf {state, tmp, args0} unit deps = do
 
 stepCompile :: Conf -> Module -> IO ()
 stepCompile Conf {state, tmp, args0} Module {unit, src} = do
-  log <- newLog Nothing
-  let env = Env {log, state, args}
+  logVar <- newLog Nothing
+  let env = Env {log = newLogger logVar, state, args}
   liftIO $ createDirectoryIfMissing False sessionTmpDir
   result <- liftIO $ withGhcMakeSource env \ target -> do
     dbg ""
     dbg (">>> compiling " ++ takeFileName target.path)
     modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
-    compileModuleWithDepsInHpt log (TargetSource target)
+    compileModuleWithDepsInHpt env.log (TargetSource target)
   when (isNothing result) do
       liftIO $ throwGhcExceptionIO (ProgramError "Compile failed")
   dbgs result
@@ -315,7 +315,8 @@ runStep conf = \case
 testWorker :: (Conf -> NonEmpty UnitSpec) -> IO ()
 testWorker mkSpecs = do
   log <- newLog Nothing
-  logMemStats "initial" log
+  let logger = newLogger log
+  logMemStats "initial" logger
   withProject (pure . mkSpecs) \ conf units -> do
     let steps = testSteps units
     traverse_ (runStep conf) steps

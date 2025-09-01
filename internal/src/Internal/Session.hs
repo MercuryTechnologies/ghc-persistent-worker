@@ -12,6 +12,7 @@ import Data.List (intercalate)
 import Data.List.NonEmpty (nonEmpty)
 import Data.Maybe (maybeToList)
 import qualified Data.Set as Set
+import qualified GHC
 import GHC (
   DynFlags (..),
   GeneralFlag (Opt_KeepTmpFiles),
@@ -40,9 +41,9 @@ import GHC.Driver.Monad (Session (Session), modifySession, modifySessionM, unGhc
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Unit (moduleUnitId)
-import GHC.Utils.Logger (Logger, getLogger, setLogFlags)
+import GHC.Utils.Logger (getLogger, setLogFlags)
 import GHC.Utils.Outputable (ppr, text, (<+>))
-import GHC.Utils.Panic (panic, throwGhcExceptionIO, pprPanic)
+import GHC.Utils.Panic (panic, pprPanic, throwGhcExceptionIO)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Cache.Hpt (loadCachedDeps)
 import Internal.Error (handleExceptions)
@@ -52,7 +53,7 @@ import Prelude hiding (log)
 import System.Environment (setEnv)
 import Types.Args (Args (..))
 import Types.Env (Env (..))
-import Types.Log (Log)
+import Types.Log (Logger)
 import Types.State (BinPath (..), Options (..), WorkerState (..))
 import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
@@ -86,9 +87,9 @@ instrumentLocation = mkGeneralLocated "by instrument"
 -- Returns the subset of args that have not been recognized as options.
 parseFlags ::
   DynFlags ->
-  Logger ->
+  GHC.Logger ->
   [Located String] ->
-  IO (DynFlags, Logger, [Located String], DriverMessages)
+  IO (DynFlags, GHC.Logger, [Located String], DriverMessages)
 parseFlags dflags0 logger0 argv = do
   let dflags1 = dflags0 {ghcLink = LinkBinary, verbosity = 0}
   let logger1 = setLogFlags logger0 (initLogFlags dflags1)
@@ -99,7 +100,7 @@ parseFlags dflags0 logger0 argv = do
 -- Returns the subset of args that have not been recognized as options.
 initDynFlags ::
   DynFlags ->
-  Logger ->
+  GHC.Logger ->
   [Located String] ->
   DriverMessages ->
   IO (DynFlags, [(String, Maybe Phase)])
@@ -115,7 +116,7 @@ initDynFlags dflags0 logger fileish_args dynamicFlagWarnings = do
 -- Returns the subset of args that have not been recognized as options.
 initGhc ::
   DynFlags ->
-  Logger ->
+  GHC.Logger ->
   [Located String] ->
   DriverMessages ->
   Ghc [(String, Maybe Phase)]
@@ -228,7 +229,7 @@ withGhc targetWrapper env prog =
 -- Extracts a single source file target from the leftover args and passes it to a cache wrapper before running the main
 -- program.
 withGhcSource ::
-  (Target -> MVar Log -> MVar WorkerState -> Ghc a -> Ghc (Maybe b)) ->
+  (Target -> Logger -> MVar WorkerState -> Ghc a -> Ghc (Maybe b)) ->
   Env ->
   (Target -> Ghc a) ->
   IO (Maybe b)

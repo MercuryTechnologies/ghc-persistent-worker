@@ -9,7 +9,8 @@ import Data.Aeson (eitherDecodeFileStrict')
 import qualified Data.Map.Strict as Map
 import Data.Maybe (listToMaybe)
 import Data.Tuple (swap)
-import GHC (DynFlags (..), IsBootInterface (..), Logger, ModuleName (..), mkModuleGraph)
+import qualified GHC
+import GHC (DynFlags (..), IsBootInterface (..), ModuleName (..), mkModuleGraph)
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (ModNodeKeyWithUid (..), summariseFile)
@@ -25,7 +26,7 @@ import Internal.Session (buckLocation, parseFlags)
 import Internal.State (modifyMakeState)
 import Internal.State.Make (insertUnitEnv, storeModuleGraph)
 import Types.CachedDeps (CachedBuildPlan (..), CachedBuildPlans (..), CachedModule (..), CachedUnit (..), JsonFs (..))
-import Types.Log (Log)
+import Types.Log (Logger)
 import Types.State (WorkerState)
 import Types.State.Make (MakeState (..))
 
@@ -53,7 +54,7 @@ insertHomeUnit unit dflags dbs unit_state home_unit unit_env =
     }
 
 -- | Create a new home unit using the supplied 'DynFlags'.
-initHomeUnit :: DynFlags -> Logger -> UnitId -> UnitEnv -> IO UnitEnv
+initHomeUnit :: DynFlags -> GHC.Logger -> UnitId -> UnitEnv -> IO UnitEnv
 initHomeUnit dflags0 logger unit unit_env = do
   (dbs, unit_state, home_unit, mconstants) <- initUnits logger dflags0 Nothing allUnitIds
   dflags1 <- updatePlatformConstants dflags0 mconstants
@@ -91,18 +92,18 @@ loadCachedModule hsc_env unit (JsonFs name) CachedModule {sources, modules} = do
 -- The cached data consists of a simple list of GHC command line arguments that can recreate the unit state, as well as
 -- the module graph produced by a previous metadata request.
 loadCachedUnit ::
-  MVar Log ->
+  Logger ->
   HscEnv ->
   DynFlags ->
   UnitId ->
   FilePath ->
   StateT MakeState IO HscEnv
-loadCachedUnit logVar hsc_env0 dflags0 unit file = do
+loadCachedUnit logger hsc_env0 dflags0 unit file = do
   CachedUnit {build_plan, unit_args} <- liftIO $ decodeJsonBuildPlan file
   maybe (pure hsc_env0) (load build_plan) unit_args
   where
     load module_graph args_file = do
-      logDebugD logVar (text "Loading cached unit" <+> quotes (ppr unit))
+      logDebugD logger (text "Loading cached unit" <+> quotes (ppr unit))
       hsc_env2 <- liftIO do
         args <- readFile args_file
         (dflags1, _, _, _) <- parseFlags dflags0 hsc_env0.hsc_logger (buckLocation <$> lines args)
@@ -115,13 +116,13 @@ loadCachedUnit logVar hsc_env0 dflags0 unit file = do
 
 -- | Restore the unit state and module graph for each unit in cache that isn't present in the unit env.
 loadCachedUnits ::
-  MVar Log ->
+  Logger ->
   MVar WorkerState ->
   DynFlags ->
   CachedBuildPlans ->
   HscEnv ->
   IO HscEnv
-loadCachedUnits logVar stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 =
+loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 =
   modifyMakeState stateVar $
     fmap swap . runStateT (foldM ensureBuildPlan hsc_env0 buildPlans)
   where
@@ -129,8 +130,8 @@ loadCachedUnits logVar stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 =
       present <- gets \ s -> unitEnv_member uid s.hug
       if present
       then skipPresent hsc_env uid
-      else loadCachedUnit logVar hsc_env dflags0 uid planFile
+      else loadCachedUnit logger hsc_env dflags0 uid planFile
 
     skipPresent hsc_env uid = do
-      logDebugD logVar (text "Present in the unit env:" <+> quotes (ppr uid))
+      logDebugD logger (text "Present in the unit env:" <+> quotes (ppr uid))
       pure hsc_env

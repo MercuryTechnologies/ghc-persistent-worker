@@ -1,6 +1,5 @@
 module Internal.State.Stats where
 
-import Control.Concurrent.MVar (MVar)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Bifunctor (first)
 import Data.List (sortBy)
@@ -16,9 +15,9 @@ import GHC.Types.Unique.FM (minusUFM, nonDetEltsUFM, sizeUFM)
 import GHC.Unit.Module.Env (moduleEnvKeys)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
-import Internal.Log (logDebugD, logd)
+import Internal.Log (logd)
 import Types.Args (TargetId (..))
-import Types.Log (Log)
+import Types.Log (Logger (..))
 import Types.State.Oneshot (SymbolCache (..))
 import Types.State.Stats (
   CacheStats (..),
@@ -123,26 +122,26 @@ reportMessages target mb_stats memory =
 -- | Log a report for a completed compilation, using 'reportMessages' to assemble the content.
 report ::
   MonadIO m =>
-  MVar Log ->
+  Logger ->
   -- | A description of the current worker process.
   Maybe TargetId ->
   Target ->
   Maybe (Map Target CacheStats) ->
   m ()
-report logVar workerId target stats = do
+report logger workerId target stats = do
   s <- liftIO getRTSStats
   let memory = fromIntegral (s.gc.gcdetails_mem_in_use_bytes) / 1000000
-  logd logVar (hang header 2 (reportMessages target stats memory))
+  logd logger (hang header 2 (reportMessages target stats memory))
   where
     header = text target.path Outputable.<> maybe (text "") workerDesc workerId Outputable.<> text ":"
 
     workerDesc wid = text (" (" ++ wid.string ++ ")")
 
-logMemStats :: String -> MVar Log -> IO ()
-logMemStats step logVar = do
+logMemStats :: String -> Logger -> IO ()
+logMemStats step logger = do
   s <- liftIO getRTSStats
-  let logMem desc value = logDebugD logVar (text (desc ++ ":") <+> doublePrec 2 (fromIntegral value / 1_000_000) <+> text "MB")
-  logDebugD logVar (text ("-------------- " ++ step))
+  let logMem desc value = logger.debugD (text (desc ++ ":") <+> doublePrec 2 (fromIntegral value / 1_000_000) <+> text "MB")
+  logger.debugD (text ("-------------- " ++ step))
   logMem "Mem in use" s.gc.gcdetails_mem_in_use_bytes
   logMem "Max mem in use" s.max_mem_in_use_bytes
   logMem "Max live bytes" s.max_live_bytes

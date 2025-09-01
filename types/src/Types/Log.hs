@@ -2,6 +2,7 @@ module Types.Log where
 
 import Control.Concurrent.MVar (MVar, newMVar)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import GHC.Utils.Outputable (SDoc)
 import Prelude hiding (log)
 import Types.Target (TargetSpec (..))
 
@@ -35,3 +36,12 @@ newLog ::
   m (MVar Log)
 newLog traceId =
   liftIO $ newMVar Log {diagnostics = [], other = [], traceId, target = Nothing}
+
+-- | Convenience interface for logging.
+data Logger =
+  Logger {
+    withLog :: forall a . (Log -> IO (Log, a)) -> IO a,
+    setTarget :: TargetSpec -> IO (),
+    debug :: String -> IO (),
+    debugD :: SDoc -> IO ()
+  }

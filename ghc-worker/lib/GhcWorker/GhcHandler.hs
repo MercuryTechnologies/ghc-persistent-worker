@@ -22,7 +22,7 @@ import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Compile.Make (compileModuleWithDepsInHpt)
 import Internal.Compile.Oneshot (compileModuleWithDepsInEps)
 import Internal.Debug (debugSocketPath)
-import Internal.Log (dbg, logDebug, logFlush, setLogTarget)
+import Internal.Log (dbg, logFlush, newLogger)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (withGhcMakeModule, withGhcMakeSource, withGhcOneshotSource)
 import Internal.State (ModuleArtifacts (..), dumpState)
@@ -30,12 +30,12 @@ import Prelude hiding (log)
 import System.Exit (ExitCode (ExitSuccess))
 import System.Posix.Process (exitImmediately)
 import Types.Args (Args (..))
-import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import qualified Types.BuckArgs
+import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
 import Types.Env (Env (..))
 import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (RequestArgs (..))
-import Types.Log (Log, TraceId, newLog)
+import Types.Log (Logger (..), TraceId, newLog)
 import Types.State (WorkerState (..))
 import Types.Target (TargetSpec (..))
 
@@ -119,7 +119,7 @@ dispatch lock workerMode hooks env args targetCallback =
         withGhcOneshotSource env (withTarget (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args) . TargetSource)
       WorkerMakeMode
         | Just target <- env.args.moduleTarget -> do
-          setLogTarget env.log (TargetModule target)
+          env.log.setTarget (TargetModule target)
           withGhcMakeModule target env (withTarget compileHpt)
         | otherwise ->
           withGhcMakeSource env (withTarget compileHpt . TargetSource)
@@ -128,7 +128,7 @@ dispatch lock workerMode hooks env args targetCallback =
 
     withTarget f (target :: TargetSpec) =
       reifyGhc $ \session -> do
-        setLogTarget env.log target
+        env.log.setTarget target
         instrument <- targetCallback target
         let path = debugSocketPath target
         (if instrument.flag then withGhcDebugUnix path else id) $
@@ -136,14 +136,14 @@ dispatch lock workerMode hooks env args targetCallback =
 
 processResult ::
   Hooks ->
-  MVar Log ->
+  Logger ->
   MVar WorkerState ->
   Either IOError (Int32, Maybe TargetSpec) ->
   IO ([String], Int32)
-processResult hooks logVar stateVar result = do
+processResult hooks logger stateVar result = do
   when (exitCode /= 0) do
-    dumpState logVar stateVar exception
-  output <- logFlush logVar
+    dumpState logger stateVar exception
+  output <- logFlush logger
   hooks.compileFinish (hookPayload output)
   pure (output, exitCode)
   where
@@ -174,11 +174,11 @@ ghcHandler ::
   InstrumentedHandler
 ghcHandler lock state workerMode instrument traceId =
   InstrumentedHandler \ hooks -> GrpcHandler \ commandEnv argv -> do
-    log <- newLog traceId
+    log <- newLogger <$> newLog traceId
     result <- try do
       buckArgs <- either parseError pure (parseBuckArgs commandEnv argv)
       args <- toGhcArgs buckArgs
-      logDebug log (unlines (coerce argv))
+      log.debug (unlines (coerce argv))
       let env = Env {log, state, args}
       dispatch lock workerMode hooks env buckArgs $ \ target -> do
         when instrument.flag $

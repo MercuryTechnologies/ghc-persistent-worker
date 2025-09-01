@@ -2,13 +2,12 @@
 
 module Internal.State.Make where
 
-import Control.Concurrent.MVar (MVar)
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Types.Unique.DFM (plusUDFM)
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), unitEnv_insert, unitEnv_lookup, unitEnv_union)
 import GHC.Unit.Module.Graph (ModuleGraph)
 import Internal.State.Stats (logMemStats)
-import Types.Log (Log)
+import Types.Log (Logger)
 import Types.State.Make (MakeState (..))
 
 #if defined(MWB)
@@ -26,12 +25,12 @@ import GHC.Unit.Module.Graph (unionMG)
 -- | Restore the shared state used by both @computeMetadata@ and @compileHpt@ from the cache.
 -- See 'loadCacheMakeCompile' for details.
 loadState ::
-  MVar Log ->
+  Logger ->
   HscEnv ->
   MakeState ->
   IO HscEnv
-loadState logVar hsc_env state = do
-  logMemStats "load state" logVar
+loadState logger hsc_env state = do
+  logMemStats "load state" logger
   pure (restoreHug (restoreModuleGraph hsc_env))
   where
     restoreModuleGraph e = e {hsc_mod_graph = state.moduleGraph}
@@ -52,12 +51,12 @@ loadState logVar hsc_env state = do
 -- sessions share the first one's 'Interp'.
 -- Both fields of 'Interp' are 'MVar's, so the state is shared immediately and concurrently.
 loadStateCompile ::
-  MVar Log ->
+  Logger ->
   HscEnv ->
   MakeState ->
   IO (MakeState, HscEnv)
-loadStateCompile logVar hsc_env0 state = do
-  ensureInterp <$> loadState logVar hsc_env0 state
+loadStateCompile logger hsc_env0 state = do
+  ensureInterp <$> loadState logger hsc_env0 state
   where
     ensureInterp = maybe storeInterp restoreInterp state.interp
 
@@ -111,12 +110,12 @@ mergeHugs old new =
 -- | Store the changes made to the HUG by @compileHpt@ in the state, which usually consists of adding a single
 -- 'HomeModInfo'.
 storeState ::
-  MVar Log ->
+  Logger ->
   HscEnv ->
   MakeState ->
   IO MakeState
-storeState logVar hsc_env state = do
-  logMemStats "store make state" logVar
+storeState logger hsc_env state = do
+  logMemStats "store make state" logger
   let !new = hsc_env.hsc_unit_env.ue_home_unit_graph
       !hug = unitEnv_union mergeHugs state.hug new
   pure state {hug}

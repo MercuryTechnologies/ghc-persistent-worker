@@ -3,9 +3,6 @@ module Internal.Log where
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Data.ByteString (ByteString)
-import Data.Text (pack)
-import Data.Text.Encoding (encodeUtf8)
 import GHC (Ghc, Severity (SevIgnore), noSrcSpan)
 import GHC.Driver.Config.Diagnostic (initDiagOpts)
 import GHC.Driver.DynFlags (getDynFlags)
@@ -41,7 +38,7 @@ import System.Directory (createDirectoryIfMissing, doesPathExist)
 import System.FilePath (addExtension, takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
 import System.IO.Error (tryIOError)
-import Types.Log (Log (..), LogLevel (..), TraceId (..))
+import Types.Log (Log (..), LogLevel (..), Logger (..), TraceId (..))
 import Types.Target (TargetSpec (..), renderTargetSpec)
 
 -- | After the current request's target has been determined, the log state can be updated to generate more specific log
@@ -50,24 +47,55 @@ setLogTarget :: MVar Log -> TargetSpec -> IO ()
 setLogTarget logVar target =
   modifyMVar_ logVar \ log -> pure log {target = Just target}
 
+newLogger :: MVar Log -> Logger
+newLogger state =
+  logger
+  where
+    debug = logOther logger LogDebug
+
+    logger =
+      Logger {
+        withLog = modifyMVar state,
+        setTarget = setLogTarget state,
+        debug,
+        debugD = debug . showPprUnsafe
+      }
+
+
+modifyLog :: Logger -> (Log -> IO Log) -> IO ()
+modifyLog Logger {withLog} f =
+  withLog \ l -> do
+    new <- f l
+    pure (new, ())
+
+mapLog :: Logger -> (Log -> Log) -> IO ()
+mapLog Logger {withLog} f =
+  withLog \ l -> pure (f l, ())
+
+withLog_ :: Logger -> (Log -> IO a) -> IO a
+withLog_ Logger {withLog} f =
+  withLog \ l -> do
+    res <- f l
+    pure (l, res)
+
 logDiagnostics ::
   MonadIO m =>
-  MVar Log ->
+  Logger ->
   String ->
   m ()
-logDiagnostics logVar msg =
-  liftIO $ modifyMVar_ logVar \ Log {diagnostics, ..} ->
-    pure Log {diagnostics = msg : diagnostics, ..}
+logDiagnostics logger msg =
+  liftIO $ mapLog logger \ Log {diagnostics, ..} ->
+    Log {diagnostics = msg : diagnostics, ..}
 
 logOther ::
   MonadIO m =>
-  MVar Log ->
+  Logger ->
   LogLevel ->
   String ->
   m ()
-logOther logVar level msg =
-  liftIO $ modifyMVar_ logVar \ Log {other, ..} ->
-    pure Log {other = (msg, level) : other, ..}
+logOther logger level msg =
+  liftIO $ mapLog logger \ Log {other, ..} ->
+    Log {other = (msg, level) : other, ..}
 
 logDir :: FilePath
 logDir =
@@ -98,20 +126,15 @@ writeLogFile traceId target logLines =
     logName = maybe "global" renderTargetSpec target
 
 -- | Write the current session's log to a file, clear the fields in the 'MVar' and return the log lines.
-logFlush :: MVar Log -> IO [String]
-logFlush var = do
-  modifyMVar var \ Log {..} -> do
+logFlush :: Logger -> IO [String]
+logFlush logger = do
+  withLog logger \ Log {..} -> do
     let logLines = reverse (other ++ [(msg, LogInfo) | msg <- diagnostics])
     writeLogFile traceId target logLines
     pure (Log {diagnostics = [], other = [], ..}, [msg | (msg, level) <- logLines, LogInfo == level])
 
-logFlushBytes :: MVar Log -> IO ByteString
-logFlushBytes var = do
-  lns <- logFlush var
-  pure (encodeUtf8 (pack (unlines lns)))
-
-logToState :: MVar Log -> LogAction
-logToState logVar logflags msg_class srcSpan msg = case msg_class of
+logToState :: Logger -> LogAction
+logToState logger logflags msg_class srcSpan msg = case msg_class of
   MCOutput -> other msg
   MCDump -> other (msg $$ blankLine)
   MCInteractive -> other msg
@@ -130,9 +153,9 @@ logToState logVar logflags msg_class srcSpan msg = case msg_class of
       diagnostic $ getPprStyle $ \style ->
         withPprStyle (setStyleColoured True style) (message $+$ caretDiagnostic $+$ blankLine)
 
-    diagnostic = logDiagnostics logVar . render
+    diagnostic = logDiagnostics logger . render
 
-    other = logOther logVar LogInfo . render
+    other = logOther logger LogInfo . render
 
     render d = renderWithContext (log_default_user_context logflags) d
 
@@ -148,39 +171,39 @@ dbgp = dbg . showPprUnsafe
 logp ::
   Outputable a =>
   MonadIO m =>
-  MVar Log ->
+  Logger ->
   a ->
   m ()
-logp logVar =
-  logOther logVar LogInfo . showPprUnsafe
+logp logger =
+  liftIO . logOther logger LogInfo . showPprUnsafe
 
 logd ::
   MonadIO m =>
-  MVar Log ->
+  Logger ->
   SDoc ->
   m ()
 logd = logp
 
 logDebug ::
   MonadIO m =>
-  MVar Log ->
+  Logger ->
   String ->
   m ()
-logDebug logVar =
-  logOther logVar LogDebug
+logDebug logger =
+  liftIO . logger.debug
 
 logDebugP ::
   Outputable a =>
   MonadIO m =>
-  MVar Log ->
+  Logger ->
   a ->
   m ()
-logDebugP logVar =
-  logOther logVar LogDebug . showPprUnsafe
+logDebugP logger =
+  liftIO . logOther logger LogDebug . showPprUnsafe
 
 logDebugD ::
   MonadIO m =>
-  MVar Log ->
+  Logger ->
   SDoc ->
   m ()
 logDebugD =

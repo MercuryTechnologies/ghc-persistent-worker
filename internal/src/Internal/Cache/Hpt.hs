@@ -2,7 +2,6 @@
 
 module Internal.Cache.Hpt where
 
-import Control.Concurrent.MVar (MVar)
 import Control.Monad (foldM)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (toList)
@@ -28,7 +27,6 @@ import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
 import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO)
-import Internal.Log (logDebug)
 import Prelude hiding (log)
 import Types.CachedDeps (
   CachedDeps (..),
@@ -37,7 +35,7 @@ import Types.CachedDeps (
   JsonFs (..),
   cachedProjectDepInterface,
   )
-import Types.Log (Log (..))
+import Types.Log (Logger (..))
 
 -- This preprocessor variable indicates that we're building with a GHC that has the final version of the oneshot
 -- bytecode patch.
@@ -96,7 +94,7 @@ loadCachedByteCode hsc_env ifaceFile iface details =
 --
 -- Maybe this could reuse some stuff in @hscRecompStatus@?
 loadCachedDep ::
-  MVar Log ->
+  Logger ->
   ModuleName ->
   HscEnv ->
   FilePath ->
@@ -107,7 +105,7 @@ loadCachedDep log name hsc_env ifaceFile =
   else loadHmi
   where
     loadHmi = do
-      logDebug log ("Loading HPT module from cache: " ++ ifaceFile)
+      log.debug ("Loading HPT module from cache: " ++ ifaceFile)
       hm_iface <- loadIface
       hm_details <- initModDetails hsc_env hm_iface
       homeMod_bytecode <- loadCachedByteCode hsc_env ifaceFile hm_iface hm_details
@@ -143,7 +141,7 @@ loadCachedDep log name hsc_env ifaceFile =
 -- A JSON file provides 'CachedDeps' to the worker, containing all interface paths for the current home unit, which we
 -- restore into the HPT here.
 loadCachedDeps ::
-  MVar Log ->
+  Logger ->
   CachedDeps ->
   HscEnv ->
   Ghc HscEnv
