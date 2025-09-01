@@ -8,7 +8,6 @@ import Data.Traversable (for)
 import GHC.Unit (UnitId, stringToUnitId, unitIdString)
 import Internal.Log (dbg)
 import Internal.State (WorkerState (..), newStateWith)
-import Internal.State.Oneshot (OneshotCacheFeatures (..))
 import Prelude hiding (log)
 import System.Directory (createDirectoryIfMissing, listDirectory, withCurrentDirectory)
 import System.Environment (getEnv)
@@ -16,6 +15,7 @@ import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process.Typed (proc, runProcess_)
 import Types.Args (Args (..), TargetId (..))
+import Types.State.Oneshot (OneshotCacheFeatures (..))
 
 -- | Global configuration for a worker compilation test.
 data Conf =

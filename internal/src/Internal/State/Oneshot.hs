@@ -4,12 +4,11 @@ module Internal.State.Oneshot where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, readMVar)
 import Control.Monad (join)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (liftIO)
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
 import Data.IORef (readIORef)
 import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe)
 import Data.Traversable (for)
 import GHC.Driver.Env (HscEnv (..))
@@ -18,11 +17,18 @@ import GHC.Runtime.Interpreter (Interp (..))
 import GHC.Types.Name.Cache (NameCache (..), OrigNameCache)
 import GHC.Types.Unique.DFM (plusUDFM)
 import GHC.Unit.Env (UnitEnv (..))
-import GHC.Unit.External (ExternalUnitCache (..), initExternalUnitCache)
 import GHC.Unit.Finder (InstalledFindResult (..))
 import GHC.Unit.Finder.Types (FinderCache (..))
-import GHC.Unit.Module.Env (InstalledModuleEnv, emptyModuleEnv, plusModuleEnv)
+import GHC.Unit.Module.Env (InstalledModuleEnv, plusModuleEnv)
 import Internal.State.Stats (basicLinkerStats, basicLoaderStats, basicSymbolsStats)
+import Types.State.Oneshot (
+  FinderState (..),
+  InterpCache (..),
+  OneshotCacheFeatures (..),
+  OneshotState (..),
+  SymbolCache (..),
+  SymbolMap,
+  )
 import Types.State.Stats (
   CacheStats (..),
   LinkerStats (..),
@@ -32,18 +38,15 @@ import Types.State.Stats (
   emptyLinkerStats,
   emptyStats,
   )
-import Types.State (SymbolCache (..), SymbolMap)
 import Types.Target (Target)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
-import Data.IORef (IORef, newIORef)
 import qualified Data.Map.Lazy as LazyMap
 import GHC.Fingerprint (Fingerprint, getFileHash)
 import GHC.IORef (atomicModifyIORef')
 import GHC.Unit (
   InstalledModule,
-  emptyInstalledModuleEnv,
   extendInstalledModuleEnv,
   lookupInstalledModuleEnv,
   moduleName,
@@ -52,8 +55,6 @@ import GHC.Utils.Panic (panic)
 import Internal.State.Stats (FinderStats (..))
 
 #else
-
-import GHC.Unit.Finder (initFinderCache)
 
 #if !defined(MWB)
 
@@ -65,87 +66,17 @@ import Control.Concurrent.MVar (newMVar)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
-data FinderState =
-  FinderState {
-     modules :: IORef (InstalledModuleEnv InstalledFindResult),
-     files :: IORef (Map String Fingerprint)
-  }
-
-emptyFinderState :: MonadIO m => m FinderState
-emptyFinderState =
-  liftIO do
-    modules <- newIORef emptyInstalledModuleEnv
-    files <- newIORef LazyMap.empty
-    pure FinderState {modules, files}
-
 finderEnv :: FinderState -> IO (InstalledModuleEnv InstalledFindResult)
 finderEnv FinderState {modules} =
   readIORef modules
 
 #else
 
-data FinderState =
-  FinderState {
-    cache :: FinderCache
-  }
-
-emptyFinderState :: MonadIO m => m FinderState
-emptyFinderState =
-  liftIO do
-    cache <- initFinderCache
-    pure FinderState {cache}
-
 finderEnv :: FinderState -> IO (InstalledModuleEnv InstalledFindResult)
 finderEnv FinderState {cache = FinderCache {fcModuleCache}} =
   readIORef fcModuleCache
 
 #endif
-
-data OneshotCacheFeatures =
-  OneshotCacheFeatures {
-    enable :: Bool,
-    loader :: Bool,
-    names :: Bool,
-    finder :: Bool,
-    eps :: Bool
-  }
-  deriving stock (Eq, Show)
-
-newOneshotCacheFeatures :: OneshotCacheFeatures
-newOneshotCacheFeatures = OneshotCacheFeatures {enable = True, loader = True, names = True, finder = True, eps = True}
-
-data InterpCache =
-  InterpCache {
-    loaderState :: LoaderState,
-    symbols :: SymbolCache
-  }
-
-data OneshotState =
-  OneshotState {
-    features :: OneshotCacheFeatures,
-    interpCache :: Maybe InterpCache,
-    names :: OrigNameCache,
-    finder :: FinderState,
-    eps :: ExternalUnitCache,
-    stats :: Map Target CacheStats
-  }
-
-newOneshotStateWith :: OneshotCacheFeatures -> IO OneshotState
-newOneshotStateWith features = do
-  finder <- emptyFinderState
-  eps <- initExternalUnitCache
-  pure OneshotState {
-    features,
-    interpCache = Nothing,
-    names = emptyModuleEnv,
-    stats = mempty,
-    finder,
-    eps
-  }
-
-newOneshotState :: Bool -> IO OneshotState
-newOneshotState enable = do
-  newOneshotStateWith newOneshotCacheFeatures {enable}
 
 restoreLinkerEnv :: LinkerEnv -> LinkerEnv -> (LinkerEnv, LinkerStats)
 restoreLinkerEnv cached session =

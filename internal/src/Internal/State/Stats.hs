@@ -18,7 +18,7 @@ import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
 import Internal.Log (Log, logDebugD, logd)
 import Types.Args (TargetId (..))
-import Types.State (SymbolCache (..))
+import Types.State.Oneshot (SymbolCache (..))
 import Types.State.Stats (
   CacheStats (..),
   FinderStats (..),

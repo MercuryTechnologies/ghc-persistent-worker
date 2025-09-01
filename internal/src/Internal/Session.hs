@@ -48,10 +48,10 @@ import Internal.Cache.Hpt (loadCachedDeps)
 import Internal.Error (handleExceptions)
 import Internal.Log (Log (..), logDebugD, logToState)
 import Internal.State (BinPath (..), Options (..), WorkerState (..), withCacheMake, withCacheOneshot)
-import Internal.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 import Prelude hiding (log)
 import System.Environment (setEnv)
 import Types.Args (Args (..))
+import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
 
 -- | Data used by a single worker request session, consisting of a logger, shared state, and request arguments.
