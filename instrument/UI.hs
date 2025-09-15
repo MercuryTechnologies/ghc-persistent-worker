@@ -23,8 +23,8 @@ import Graphics.Vty qualified as V
 import Graphics.Vty.Attributes.Color
 import Grpc (sendOptions, triggerRebuild)
 import Internal.Debug (debugSocketPath)
-import Internal.State (Options (..), defaultOptions)
 import Lens.Micro.Platform (Lens', Traversal', each, filtered, lens, makeLenses, packed, preuse, use, zoom, (.=), _2)
+import Types.State (Options (..), defaultOptions)
 import Types.Target (TargetSpec)
 import UI.ActiveTasks qualified as ActiveTasks
 import UI.GhcDebug (debug)

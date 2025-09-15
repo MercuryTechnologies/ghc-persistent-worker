@@ -4,12 +4,12 @@ import BuckWorkerProto (Instrument)
 import Control.Concurrent (forkIO)
 import Control.Monad (void)
 import Data.Text qualified as Text
-import Internal.State (Options (..))
 import Network.GRPC.Client (rpc, Connection)
 import Network.GRPC.Client.StreamType.IO (nonStreaming)
 import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (&), (.~))
 import Proto.Instrument qualified as Instr
 import Proto.Instrument_Fields qualified as Fields
+import Types.State (Options (..))
 import Types.Target (TargetSpec, renderTargetSpec)
 
 sendOptions :: Connection -> Options -> IO ()
