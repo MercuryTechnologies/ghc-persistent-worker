@@ -6,14 +6,11 @@ import Control.Concurrent.Chan (Chan, writeChan)
 import Control.Exception (bracket_)
 import Data.Foldable (traverse_)
 import Data.Int (Int32)
-import Data.Text qualified as Text
 import GhcWorker.Grpc (mkStats)
 import Internal.Log (dbg)
-import Network.GRPC.Common.Protobuf (Proto, defMessage, (&), (.~))
 import Prelude hiding (log)
-import qualified Proto.Instrument as Instr
-import Proto.Instrument_Fields qualified as Instr
 import Types.BuckArgs (BuckArgs (..))
+import Types.Instrument (Event (..))
 import Types.State (WorkerState)
 import Types.Target (TargetSpec, renderTargetSpec)
 
@@ -69,19 +66,21 @@ finishJob var = do
     pure ws {active = new}
 
 -- | Construct a grapesy message for a "compilation started" event.
-messageCompileStart :: BuckArgs -> String -> Proto Instr.CompileStart
+messageCompileStart :: BuckArgs -> TargetSpec -> Event
 messageCompileStart _args target =
-  defMessage
-    & Instr.target .~ Text.pack target
-    & Instr.canDebug .~ True
+  CompileStart
+    { target = renderTargetSpec target
+    , canDebug = True
+    }
 
 -- | Construct a grapesy message for a "compilation finished" event.
-messageCompileEnd :: String -> Int -> String -> Proto Instr.CompileEnd
-messageCompileEnd target exitCode err =
-  defMessage
-    & Instr.target .~ Text.pack target
-    & Instr.exitCode .~ fromIntegral exitCode
-    & Instr.stderr .~ Text.pack err
+messageCompileEnd :: Maybe TargetSpec -> Int32 -> [String] -> Event
+messageCompileEnd target exitCode output =
+  CompileEnd
+    { target = maybe "" renderTargetSpec target
+    , exitCode = fromIntegral exitCode
+    , stderr = unlines output
+    }
 
 -- | Run a 'GrpcHandler' with instrumentation enabled.
 --
@@ -90,7 +89,7 @@ messageCompileEnd target exitCode err =
 -- The handler is initialized by passing 'Hooks' to its constructor function, which contains callbacks for sending
 -- additional messages.
 withInstrumentation ::
-  Chan (Proto Instr.Event) ->
+  Chan Event ->
   MVar WorkerStatus ->
   MVar WorkerState ->
   InstrumentedHandler ->
@@ -101,7 +100,7 @@ withInstrumentation instrChan status stateVar handler =
     bracket_ (startJob status) (finishJob status) do
       result <- (handler.create hooks).run commandEnv argv
       stats <- mkStats state
-      writeChan instrChan (defMessage & Instr.stats .~ stats)
+      writeChan instrChan stats
       pure result
   where
     hooks = Hooks {
@@ -111,19 +110,11 @@ withInstrumentation instrChan status stateVar handler =
 
     compileStart =
       \ args -> traverse_ \ target ->
-        writeChan instrChan $
-          defMessage &
-            Instr.compileStart .~
-              messageCompileStart args (renderTargetSpec target)
+        writeChan instrChan $ messageCompileStart args target
 
-    -- Note: This is WIP.
     compileFinish =
       traverse_ \ (target, output, exitCode) -> do
-        let tgt = maybe "" renderTargetSpec target
-        writeChan instrChan $
-          defMessage &
-            Instr.compileEnd .~
-              messageCompileEnd tgt (fromIntegral exitCode) (unlines output)
+        writeChan instrChan $ messageCompileEnd target exitCode output
 
 -- | Construct a 'GrpcHandler' by passing functioning 'Hooks' to an 'InstrumentedHandler' if the third argument contains
 -- 'Just' a message channel, or passing no-op 'Hooks' otherwise.
@@ -131,7 +122,7 @@ toGrpcHandler ::
   InstrumentedHandler ->
   MVar WorkerStatus ->
   MVar WorkerState ->
-  Maybe (Chan (Proto Instr.Event)) ->
+  Maybe (Chan Event) ->
   GrpcHandler
 toGrpcHandler createHandler status stateVar = \case
   Nothing -> createHandler.create hooksNoop

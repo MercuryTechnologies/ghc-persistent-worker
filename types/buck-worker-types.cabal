@@ -30,6 +30,7 @@ library
     Types.Env
     Types.GhcHandler
     Types.Grpc
+    Types.Instrument
     Types.Log
     Types.Orchestration
     Types.State
@@ -40,6 +41,7 @@ library
   build-depends:
     aeson,
     base ==4.*,
+    binary,
     containers,
     filepath,
     ghc,

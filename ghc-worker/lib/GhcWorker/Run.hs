@@ -11,12 +11,11 @@ import GhcWorker.GhcHandler (LockState (..), ghcHandler)
 import GhcWorker.Grpc (instrumentMethods)
 import GhcWorker.Instrumentation (WorkerStatus (..), toGrpcHandler)
 import GhcWorker.Orchestration (CreateMethods (..), FeatureInstrument (..), runCentralGhcSpawned)
-import Network.GRPC.Common.Protobuf (Proto)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
 import Network.GRPC.Server.StreamType (Methods)
-import qualified Proto.Instrument as Instr
 import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (CommandEnv, RequestArgs)
+import Types.Instrument (Event)
 import Types.Log (TraceId (..))
 import Types.Orchestration (ServerSocketPath (..), serverSocketFromPath)
 import Types.State (WorkerState (..), newState, newStateWith)
@@ -62,7 +61,7 @@ parseOptions =
 createInstrumentMethods ::
   MVar WorkerState ->
   (CommandEnv -> RequestArgs -> IO ()) ->
-  IO (Chan (Proto Instr.Event), Methods IO (ProtobufMethodsOf Instrument))
+  IO (Chan Event, Methods IO (ProtobufMethodsOf Instrument))
 createInstrumentMethods stateVar recompile = do
   instrChan <- newChan
   pure (instrChan, instrumentMethods instrChan stateVar recompile)
@@ -75,7 +74,7 @@ createGhcMethods ::
   FeatureInstrument ->
   MVar WorkerStatus ->
   Maybe TraceId ->
-  Maybe (Chan (Proto Instr.Event)) ->
+  Maybe (Chan Event) ->
   IO (CommandEnv -> RequestArgs -> IO (), Methods IO (ProtobufMethodsOf Worker))
 createGhcMethods lock state workerMode instrument status traceId instrChan =
   let handler = toGrpcHandler (ghcHandler lock state workerMode instrument traceId) status state instrChan

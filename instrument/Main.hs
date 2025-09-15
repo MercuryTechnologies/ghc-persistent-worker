@@ -5,6 +5,8 @@ import BuckWorkerProto (Instrument)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Exception (SomeException, catch, try, IOException)
 import Control.Monad (filterM, forever, void, when)
+import Data.Binary (decode)
+import Data.ByteString (fromStrict)
 import Data.List (isInfixOf)
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
@@ -48,7 +50,14 @@ listen eventChan instrPath = do
             time <- getModificationTime instrPath
             writeBChan eventChan $ UI.SessionSelectorEvent $ SS.AddWorker sessionId workerId time conn
             writeBChan eventChan (UI.SendOptions (Just workerId))
-            whileNext_ recv $ writeBChan eventChan . UI.SessionSelectorEvent . SS.SessionEvent sessionId . Session.InstrEvent workerId
+            whileNext_ recv
+              $ writeBChan eventChan
+              . UI.SessionSelectorEvent
+              . SS.SessionEvent sessionId
+              . Session.InstrEvent workerId
+              . decode
+              . fromStrict
+              . (.encoded)
       )
       (const $ threadDelay 100_000 >> go (n - 1))
 

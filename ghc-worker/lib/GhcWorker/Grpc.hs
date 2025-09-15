@@ -4,6 +4,8 @@ import Common.Grpc ()
 import Control.Concurrent.Chan (Chan, dupChan, readChan)
 import Control.Concurrent.MVar (MVar, modifyMVar_, readMVar)
 import Control.Monad (forever)
+import Data.Binary (encode)
+import Data.ByteString (toStrict)
 import Data.Foldable (for_)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
@@ -21,26 +23,28 @@ import qualified Proto.Instrument as Instr
 import Proto.Instrument (Instrument)
 import Proto.Instrument_Fields qualified as Instr
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
+import Types.Instrument (Event (..))
 import Types.State (WorkerState (..), Options (..))
 import Types.Target (TargetSpec (..))
 
 -- | Fetch statistics about the current state of the RTS for instrumentation.
-mkStats :: WorkerState -> IO (Proto Instr.Stats)
+mkStats :: WorkerState -> IO Event
 mkStats _ = do
   s <- getRTSStats
   pure $
-    defMessage
-      & Instr.memory .~ Map.fromList
+    Stats
+      { memory = Map.fromList
           [ ("Total", fromIntegral s.gc.gcdetails_mem_in_use_bytes)
           ]
-      & Instr.gcCpuNs .~ s.gc_cpu_ns
-      & Instr.cpuNs .~ s.cpu_ns
+      , gcCpuNs = fromIntegral s.gc_cpu_ns
+      , cpuNs = fromIntegral s.cpu_ns
+      }
 
 -- | Implementation of a streaming grapesy handler that sends instrumentation statistics pulled from the provided
 -- channel to the client.
 notifyMe ::
   MVar WorkerState ->
-  Chan (Proto Instr.Event) ->
+  Chan Event ->
   (NextElem (Proto Instr.Event) -> IO ()) ->
   IO ()
 notifyMe stateVar chan callback = do
@@ -49,10 +53,12 @@ notifyMe stateVar chan callback = do
   stats <- mkStats state
   callback $ NextElem $
     defMessage
-      & Instr.stats .~ stats
+      & Instr.encoded .~ toStrict (encode stats)
   forever $ do
     msg <- readChan myChan
-    callback $ NextElem msg
+    callback $ NextElem $
+      defMessage
+        & Instr.encoded .~ toStrict (encode msg)
 
 -- | Set the options for the server.
 setOptions ::
@@ -82,7 +88,7 @@ triggerRebuild stateVar recompile target = do
 
 -- | A grapesy server that streams instrumentation data from the provided channel.
 instrumentMethods ::
-  Chan (Proto Instr.Event) ->
+  Chan Event ->
   MVar WorkerState ->
   (CommandEnv -> RequestArgs -> IO ()) ->
   Methods IO (ProtobufMethodsOf Instrument)

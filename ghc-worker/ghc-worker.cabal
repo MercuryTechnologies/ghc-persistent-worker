@@ -38,10 +38,12 @@ library
     GhcWorker.Run
   build-depends:
     async,
+    binary,
     buck-worker-grpc,
     buck-worker-internal,
     buck-worker-proto,
     buck-worker-types,
+    bytestring,
     containers,
     deepseq,
     directory,

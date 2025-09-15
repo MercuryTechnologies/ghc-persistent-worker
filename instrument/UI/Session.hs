@@ -5,14 +5,13 @@ module UI.Session where
 import Brick.Types (EventM, Widget)
 import Brick.Widgets.Border (borderWithLabel, hBorder)
 import Brick.Widgets.Core (str, vBox, vLimitPercent)
-import BuckWorkerProto qualified as Instr
 import Control.Monad.IO.Class (liftIO)
 import Data.Map qualified as Map
 import Data.Text qualified as Text
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
 import Lens.Micro.Platform (each, filtered, makeLenses, modifying, use, zoom)
 import Network.GRPC.Client (Connection)
-import Network.GRPC.Common.Protobuf (Proto(..))
+import Types.Instrument qualified as Instr
 import Types.Target (TargetSpec (..))
 import UI.ActiveTasks qualified as ActiveTasks
 import UI.ModuleSelector qualified as ModuleSelector
@@ -39,7 +38,7 @@ data Worker = Worker
   }
 
 data Stats = Stats
-  { _memory :: Map.Map Text.Text Int -- in bytes
+  { _memory :: Map.Map String Int -- in bytes
   , _gc_cpu_ns :: Int
   , _cpu_ns :: Int
   }
@@ -51,10 +50,9 @@ instance Monoid Stats where
 
 makeLenses ''State
 makeLenses ''Worker
-makeLenses ''Stats
 
 data Event
-  = InstrEvent WorkerId (Proto Instr.Event)
+  = InstrEvent WorkerId Instr.Event
 
 mkSession :: String -> UTCTime -> State
 mkSession _title _startTime =
@@ -87,7 +85,7 @@ drawStats workerCount Stats{..} =
           ++ show workerCount
           ++ " | Memory:"
           ++ concatMap
-            (\(k, v) -> " " ++ Text.unpack k ++ "=" ++ formatBytes v)
+            (\(k, v) -> " " ++ k ++ "=" ++ formatBytes v)
             (Map.toList _memory)
     , str $
         " CPU Time: "
@@ -99,26 +97,25 @@ drawStats workerCount Stats{..} =
 handleEvent :: Event -> EventM Name State ()
 handleEvent (InstrEvent wid evt) =
   case evt of
-    Instr.CompileStart cs -> do
-      zoom activeTasks $ ActiveTasks.addTask (TargetUnknown $ Text.unpack $ cs.target) wid cs.canDebug
-    Instr.CompileEnd ce -> do
-      let content = stripEscSeqs (Text.unpack $ ce.stderr)
-          target' = Text.unpack $ ce.target
-          target = TargetUnknown $ if target' == "" then takeWhile (/= ':') content else target'
-      if ce.exitCode == 0
+    Instr.CompileStart {..} -> do
+      zoom activeTasks $ ActiveTasks.addTask (TargetUnknown target) wid canDebug
+    Instr.CompileEnd {..} -> do
+      let content = stripEscSeqs stderr
+          target' = TargetUnknown $ if target == "" then takeWhile (/= ':') content else target
+      if exitCode == 0
         then do
-          start <- zoom activeTasks $ ActiveTasks.removeTask target
+          start <- zoom activeTasks $ ActiveTasks.removeTask target'
           end <- liftIO getCurrentTime
           let time = nominalDiffTimeToSeconds . diffUTCTime end <$> start
-          zoom modules $ ModuleSelector.addModule target content time wid
+          zoom modules $ ModuleSelector.addModule target' content time wid
         else do
-          zoom activeTasks $ ActiveTasks.taskFailure target content
-    Instr.Stats msg -> do
+          zoom activeTasks $ ActiveTasks.taskFailure target' content
+    Instr.Stats {..} -> do
         modifying (workers . each . filtered (\w -> w._workerId == wid) . stats) \st ->
           st
-            { _memory = fromIntegral <$> msg.memory
-            , _gc_cpu_ns = fromIntegral $ msg.gcCpuNs
-            , _cpu_ns = fromIntegral $ msg.cpuNs
+            { _memory = memory
+            , _gc_cpu_ns = gcCpuNs
+            , _cpu_ns = cpuNs
             }
     Instr.Halt -> pure ()
 

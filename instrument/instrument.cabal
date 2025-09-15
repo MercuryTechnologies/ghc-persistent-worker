@@ -38,10 +38,12 @@ executable instrument
     TypeFamilies
   build-depends:
     base ==4.*,
+    binary,
     brick,
     buck-worker-internal,
     buck-worker-proto,
     buck-worker-types,
+    bytestring,
     containers,
     ghc-debug-brick,
     directory,
