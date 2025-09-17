@@ -4,6 +4,7 @@ module Internal.Debug where
 
 import qualified Data.Map.Strict as Map
 import GHC (DynFlags (..), mi_module)
+import GHC.Fingerprint (fingerprintString)
 import GHC.Types.Unique.DFM (udfmToList)
 import GHC.Types.Unique.Map (nonDetEltsUniqMap)
 import GHC.Unit (UnitDatabase (..), UnitId, UnitState (..), homeUnitId, moduleEnvToList, unitPackageId)
@@ -130,4 +131,4 @@ showUnitEnv UnitEnv {..} = do
 
 debugSocketPath :: TargetSpec -> FilePath
 debugSocketPath target =
-  "/tmp/ghc-persistent-worker/debug-sockets" </> renderTargetSpec target
+  "/tmp/ghc-persistent-worker/debug-sockets" </> show (fingerprintString (renderTargetSpec target))
