@@ -18,6 +18,11 @@ flag mwb
     manual: True
     default: False
 
+flag tek
+    description: use tek-customized GHC
+    manual: True
+    default: False
+
 library
     ghc-options:      -Wall
     hs-source-dirs:   src
@@ -46,6 +51,9 @@ library
 
     if (flag(mwb))
         cpp-options: -DMWB
+
+    if (flag(tek))
+        cpp-options: -DMWB_2025_07
 
     build-depends:    aeson,
                       binary,
