@@ -11,10 +11,9 @@ import Data.Functor ((<&>))
 import Data.List.NonEmpty (NonEmpty ((:|)), groupBy)
 import Data.Time (getCurrentTime)
 import Data.Traversable (for)
-import GHC (DynFlags (..), Ghc, GhcException (..), ModIface, ModIface_ (..), ModLocation (..), ModuleName, mkModule)
+import GHC (Ghc, GhcException (..), ModIface, ModIface_ (..), ModLocation (..), ModuleName, mkModule)
 import GHC.Data.Maybe (MaybeErr (..))
-import GHC.Driver.DynFlags (GhcMode (..))
-import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hscUpdateFlags, hscUpdateHPT, hsc_HPT)
+import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hscUpdateHPT, hsc_HPT)
 import GHC.Driver.Main (initModDetails, initWholeCoreBindings)
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
 import GHC.Iface.Load (readIface)
@@ -29,13 +28,7 @@ import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Prelude hiding (log)
-import Types.CachedDeps (
-  CachedDeps (..),
-  CachedInterface (..),
-  CachedProjectDep (..),
-  JsonFs (..),
-  cachedProjectDepInterface,
-  )
+import Types.CachedDeps (CachedDep (..), CachedDeps (..), JsonFs (..))
 import Types.Log (Logger (..))
 
 -- This preprocessor variable indicates that we're building with a GHC that has the final version of the oneshot
@@ -146,23 +139,20 @@ loadCachedDeps ::
   CachedDeps ->
   HscEnv ->
   Ghc HscEnv
-loadCachedDeps log CachedDeps {home_unit, project} hsc_env0 = do
-  hsc_env1 <- foldM loadDepUnit (setDyn hsc_env0) projectByUnit
-  let hsc_env2 = hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1
-  loadActiveUnit (setDyn hsc_env2) home_unit
+loadCachedDeps log (CachedDeps deps) hsc_env0 = do
+  hsc_env1 <- foldM loadDepUnit hsc_env0 byUnit
+  pure (hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1)
   where
-    setDyn = hscUpdateFlags \ d -> d {ghcMode = CompManager}
-
     -- If the unit isn't present in the unit env, it wasn't built by a worker, since it would have been loaded in the
     -- metadata restoration step.
-    loadDepUnit hsc_env mods@(CachedProjectDep {package = JsonFs uid} :| _) =
+    loadDepUnit hsc_env mods@(CachedDep {package = JsonFs uid} :| _) =
       if unitEnv_member uid hsc_env.hsc_unit_env.ue_home_unit_graph
-      then loadActiveUnit (hscSetActiveUnitId uid hsc_env) (cachedProjectDepInterface <$> toList mods)
+      then loadActiveUnit (hscSetActiveUnitId uid hsc_env) (toList mods)
       else pure hsc_env
 
     loadActiveUnit = foldM loadDep
 
-    loadDep hsc_env CachedInterface {name = JsonFs name, interfaces = iface :| _} =
+    loadDep hsc_env CachedDep {name = JsonFs name, interfaces = iface :| _} =
       liftIO (loadCachedDep log name hsc_env iface)
 
-    projectByUnit = groupBy (on (==) (.package)) project
+    byUnit = groupBy (on (==) (.package)) deps

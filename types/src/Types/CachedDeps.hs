@@ -39,18 +39,9 @@ instance Coercible a FastString => FromJSONKey (JsonFs a) where
   fromJSONKeyList =
     FromJSONKeyValue (withArray "JsonFs" (traverse (withText "JsonFs" (pure . jsonFsFromText)) . toList))
 
--- | A home unit dependency provided by Buck.
-data CachedInterface =
-  CachedInterface {
-    name :: JsonFs ModuleName,
-    interfaces :: NonEmpty FilePath
-  }
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON)
-
 -- | A cross-package dependency within the project provided by Buck.
-data CachedProjectDep =
-  CachedProjectDep {
+data CachedDep =
+  CachedDep {
     name :: JsonFs ModuleName,
     package :: JsonFs UnitId,
     interfaces :: NonEmpty FilePath
@@ -58,18 +49,11 @@ data CachedProjectDep =
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON)
 
-cachedProjectDepInterface :: CachedProjectDep -> CachedInterface
-cachedProjectDepInterface CachedProjectDep {name, interfaces} =
-  CachedInterface {..}
-
 -- | The data Buck provides in order to restore the state when recompiling after restart.
-data CachedDeps =
-  CachedDeps {
-    home_unit :: [CachedInterface],
-    project :: [CachedProjectDep]
-  }
+newtype CachedDeps =
+  CachedDeps [CachedDep]
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON)
+  deriving newtype (FromJSON)
 
 data CachedModule =
   CachedModule {
