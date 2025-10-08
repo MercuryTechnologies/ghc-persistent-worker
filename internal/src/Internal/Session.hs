@@ -61,15 +61,15 @@ import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
 -- | Add all the directories passed by Buck in @--bin-path@ options to the global @$PATH@.
 -- Although Buck intends these to be module specific, all subsequent compile jobs will see all previous jobs' entries,
 -- since we only have one process environment.
-setupPath :: Args -> WorkerState -> IO WorkerState
-setupPath args old = do
+setupPath :: [String] -> WorkerState -> IO WorkerState
+setupPath binPath old = do
   setEnv "PATH" (intercalate ":" (toList path.extra ++ maybeToList path.initial))
   pure new
   where
     path = new.path
     new = old {path = old.path {extra}}
     extra
-      | Just cur <- nonEmpty args.binPath
+      | Just cur <- nonEmpty binPath
       = Set.union old.path.extra (Set.fromList (toList cur))
       | otherwise
       = old.path.extra
@@ -179,7 +179,7 @@ ensureSession reuse stateVar args =
 -- Delete all temporary files on completion.
 runSession :: Bool -> Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
 runSession reuse Env {log, args, state} prog = do
-  modifyMVar_ state (setupPath args)
+  modifyMVar_ state (setupPath args.binPath)
   hsc_env <- ensureSession reuse state args
   session <- Session <$> newIORef hsc_env
   finally (run session) (cleanup session)

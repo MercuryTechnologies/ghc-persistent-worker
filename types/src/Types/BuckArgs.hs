@@ -212,3 +212,48 @@ toGhcArgs args = do
   where
     packageDbArg path = ["-package-db", path]
     readPath = fmap (fmap (dropWhileEnd ('\n' ==))) . traverse readFile
+
+-- | Arguments interpreted by the worker directly that need to be applied again when restoring module graphs from cache.
+data CachedBuckArgs =
+  CachedBuckArgs {
+    cachedBinPath :: [String]
+  }
+  deriving stock (Eq, Show)
+
+emptyCachedBuckArgs :: CachedBuckArgs
+emptyCachedBuckArgs =
+  CachedBuckArgs {
+    cachedBinPath = []
+  }
+
+cachedOptions :: Map String ([String] -> CachedBuckArgs -> Either String ([String], CachedBuckArgs))
+cachedOptions =
+  [
+    withArg "--bin-path" \ z a -> z {cachedBinPath = a : z.cachedBinPath},
+    withArg "--bin-exe" \ z a -> z {cachedBinPath = takeDirectory a : z.cachedBinPath}
+  ]
+  where
+    withArg name f = (name, \ argv z -> takeArg name argv (Right . f z))
+
+    takeArg name argv store = case argv of
+      [] -> Left (name ++ " needs an argument")
+      arg : rest -> do
+        new <- store arg
+        Right (rest, new)
+
+parseCachedBuckArgs :: [String] -> Either String CachedBuckArgs
+parseCachedBuckArgs =
+  spin emptyCachedBuckArgs
+  where
+    spin z = \case
+      arg : args -> do
+        (rest, new) <- fromMaybe (equalsArg arg) (cachedOptions !? arg) args z
+        spin new rest
+      [] -> Right z
+
+    equalsArg arg rest z
+      | (name, '=' : value) <- break ('=' ==) arg
+      , Just handler <- cachedOptions !? name
+      = handler (value : rest) z
+      | otherwise
+      = Left ("Unknown option in cached Buck args: " ++ arg)

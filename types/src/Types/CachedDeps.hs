@@ -66,7 +66,8 @@ data CachedModule =
 data CachedUnit =
   CachedUnit {
     build_plan :: Map (JsonFs ModuleName) CachedModule,
-    unit_args :: Maybe FilePath
+    unit_args :: Maybe FilePath,
+    unit_buck_args :: Maybe FilePath
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON)

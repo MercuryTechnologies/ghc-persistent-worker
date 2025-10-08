@@ -1,11 +1,12 @@
 module Internal.Cache.Metadata where
 
-import Control.Concurrent (MVar)
+import Control.Concurrent (MVar, modifyMVar)
 import Control.Exception (throwIO)
 import Control.Monad (foldM, (>=>))
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.State.Strict (StateT (..), gets, modify)
+import Control.Monad.Trans.State.Strict (StateT (..), gets, modify, modifyM)
 import Data.Aeson (eitherDecodeFileStrict')
+import Data.Foldable (for_, traverse_)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (listToMaybe)
 import Data.Tuple (swap)
@@ -22,12 +23,13 @@ import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
 import GHC.Utils.Outputable (ppr, quotes, text, (<+>))
 import Internal.Error (eitherMessages, notePpr)
 import Internal.Log (logDebugD)
-import Internal.Session (buckLocation, parseFlags)
-import Internal.State (modifyMakeState)
+import Internal.Session (buckLocation, parseFlags, setupPath)
+import Internal.State (updateMakeState)
 import Internal.State.Make (insertUnitEnv, storeModuleGraph)
+import Types.BuckArgs (CachedBuckArgs (..), parseCachedBuckArgs)
 import Types.CachedDeps (CachedBuildPlan (..), CachedBuildPlans (..), CachedModule (..), CachedUnit (..), JsonFs (..))
-import Types.Log (Logger)
-import Types.State (WorkerState)
+import Types.Log (Logger (..))
+import Types.State (WorkerState (..))
 import Types.State.Make (MakeState (..))
 
 -- | Add a fresh 'HomeUnitEnv' to the home unit graph using the supplied unit state and dependencies.
@@ -87,6 +89,21 @@ loadCachedModule hsc_env unit (JsonFs name) CachedModule {sources, modules} = do
   where
     deps = [NodeKey_Module (ModNodeKeyWithUid (GWIB depName NotBoot) unit) | JsonFs depName <- modules]
 
+-- | Restore non-GHC state from the Buck cache.
+-- Command line arguments interpreted directly by the worker aren't part of the unit args, but they can yet influence
+-- the behavior of unit state restoration from cache.
+--
+-- At the moment, this only includes the @$PATH@ variable, which is relevant even when restoring the module graph from
+-- cache because we're parsing the source code, which might include executing preprocessors.
+loadCachedArgs ::
+  FilePath ->
+  StateT WorkerState IO ()
+loadCachedArgs path = do
+  cachedArgs <- liftIO $ readFile path
+  case parseCachedBuckArgs (lines cachedArgs) of
+    Right args -> modifyM (setupPath args.cachedBinPath)
+    Left err -> liftIO $ throwIO (userError err)
+
 -- | Restore the unit state and module graph from the external cache.
 --
 -- The cached data consists of a simple list of GHC command line arguments that can recreate the unit state, as well as
@@ -97,21 +114,22 @@ loadCachedUnit ::
   DynFlags ->
   UnitId ->
   FilePath ->
-  StateT MakeState IO HscEnv
+  StateT WorkerState IO HscEnv
 loadCachedUnit logger hsc_env0 dflags0 unit file = do
-  CachedUnit {build_plan, unit_args} <- liftIO $ decodeJsonBuildPlan file
-  maybe (pure hsc_env0) (load build_plan) unit_args
+  CachedUnit {build_plan, unit_args, unit_buck_args} <- liftIO $ decodeJsonBuildPlan file
+  maybe (pure hsc_env0) (load build_plan unit_buck_args) unit_args
   where
-    load module_graph args_file = do
+    load module_graph unit_buck_args args_file = do
       logDebugD logger (text "Loading cached unit" <+> quotes (ppr unit))
+      traverse_ loadCachedArgs unit_buck_args
       hsc_env2 <- liftIO do
         args <- readFile args_file
         (dflags1, _, _, _) <- parseFlags dflags0 hsc_env0.hsc_logger (buckLocation <$> lines args)
         (hsc_env1, _) <- addHomeUnitTo hsc_env0 dflags1
         pure (hscSetActiveUnitId unit hsc_env1)
-      modify (insertUnitEnv hsc_env2)
+      modify (updateMakeState (insertUnitEnv hsc_env2))
       nodes <- liftIO $ traverse (uncurry (loadCachedModule hsc_env2 unit)) (Map.toList module_graph)
-      modify (storeModuleGraph (mkModuleGraph nodes))
+      modify (updateMakeState (storeModuleGraph (mkModuleGraph nodes)))
       pure hsc_env2
 
 -- | Restore the unit state and module graph for each unit in cache that isn't present in the unit env.
@@ -122,12 +140,13 @@ loadCachedUnits ::
   CachedBuildPlans ->
   HscEnv ->
   IO HscEnv
-loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 =
-  modifyMakeState stateVar $
+loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 = do
+  logger.debug (show buildPlans)
+  modifyMVar stateVar $
     fmap swap . runStateT (foldM ensureBuildPlan hsc_env0 buildPlans)
   where
     ensureBuildPlan hsc_env CachedBuildPlan {name = JsonFs uid, build_plan = planFile} = do
-      present <- gets \ s -> unitEnv_member uid s.hug
+      present <- gets \ s -> unitEnv_member uid s.make.hug
       if present
       then skipPresent hsc_env uid
       else loadCachedUnit logger hsc_env dflags0 uid planFile
