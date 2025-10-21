@@ -27,6 +27,7 @@ import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
 import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO)
+import Internal.Log (logTimed)
 import Prelude hiding (log)
 import Types.CachedDeps (CachedDep (..), CachedDeps (..), JsonFs (..))
 import Types.Log (Logger (..))
@@ -99,16 +100,16 @@ loadCachedDep log name hsc_env ifaceFile =
   else loadHmi
   where
     loadHmi = do
-      log.debug ("Loading HPT module from cache: " ++ ifaceFile)
-      hm_iface <- loadIface
-      hm_details <- initModDetails hsc_env hm_iface
-      homeMod_bytecode <- loadCachedByteCode hsc_env ifaceFile hm_iface hm_details
-      let new = addToUDFM hpt name HomeModInfo {
-        hm_iface,
-        hm_linkable = HomeModLinkable {homeMod_object = Nothing, homeMod_bytecode},
-        hm_details
-      }
-      pure (hscUpdateHPT (const new) hsc_env)
+      logTimed log ("Loading HPT module from cache: " ++ ifaceFile) do
+        hm_iface <- loadIface
+        hm_details <- initModDetails hsc_env hm_iface
+        homeMod_bytecode <- loadCachedByteCode hsc_env ifaceFile hm_iface hm_details
+        let new = addToUDFM hpt name HomeModInfo {
+          hm_iface,
+          hm_linkable = HomeModLinkable {homeMod_object = Nothing, homeMod_bytecode},
+          hm_details
+        }
+        pure (hscUpdateHPT (const new) hsc_env)
 
     -- @readIface@ needs the dflags only for platform/ways, so we don't need the unit dflags
     loadIface =
@@ -139,7 +140,8 @@ loadCachedDeps ::
   CachedDeps ->
   HscEnv ->
   Ghc HscEnv
-loadCachedDeps log (CachedDeps deps) hsc_env0 = do
+loadCachedDeps log (CachedDeps deps) hsc_env0 =
+  logTimed log "Loading cached deps" do
   hsc_env1 <- foldM loadDepUnit hsc_env0 byUnit
   pure (hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1)
   where

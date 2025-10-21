@@ -12,7 +12,7 @@ import GHC.Platform.Ways (Way (WayDyn), addWay)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit (UnitId)
 import Internal.Cache.Metadata (addHomeUnitTo, loadCachedUnits)
-import Internal.Log (logDebug)
+import Internal.Log (logDebug, logTimed)
 import Internal.MakeFile (doMkDependHS)
 import Internal.Session (runSession, withDynFlags)
 import Internal.State (updateMakeStateVar)
@@ -88,15 +88,16 @@ computeMetadata env = do
       for_ env.args.cachedBuildPlans \ bp ->
         withSession (liftIO . loadCachedUnits env.log env.state dflags bp)
       pure (Just ())
-    MaybeT $ runSession True env $ withDynFlags env \ dflags srcs -> do
-      unit <- prepareMetadataSession env dflags
-      let target = TargetUnit (UnitTarget unit)
-      liftIO $ env.log.setTarget target
-      module_graph <- writeMetadata (fst <$> srcs)
-      liftIO $ updateMakeStateVar env.state (storeModuleGraph module_graph)
-      for_ dflags.stubDir \ stubdir -> do
-        logDebug env.log ("Creating stubdir: " ++ stubdir)
-        liftIO $ createDirectoryIfMissing False stubdir
-      pure (Just target)
+    logTimed env.log "Computing module graph" do
+      MaybeT $ runSession True env $ withDynFlags env \ dflags srcs -> do
+        unit <- prepareMetadataSession env dflags
+        let target = TargetUnit (UnitTarget unit)
+        liftIO $ env.log.setTarget target
+        module_graph <- writeMetadata (fst <$> srcs)
+        liftIO $ updateMakeStateVar env.state (storeModuleGraph module_graph)
+        for_ dflags.stubDir \ stubdir -> do
+          logDebug env.log ("Creating stubdir: " ++ stubdir)
+          liftIO $ createDirectoryIfMissing False stubdir
+        pure (Just target)
   logMemStats "after metadata" env.log
   pure (isJust res, res)

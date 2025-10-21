@@ -6,7 +6,7 @@ import Control.Monad (foldM, (>=>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State.Strict (StateT (..), gets, modify, modifyM)
 import Data.Aeson (eitherDecodeFileStrict')
-import Data.Foldable (for_, traverse_)
+import Data.Foldable (traverse_)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (listToMaybe)
 import Data.Tuple (swap)
@@ -22,7 +22,7 @@ import GHC.Unit.Home.ModInfo (emptyHomePackageTable)
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
 import GHC.Utils.Outputable (ppr, quotes, text, (<+>))
 import Internal.Error (eitherMessages, notePpr)
-import Internal.Log (logDebugD)
+import Internal.Log (logDebugD, logTimedD, logTimed)
 import Internal.Session (buckLocation, parseFlags, setupPath)
 import Internal.State (updateMakeState)
 import Internal.State.Make (insertUnitEnv, storeModuleGraph)
@@ -119,18 +119,18 @@ loadCachedUnit logger hsc_env0 dflags0 unit file = do
   CachedUnit {build_plan, unit_args, unit_buck_args} <- liftIO $ decodeJsonBuildPlan file
   maybe (pure hsc_env0) (load build_plan unit_buck_args) unit_args
   where
-    load module_graph unit_buck_args args_file = do
-      logDebugD logger (text "Loading cached unit" <+> quotes (ppr unit))
-      traverse_ loadCachedArgs unit_buck_args
-      hsc_env2 <- liftIO do
-        args <- readFile args_file
-        (dflags1, _, _, _) <- parseFlags dflags0 hsc_env0.hsc_logger (buckLocation <$> lines args)
-        (hsc_env1, _) <- addHomeUnitTo hsc_env0 dflags1
-        pure (hscSetActiveUnitId unit hsc_env1)
-      modify (updateMakeState (insertUnitEnv hsc_env2))
-      nodes <- liftIO $ traverse (uncurry (loadCachedModule hsc_env2 unit)) (Map.toList module_graph)
-      modify (updateMakeState (storeModuleGraph (mkModuleGraph nodes)))
-      pure hsc_env2
+    load module_graph unit_buck_args args_file =
+      logTimedD logger (text "Loading cached unit" <+> quotes (ppr unit)) do
+        traverse_ loadCachedArgs unit_buck_args
+        hsc_env2 <- liftIO do
+          args <- readFile args_file
+          (dflags1, _, _, _) <- parseFlags dflags0 hsc_env0.hsc_logger (buckLocation <$> lines args)
+          (hsc_env1, _) <- addHomeUnitTo hsc_env0 dflags1
+          pure (hscSetActiveUnitId unit hsc_env1)
+        modify (updateMakeState (insertUnitEnv hsc_env2))
+        nodes <- liftIO $ traverse (uncurry (loadCachedModule hsc_env2 unit)) (Map.toList module_graph)
+        modify (updateMakeState (storeModuleGraph (mkModuleGraph nodes)))
+        pure hsc_env2
 
 -- | Restore the unit state and module graph for each unit in cache that isn't present in the unit env.
 loadCachedUnits ::
@@ -143,7 +143,9 @@ loadCachedUnits ::
 loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 = do
   logger.debug (show buildPlans)
   modifyMVar stateVar $
-    fmap swap . runStateT (foldM ensureBuildPlan hsc_env0 buildPlans)
+    logTimed logger "Loading cached units" .
+    fmap swap .
+    runStateT (foldM ensureBuildPlan hsc_env0 buildPlans)
   where
     ensureBuildPlan hsc_env CachedBuildPlan {name = JsonFs uid, build_plan = planFile} = do
       present <- gets \ s -> unitEnv_member uid s.make.hug

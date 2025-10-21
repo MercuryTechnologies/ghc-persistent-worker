@@ -29,6 +29,7 @@ import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
 import Internal.Error (eitherMessages, noteGhc)
+import Internal.Log (logTimedD)
 import Internal.State (ModuleArtifacts (..))
 import Types.Log (Logger (..))
 import Types.Target (ModuleTarget (..), Target (..), TargetSpec (..))
@@ -72,12 +73,12 @@ ensureSummary ::
   IO ModSummary
 ensureSummary logger hsc_env = \case
   TargetModule (ModuleTarget m) -> do
-    logger.debugD ("Fetching ModSummary for" <+> ppr m <+> "from module graph")
-    lookupSummary hsc_env m
+    logTimedD logger ("Fetching ModSummary for" <+> ppr m <+> "from module graph") do
+      lookupSummary hsc_env m
   TargetSource (Target src) -> do
-    logger.debugD ("Computing fresh ModSummary for" <+> text src)
-    summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
-    setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
+    logTimedD logger ("Computing fresh ModSummary for" <+> text src) do
+      summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
+      setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
   TargetUnit unit ->
     throwGhcExceptionIO (PprProgramError "Specified target unit for compile request" (ppr unit))
   TargetUnknown spec ->
@@ -99,16 +100,17 @@ compileModuleWithDepsInHpt ::
   Logger ->
   TargetSpec ->
   Ghc (Maybe ModuleArtifacts)
-compileModuleWithDepsInHpt logger target = do
-  initializeSessionPlugins
-  hsc_env <- getSession
-  hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
-    summary <- ensureSummary logger hsc_env target
-    result <- compileOne hsc_env (forceRecomp summary) 1 100000 Nothing (HomeModLinkable Nothing Nothing)
-    cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts
-    pure result
-  modifySession (addDepsToHscEnv [hmi])
-  pure (Just ModuleArtifacts {iface, bytecode = homeMod_bytecode hm_linkable})
+compileModuleWithDepsInHpt logger target =
+  logTimedD logger "Compiling" do
+    initializeSessionPlugins
+    hsc_env <- getSession
+    hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
+      summary <- ensureSummary logger hsc_env target
+      result <- compileOne hsc_env (forceRecomp summary) 1 100000 Nothing (HomeModLinkable Nothing Nothing)
+      cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts
+      pure result
+    modifySession (addDepsToHscEnv [hmi])
+    pure (Just ModuleArtifacts {iface, bytecode = homeMod_bytecode hm_linkable})
   where
     -- This bypasses another recompilation check in 'compileOne'
     forceRecomp summary =
