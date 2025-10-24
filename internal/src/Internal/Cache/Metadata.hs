@@ -1,3 +1,6 @@
+{-# LANGUAGE CPP #-}
+#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10))
+
 module Internal.Cache.Metadata where
 
 import Control.Concurrent (MVar, modifyMVar)
@@ -8,29 +11,48 @@ import Control.Monad.Trans.State.Strict (StateT (..), gets, modify, modifyM)
 import Data.Aeson (eitherDecodeFileStrict')
 import Data.Foldable (traverse_)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (listToMaybe)
+import Data.Maybe (isJust, listToMaybe)
 import Data.Tuple (swap)
 import qualified GHC
 import GHC (DynFlags (..), IsBootInterface (..), ModuleName (..), mkModuleGraph)
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
-import GHC.Driver.Errors.Types (GhcMessage (..))
-import GHC.Driver.Make (ModNodeKeyWithUid (..), summariseFile)
+import GHC.Driver.Make (ModNodeKeyWithUid (..))
 import GHC.Driver.Session (updatePlatformConstants)
-import GHC.Unit (GenHomeUnit (..), GenWithIsBoot (..), HomeUnit, UnitDatabase, UnitId, UnitState, initUnits)
-import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), unitEnv_insert, unitEnv_keys, unitEnv_member, updateHug)
-import GHC.Unit.Home.ModInfo (emptyHomePackageTable)
+import GHC.Unit (GenWithIsBoot (..), HomeUnit, UnitDatabase, UnitId, UnitState, initUnits)
+import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), updateHug)
+import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
 import GHC.Utils.Outputable (ppr, quotes, text, (<+>))
-import Internal.Error (eitherMessages, notePpr)
-import Internal.Log (logDebugD, logTimedD, logTimed)
+import Internal.Error (notePpr)
+import Internal.Log (logDebugD, logTimed, logTimedD)
 import Internal.Session (buckLocation, parseFlags, setupPath)
 import Internal.State (updateMakeState)
 import Internal.State.Make (insertUnitEnv, storeModuleGraph)
+import Internal.UnitEnv (emptyHomePackageTable)
 import Types.BuckArgs (CachedBuckArgs (..), parseCachedBuckArgs)
 import Types.CachedDeps (CachedBuildPlan (..), CachedBuildPlans (..), CachedModule (..), CachedUnit (..), JsonFs (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
 import Types.State.Make (MakeState (..))
+
+#if RECENT
+
+import GHC.Data.OsPath (unsafeEncodeUtf)
+import GHC.Driver.Config.Finder (initFinderOpts)
+import GHC.Types.SourceFile (HscSource (HsSrcFile))
+import GHC.Unit.Finder (addHomeModuleToFinder, mkHomeModLocation)
+import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
+import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
+import System.FilePath (splitExtension)
+
+#else
+
+import GHC.Driver.Errors.Types (GhcMessage (..))
+import GHC.Driver.Make (summariseFile)
+import GHC.Unit.Env (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
+import Internal.Error (eitherMessages)
+
+#endif
 
 -- | Add a fresh 'HomeUnitEnv' to the home unit graph using the supplied unit state and dependencies.
 insertHomeUnit ::
@@ -40,18 +62,19 @@ insertHomeUnit ::
   UnitState ->
   HomeUnit ->
   UnitEnv ->
-  UnitEnv
-insertHomeUnit unit dflags dbs unit_state home_unit unit_env =
-  (updateHug (unitEnv_insert unit hue) unit_env) {
+  IO UnitEnv
+insertHomeUnit unit dflags dbs unit_state home_unit unit_env = do
+  hpt <- emptyHomePackageTable
+  pure (updateHug (unitEnv_insert unit (hue hpt)) unit_env) {
     ue_platform = targetPlatform dflags,
     ue_namever = ghcNameVersion dflags
   }
   where
-    hue = HomeUnitEnv {
+    hue homeUnitEnv_hpt = HomeUnitEnv {
       homeUnitEnv_units = unit_state,
       homeUnitEnv_unit_dbs = Just dbs,
       homeUnitEnv_dflags = dflags,
-      homeUnitEnv_hpt = emptyHomePackageTable,
+      homeUnitEnv_hpt,
       homeUnitEnv_home_unit = Just home_unit
     }
 
@@ -60,7 +83,7 @@ initHomeUnit :: DynFlags -> GHC.Logger -> UnitId -> UnitEnv -> IO UnitEnv
 initHomeUnit dflags0 logger unit unit_env = do
   (dbs, unit_state, home_unit, mconstants) <- initUnits logger dflags0 Nothing allUnitIds
   dflags1 <- updatePlatformConstants dflags0 mconstants
-  pure (insertHomeUnit unit dflags1 dbs unit_state home_unit unit_env)
+  insertHomeUnit unit dflags1 dbs unit_state home_unit unit_env
   where
     allUnitIds = unitEnv_keys (ue_home_unit_graph unit_env)
 
@@ -80,14 +103,30 @@ decodeJsonBuildPlan =
     Right a -> pure a
     Left err -> throwIO (userError err)
 
+-- | This doesn't restore any non-home-unit dependencies. I'm not sure why...maybe those aren't needed for cached
+-- modules.
+-- I would expect TH to fail, but it appear not to.
 loadCachedModule :: HscEnv -> UnitId -> JsonFs ModuleName -> CachedModule -> IO ModuleGraphNode
 loadCachedModule hsc_env unit (JsonFs name) CachedModule {sources, modules} = do
   src <- notePpr "Number of sources /= 1 for module:" name (listToMaybe sources)
-  summResult <- summariseFile hsc_env (DefiniteHomeUnit unit Nothing) mempty src Nothing Nothing
-  summary <- eitherMessages GhcDriverMessage summResult
-  pure (ModuleNode deps summary)
+  node <- createNode src
+  pure (ModuleNode deps node)
   where
     deps = [NodeKey_Module (ModNodeKeyWithUid (GWIB depName NotBoot) unit) | JsonFs depName <- modules]
+
+#if RECENT
+    createNode src = do
+      _ <- addHomeModuleToFinder hsc_env.hsc_FC (DefiniteHomeUnit unit Nothing) name location HsSrcFile
+      pure $ ModuleNodeFixed (ModNodeKeyWithUid (GWIB name NotBoot) unit) location
+      where
+        fopts = initFinderOpts (hsc_dflags hsc_env)
+        (basename, extension) = splitExtension src
+        location = mkHomeModLocation fopts name (unsafeEncodeUtf basename) (unsafeEncodeUtf extension) HsSrcFile
+#else
+    createNode src = do
+      summResult <- summariseFile hsc_env (DefiniteHomeUnit unit Nothing) mempty src Nothing Nothing
+      eitherMessages GhcDriverMessage summResult
+#endif
 
 -- | Restore non-GHC state from the Buck cache.
 -- Command line arguments interpreted directly by the worker aren't part of the unit args, but they can yet influence
@@ -140,15 +179,14 @@ loadCachedUnits ::
   CachedBuildPlans ->
   HscEnv ->
   IO HscEnv
-loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 = do
-  logger.debug (show buildPlans)
+loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 =
   modifyMVar stateVar $
     logTimed logger "Loading cached units" .
     fmap swap .
     runStateT (foldM ensureBuildPlan hsc_env0 buildPlans)
   where
     ensureBuildPlan hsc_env CachedBuildPlan {name = JsonFs uid, build_plan = planFile} = do
-      present <- gets \ s -> unitEnv_member uid s.make.hug
+      present <- gets \ s -> isJust (unitEnv_lookup_maybe uid s.make.hug)
       if present
       then skipPresent hsc_env uid
       else loadCachedUnit logger hsc_env dflags0 uid planFile

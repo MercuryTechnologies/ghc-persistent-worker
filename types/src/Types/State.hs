@@ -1,15 +1,23 @@
+{-# LANGUAGE CPP #-}
+
 module Types.State where
 
 import Control.Concurrent (MVar, newMVar)
 import Data.Map.Strict (Map)
 import Data.Set (Set)
 import GHC (HscEnv, emptyMG)
-import GHC.Unit.Env (unitEnv_new)
 import System.Environment (lookupEnv)
 import Types.Grpc (CommandEnv, RequestArgs)
 import Types.State.Make (MakeState (..))
 import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState, newOneshotCacheFeatures, newOneshotStateWith)
 import Types.Target (TargetSpec)
+
+
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+import GHC.Unit.Home.Graph (unitEnv_new)
+#else
+import GHC.Unit.Env (unitEnv_new)
+#endif
 
 data BinPath =
   BinPath {

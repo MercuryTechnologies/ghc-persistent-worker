@@ -236,8 +236,8 @@ finderCacheHook _ _ _ _ = pure ()
 withHscState :: HscEnv -> (MVar OrigNameCache -> MVar (Maybe LoaderState) -> MVar SymbolMap -> IO a) -> IO (Maybe a)
 withHscState HscEnv {hsc_interp, hsc_NC = NameCache {nsNames}} use =
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
-  for hsc_interp \ Interp {interpLoader = Loader {loader_state}, interpLookupSymbolCache} ->
-    liftIO $ use nsNames loader_state interpLookupSymbolCache
+  for hsc_interp \ Interp {interpLoader = Loader {loader_state}} ->
+    liftIO $ use nsNames loader_state undefined
 #else
   for hsc_interp \ Interp {interpLoader = Loader {loader_state}} ->
     liftIO do

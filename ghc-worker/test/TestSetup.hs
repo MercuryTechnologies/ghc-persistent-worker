@@ -141,7 +141,6 @@ baseArgs topdir tmp =
       -- "-fwrite-if-simplified-core",
       "-fbyte-code-and-object-code",
       "-fprefer-byte-code",
-      -- "-fpackage-db-byte-code",
       -- "-shared",
       "-fPIC",
       "-osuf",

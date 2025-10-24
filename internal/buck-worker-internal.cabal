@@ -18,8 +18,13 @@ flag mwb
     manual: True
     default: False
 
-flag tek
-    description: use tek-customized GHC
+flag mwb-25-07
+    description: use mwb-customized GHC from July 2025
+    manual: True
+    default: False
+
+flag mwb-25-10
+    description: use mwb-customized GHC from October 2025
     manual: True
     default: False
 
@@ -43,8 +48,12 @@ library
                       Internal.State.Make
                       Internal.State.Oneshot
                       Internal.State.Stats
+                      Internal.UnitEnv
 
-    if (impl(ghc >= 9.9))
+    if (impl(ghc >= 9.11))
+        build-depends: base ^>=4.21
+
+    if (impl(ghc >= 9.9) && impl(ghc < 9.11))
         build-depends: base ^>=4.20
 
     if (impl(ghc >= 9.8) && impl(ghc < 9.9))
@@ -53,8 +62,11 @@ library
     if (flag(mwb))
         cpp-options: -DMWB
 
-    if (flag(tek))
-        cpp-options: -DMWB_2025_07
+    if (flag(mwb-25-07))
+        cpp-options: -DMWB -DMWB_2025_07
+
+    if (flag(mwb-25-10))
+        cpp-options: -DMWB -DMWB_2025_10
 
     build-depends:    aeson,
                       binary,

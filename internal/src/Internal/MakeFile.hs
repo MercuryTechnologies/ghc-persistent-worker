@@ -2,6 +2,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# language NoImplicitPrelude, FieldSelectors, CPP #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+#define FIXED_NODES defined(MWB_2025_10)
 
 -----------------------------------------------------------------------------
 --
@@ -13,61 +14,66 @@
 
 module Internal.MakeFile where
 
-import GHC.Prelude
+#if FIXED_NODES
 
-import qualified GHC
-import GHC.Data.Maybe
-import GHC.Driver.Monad
-import GHC.Driver.DynFlags
+import Data.Either (partitionEithers)
+import GHC.Data.OsPath (unsafeDecodeUtf, unsafeEncodeUtf)
+import GHC.Types.Error (mkUnknownDiagnostic)
+
+#else
+
 import GHC.Driver.Ppr
-import Internal.MakeFile.JSON
-import GHC.Utils.Misc
+
+#endif
+
+import Control.Monad (unless, when)
+import Data.Foldable (traverse_)
+import Data.IORef
+import Data.List (partition)
+import qualified Data.Set as Set
+import qualified GHC
+import GHC.Data.Graph.Directed (SCC (..))
+import GHC.Data.Maybe
+import GHC.Driver.DynFlags
 import GHC.Driver.Env
 import GHC.Driver.Errors.Types
-import GHC.Driver.Pipeline (runPipeline, TPhase (T_Unlit, T_FileArgs), use, mkPipeEnv)
-import GHC.Driver.Phases (StopPhase (StopPreprocess), startPhase, Phase (Unlit))
+import GHC.Driver.Make (cyclicModuleErr, downsweep)
+import GHC.Driver.Monad
+import GHC.Driver.Phases (Phase (Unlit), StopPhase (StopPreprocess), startPhase)
+import GHC.Driver.Pipeline (TPhase (T_FileArgs, T_Unlit), mkPipeEnv, runPipeline, use)
 import GHC.Driver.Pipeline.Monad (PipelineOutput (NoOutputFile))
 import GHC.Driver.Session (pgm_F)
+import GHC.Iface.Errors.Types
+import GHC.Iface.Load (cannotFindModule)
+import GHC.Prelude
 import qualified GHC.SysTools as SysTools
-import GHC.Data.Graph.Directed ( SCC(..) )
-import GHC.Utils.Outputable
-import GHC.Utils.Panic
+import GHC.Types.Error (unionManyMessages)
+import GHC.Types.PkgQual
 import GHC.Types.SourceError
 import GHC.Types.SrcLoc
-import GHC.Types.PkgQual
-import Data.List (partition)
-import GHC.Utils.TmpFs
-
-import GHC.Iface.Load (cannotFindModule)
-import GHC.Iface.Errors.Types
-
-import GHC.Unit.Module
-import GHC.Unit.Module.ModSummary
-import GHC.Unit.Module.Graph
 import GHC.Unit.Finder
+import GHC.Unit.Module
+import GHC.Unit.Module.Graph
+import GHC.Unit.Module.ModSummary
 import GHC.Unit.State (lookupUnitId)
-
-import GHC.Utils.Exception
 import GHC.Utils.Error
+import GHC.Utils.Exception
 import GHC.Utils.Logger
-
+import GHC.Utils.Misc
+import GHC.Utils.Outputable
+import GHC.Utils.Panic
+import GHC.Utils.TmpFs
+import Internal.MakeFile.JSON
 import System.Directory
 import System.FilePath
 import System.IO
-import System.IO.Error  ( isEOFError )
-import Control.Monad    ( when, unless )
-import Data.Foldable (traverse_)
-import Data.IORef
-import qualified Data.Set as Set
-import GHC.Driver.Make (downsweep)
-import GHC.Types.Error (unionManyMessages)
-import GHC.Unit (homeUnitId)
+import System.IO.Error (isEOFError)
 
 #if !MIN_VERSION_GLASGOW_HASKELL(9,10,0,0)
 import GHC.Utils.Panic.Plain
 #endif
 
-#if !defined(MWB) && !defined(TCR)
+#if !defined(MWB)
 depJSON :: DynFlags -> Maybe FilePath
 depJSON _ = Nothing
 
@@ -76,16 +82,8 @@ ms_opts _ = []
 
 #endif
 
------------------------------------------------------------------
---
---              The main function
---
------------------------------------------------------------------
-
 doMkDependHS :: GhcMonad m => [FilePath] -> m ModuleGraph
 doMkDependHS srcs = do
-    logger <- getLogger
-
     -- Initialisation
     dflags0 <- GHC.getSessionDynFlags
 
@@ -94,19 +92,36 @@ doMkDependHS srcs = do
                  then dflags0 { depSuffixes = [""] }
                  else dflags0
 
-    tmpfs <- hsc_tmpfs <$> getSession
-    files <- liftIO $ beginMkDependHS logger tmpfs dflags
-
     -- Do the downsweep to find all the modules
     targets <- mapM (\s -> GHC.guessTarget s Nothing Nothing) srcs
     GHC.setTargets targets
     let excl_mods = depExcludeMods dflags
-    (errs, graph_nodes) <- withSession \ hsc_env -> liftIO $ downsweep hsc_env [] excl_mods True
+    (errs, module_graph) <- withSession \ hsc_env -> liftIO $ downsweepCompat hsc_env [] excl_mods True
     let msgs = unionManyMessages errs
     unless (isEmptyMessages msgs) $ throwErrors (fmap GhcDriverMessage msgs)
-    let module_graph = mkModuleGraph graph_nodes
-    -- Sort into dependency order
-    -- There should be no cycles
+    doMkDependModuleGraph dflags module_graph
+    pure module_graph
+    where
+#if FIXED_NODES
+      downsweepCompat hsc_env = downsweep hsc_env mkUnknownDiagnostic Nothing
+#else
+      downsweepCompat hsc_env old_summaries excl_mods allow_dup_roots =
+        fmap mkModuleGraph <$> downsweep hsc_env old_summaries excl_mods allow_dup_roots
+#endif
+
+-----------------------------------------------------------------
+--
+--              The main function
+--
+-----------------------------------------------------------------
+
+doMkDependModuleGraph :: GhcMonad m => DynFlags -> ModuleGraph -> m ()
+doMkDependModuleGraph dflags module_graph = do
+    logger <- getLogger
+    tmpfs <- hsc_tmpfs <$> getSession
+    let excl_mods = depExcludeMods dflags
+
+    files <- liftIO $ beginMkDependHS logger tmpfs dflags
     let sorted = GHC.topSortModuleGraph False module_graph Nothing
 
     -- Print out the dependencies if wanted
@@ -116,7 +131,6 @@ doMkDependHS srcs = do
     -- and complaining about cycles
     hsc_env <- getSession
     root <- liftIO getCurrentDirectory
-    let excl_mods = depExcludeMods dflags
     mapM_ (liftIO . processDeps dflags hsc_env excl_mods root (mkd_tmp_hdl files) (mkd_dep_json files)) sorted
 
     -- If -ddump-mod-cycles, show cycles in the module graph
@@ -124,7 +138,6 @@ doMkDependHS srcs = do
 
     -- Tidy up
     liftIO $ endMkDependHS logger files
-    pure module_graph
 
 -----------------------------------------------------------------
 --
@@ -220,10 +233,31 @@ processDeps :: DynFlags
 --
 -- For {-# SOURCE #-} imports the "hi" will be "hi-boot".
 
+processDeps _dflags_ _ _ _ _ _ (AcyclicSCC (LinkNode {})) = return ()
+
+#if FIXED_NODES
+
+processDeps _ _ _ _ _ _ (CyclicSCC nodes)
+  =     -- There shouldn't be any cycles; report them
+    throwOneError $ cyclicModuleErr nodes
+processDeps _ _ _ _ _ _ (AcyclicSCC (InstantiationNode _uid node))
+  =     -- There shouldn't be any backpack instantiations; report them as well
+    throwOneError $
+      mkPlainErrorMsgEnvelope noSrcSpan $
+      GhcDriverMessage $ DriverInstantiationNodeInDependencyGeneration node
+processDeps _ _ _ _ _ _ (AcyclicSCC (UnitNode {})) = return ()
+processDeps _ _ _ _ _ _ (AcyclicSCC (ModuleNode _ (ModuleNodeFixed {})))
+  -- No dependencies needed for fixed modules (already compiled)
+  = return ()
+
+processDeps dflags hsc_env excl_mods root hdl m_dep_json (AcyclicSCC (ModuleNode _ (ModuleNodeCompile node)))
+
+#else
+
 processDeps dflags _ _ _ _ _ (CyclicSCC nodes)
   =     -- There shouldn't be any cycles; report them
     throwGhcExceptionIO $ ProgramError $
-      showSDoc dflags $ GHC.cyclicModuleErr nodes
+      showSDoc dflags $ cyclicModuleErr nodes
 
 processDeps dflags _ _ _ _ _ (AcyclicSCC (InstantiationNode _uid node))
   =     -- There shouldn't be any backpack instantiations; report them as well
@@ -231,12 +265,15 @@ processDeps dflags _ _ _ _ _ (AcyclicSCC (InstantiationNode _uid node))
       showSDoc dflags $
         vcat [ text "Unexpected backpack instantiation in dependency graph while constructing Makefile:"
              , nest 2 $ ppr node ]
-processDeps _dflags_ _ _ _ _ _ (AcyclicSCC (LinkNode {})) = return ()
 
 processDeps dflags hsc_env excl_mods root hdl m_dep_json (AcyclicSCC (ModuleNode _ node))
-  | moduleUnitId (ms_mod node) /= homeUnitId (hsc_home_unit hsc_env)
+
+#endif
+
+  | hscActiveUnitId hsc_env /= ms_unitid node
   = pure ()
-  | otherwise = do
+  | otherwise
+  = do
   pp <- preprocessor
   deps <- fmap concat $ sequence $
     [cpp_deps | depIncludeCppDeps dflags] ++ [
@@ -312,13 +349,16 @@ findDependency hsc_env srcloc pkg imp dep_boot = do
     Found loc dep_mod ->
       pure DepHi {
         dep_mod,
+        dep_unit_id,
         dep_path = ml_hi_file loc,
-        dep_unit = lookupUnitId (hsc_units hsc_env) (moduleUnitId dep_mod),
+        dep_unit = lookupUnitId (hsc_units hsc_env) dep_unit_id,
         dep_local,
         dep_boot
       }
       where
-        dep_local = isJust (ml_hs_file loc) && moduleUnitId dep_mod == homeUnitId (hsc_home_unit hsc_env)
+        dep_local = isJust (ml_hs_file loc) && hscActiveUnitId hsc_env == dep_unit_id
+
+        dep_unit_id = moduleUnitId dep_mod
 
     fail ->
       throwOneError $
@@ -349,7 +389,7 @@ writeDependencies include_pkgs root hdl suffixes node deps =
     -- files if the module has a corresponding .hs-boot file (#14482)
     boot_dep
       | IsBoot <- dn_boot
-      = [([obj], hi) | (obj, hi) <- zip (suffixed (removeBootSuffix dn_obj)) (suffixed dn_hi)]
+      = [([obj], hi) | (obj, hi) <- zip (suffixed (viaOsPath removeBootSuffix dn_obj)) (suffixed dn_hi)]
       | otherwise
       = []
 
@@ -359,7 +399,7 @@ writeDependencies include_pkgs root hdl suffixes node deps =
     import_dep = \case
       DepHi {dep_path, dep_boot, dep_unit}
         | isNothing dep_unit || include_pkgs
-        , let path = addBootSuffix_maybe dep_boot dep_path
+        , let path = if dep_boot == IsBoot then viaOsPath addBootSuffix dep_path else dep_path
         -> [([obj], hi) | (obj, hi) <- zip obj_files (suffixed path)]
 
         | otherwise
@@ -374,6 +414,16 @@ writeDependencies include_pkgs root hdl suffixes node deps =
     suffixed f = insertSuffixes f suffixes
 
     DepNode {dn_src, dn_obj, dn_hi, dn_boot} = node
+
+#if FIXED_NODES
+
+    viaOsPath f a = unsafeDecodeUtf (f (unsafeEncodeUtf a))
+
+#else
+
+    viaOsPath f a = f a
+
+#endif
 
 -----------------------------
 writeDependency :: FilePath -> Handle -> [FilePath] -> FilePath -> IO ()
@@ -470,6 +520,71 @@ dumpModCycles logger module_graph
                         $$ pprCycle c $$ blankLine
                      | (n,c) <- [1..] `zip` cycles ]
 
+#if FIXED_NODES
+
+pprCycle :: [ModuleGraphNode] -> SDoc
+-- Print a cycle, but show only the imports within the cycle
+pprCycle summaries = pp_group (CyclicSCC summaries)
+  where
+    cycle_keys :: [NodeKey]  -- The modules in this cycle
+    cycle_keys = map mkNodeKey summaries
+
+    pp_group :: SCC ModuleGraphNode -> SDoc
+    pp_group (AcyclicSCC (ModuleNode deps m)) = pp_mod deps m
+    pp_group (AcyclicSCC _) = empty
+    pp_group (CyclicSCC mss)
+        = assert (not (null boot_only)) $
+                -- The boot-only list must be non-empty, else there would
+                -- be an infinite chain of non-boot imports, and we've
+                -- already checked for that in processModDeps
+          pp_mod loop_deps loop_breaker $$ vcat (map pp_group groups)
+        where
+          (boot_only, others) = partitionEithers (map is_boot_only mss)
+          is_boot_key (NodeKey_Module (ModNodeKeyWithUid (GWIB _ IsBoot) _)) = True
+          is_boot_key _ = False
+          is_boot_only n@(ModuleNode deps ms) =
+            let non_boot_deps = filter (not . is_boot_key) deps
+            in if not (any in_group non_boot_deps)
+                then Left (deps, ms)
+                else Right n
+          is_boot_only n = Right n
+          in_group m = m `elem` group_mods
+          group_mods = map mkNodeKey mss
+
+          (loop_deps, loop_breaker) =  head boot_only
+          all_others   = tail (map (uncurry ModuleNode) boot_only) ++ others
+          groups =
+            GHC.topSortModuleGraph True (mkModuleGraph all_others) Nothing
+
+    pp_mod :: [NodeKey] -> ModuleNodeInfo -> SDoc
+    pp_mod deps mn =
+      text mod_str <> text (take (20 - length mod_str) (repeat ' ')) <> ppr_deps deps
+      where
+        mod_str = moduleNameString (moduleNodeInfoModuleName mn)
+
+    ppr_deps :: [NodeKey] -> SDoc
+    ppr_deps [] = empty
+    ppr_deps deps =
+      let is_mod_dep (NodeKey_Module {}) = True
+          is_mod_dep _ = False
+
+          is_boot_dep (NodeKey_Module (ModNodeKeyWithUid (GWIB _ IsBoot) _)) = True
+          is_boot_dep _ = False
+
+          cycle_deps = filter (`elem` cycle_keys) deps
+          (mod_deps, other_deps) = partition is_mod_dep cycle_deps
+          (boot_deps, normal_deps) = partition is_boot_dep mod_deps
+      in vcat [
+           if null normal_deps then empty
+           else text "imports" <+> pprWithCommas ppr normal_deps,
+           if null boot_deps then empty
+           else text "{-# SOURCE #-} imports" <+> pprWithCommas ppr boot_deps,
+           if null other_deps then empty
+           else text "depends on" <+> pprWithCommas ppr other_deps
+         ]
+
+#else
+
 pprCycle :: [ModuleGraphNode] -> SDoc
 -- Print a cycle, but show only the imports within the cycle
 pprCycle summaries = pp_group (CyclicSCC summaries)
@@ -511,6 +626,8 @@ pprCycle summaries = pp_group (CyclicSCC summaries)
             [] -> empty
             ms -> what <+> text "imports" <+>
                                 pprWithCommas ppr ms
+
+#endif
 
 -----------------------------------------------------------------
 --

@@ -1,5 +1,5 @@
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE CPP, OverloadedLists, PatternSynonyms #-}
+#define RECENT MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10)
 
 module Internal.Cache.Hpt where
 
@@ -9,18 +9,18 @@ import Data.Foldable (toList)
 import Data.Function (on)
 import Data.Functor ((<&>))
 import Data.List.NonEmpty (NonEmpty ((:|)), groupBy)
+import Data.Maybe (isJust)
 import Data.Time (getCurrentTime)
 import Data.Traversable (for)
 import GHC (Ghc, GhcException (..), ModIface, ModIface_ (..), ModLocation (..), ModuleName, mkModule)
 import GHC.Data.Maybe (MaybeErr (..))
-import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hscUpdateHPT, hsc_HPT)
+import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hsc_HPT)
 import GHC.Driver.Main (initModDetails, initWholeCoreBindings)
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
 import GHC.Iface.Load (readIface)
 import GHC.Linker.Types (Linkable (..))
-import GHC.Types.Unique.DFM (addToUDFM, elemUDFM)
 import GHC.Unit (Definite (..), GenUnit (..))
-import GHC.Unit.Env (UnitEnv (..), unitEnv_member)
+import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
@@ -28,9 +28,18 @@ import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.Log (logTimed)
+import Internal.UnitEnv (addHomeModInfoToHpt, lookupHpt, unitEnv_member)
 import Prelude hiding (log)
 import Types.CachedDeps (CachedDep (..), CachedDeps (..), JsonFs (..))
 import Types.Log (Logger (..))
+
+#if RECENT
+
+import GHC (pattern ModIface)
+import GHC.Unit.Module.Location (pattern ModLocation)
+import GHC.Unit.Module.ModIface (mi_sc_extra_decls, mi_sc_foreign)
+
+#endif
 
 -- This preprocessor variable indicates that we're building with a GHC that has the final version of the oneshot
 -- bytecode patch.
@@ -52,7 +61,7 @@ loadCachedByteCode hsc_env ifaceFile iface details =
     linkable <- bcoLinkable [CoreBindings wcb]
     initWholeCoreBindings hsc_env iface details linkable
    where
-    location =
+    wcb_mod_location =
       ModLocation {
         ml_hs_file = Nothing,
         ml_hi_file = ifaceFile,
@@ -62,18 +71,30 @@ loadCachedByteCode hsc_env ifaceFile iface details =
         ml_hie_file = error "loadCachedByteCode"
       }
 
+#if RECENT
+
+    core_bindings =
+      mi_simplified_core <&> \ sc ->
+        WholeCoreBindings {wcb_mod_location, wcb_bindings = mi_sc_extra_decls sc, wcb_foreign = mi_sc_foreign sc, ..}
+
+#elif defined(MWB_2025_07)
+
     core_bindings =
       mi_extra_decls <&> \ wcb_bindings ->
-#if defined(MWB_2025_07) || MIN_VERSION_GLASGOW_HASKELL(9,12,0,0)
-        WholeCoreBindings {wcb_mod_location = location, wcb_foreign = mi_foreign, ..}
+        WholeCoreBindings {wcb_mod_location, wcb_foreign = mi_foreign, ..}
+
 #else
-        WholeCoreBindings {wcb_mod_location = location, ..}
+
+    core_bindings =
+      mi_extra_decls <&> \ wcb_bindings ->
+        WholeCoreBindings {wcb_mod_location, ..}
+
 #endif
-      where
-        ModIface {mi_module = wcb_module, ..} = iface
+
+    ModIface {mi_module = wcb_module, ..} = iface
 
     bcoLinkable parts = do
-      if_time <- modificationTimeIfExists (ml_hi_file location)
+      if_time <- modificationTimeIfExists (ml_hi_file wcb_mod_location)
       time <- maybe getCurrentTime pure if_time
 #if defined(MWB_2025_07) || MIN_VERSION_GLASGOW_HASKELL(9,12,0,0)
       return $! Linkable time (mi_module iface) parts
@@ -94,8 +115,9 @@ loadCachedDep ::
   HscEnv ->
   FilePath ->
   IO HscEnv
-loadCachedDep log name hsc_env ifaceFile =
-  if elemUDFM name hpt
+loadCachedDep log name hsc_env ifaceFile = do
+  existing <- lookupHpt hpt name
+  if isJust existing
   then pure hsc_env
   else loadHmi
   where
@@ -104,12 +126,12 @@ loadCachedDep log name hsc_env ifaceFile =
         hm_iface <- loadIface
         hm_details <- initModDetails hsc_env hm_iface
         homeMod_bytecode <- loadCachedByteCode hsc_env ifaceFile hm_iface hm_details
-        let new = addToUDFM hpt name HomeModInfo {
+        let new = HomeModInfo {
           hm_iface,
           hm_linkable = HomeModLinkable {homeMod_object = Nothing, homeMod_bytecode},
           hm_details
         }
-        pure (hscUpdateHPT (const new) hsc_env)
+        addHomeModInfoToHpt hsc_env name new hpt
 
     -- @readIface@ needs the dflags only for platform/ways, so we don't need the unit dflags
     loadIface =

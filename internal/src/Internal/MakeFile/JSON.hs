@@ -113,6 +113,7 @@ data DepNode =
 data Dep =
   DepHi {
     dep_mod :: Module,
+    dep_unit_id :: UnitId,
     dep_path :: FilePath,
     dep_unit :: Maybe UnitInfo,
     dep_local :: Bool,
@@ -122,6 +123,11 @@ data Dep =
   DepCpp {
     dep_path :: FilePath
   }
+
+instance Outputable Dep where
+  ppr = \case
+    DepHi {..} -> ppr dep_mod <+> (if dep_local then text "[local]" else text "[package]")
+    DepCpp {} -> text "cpp"
 
 --------------------------------------------------------------------------------
 -- Payload for -dep-json
@@ -217,7 +223,7 @@ updateDepJSON include_pkgs preprocessor DepNode {..} deps =
       }
 
     dep = \case
-      DepHi {dep_mod, dep_local, dep_unit, dep_boot}
+      DepHi {dep_mod, dep_unit_id, dep_local, dep_unit, dep_boot}
         | dep_local
         , let set = Set.singleton (moduleName dep_mod)
               value | IsBoot <- dep_boot = (Set.empty, set)
@@ -230,7 +236,12 @@ updateDepJSON include_pkgs preprocessor DepNode {..} deps =
               name = unpackFS nameFS
               withLibName (PackageName c) = name ++ ":" ++ unpackFS c
               lname = maybe name withLibName (unitComponentName unit)
-              key = (lname, unitId unit, unitPackageId unit)
+              key = (lname, dep_unit_id, unitPackageId unit)
+        -> mempty {packages = PackageDeps (Map.singleton key (Set.singleton (moduleName dep_mod)))}
+
+        | include_pkgs
+        , let uid = unitIdFS dep_unit_id
+              key = (unpackFS uid, dep_unit_id, PackageId uid)
         -> mempty {packages = PackageDeps (Map.singleton key (Set.singleton (moduleName dep_mod)))}
 
         | otherwise

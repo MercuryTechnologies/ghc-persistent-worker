@@ -2,7 +2,7 @@
 
 module Internal.State where
 
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, withMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, readMVar, withMVar)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Foldable (traverse_)
 import GHC (Ghc, ModIface, mi_module, moduleName, moduleNameString, setSession)
@@ -50,6 +50,14 @@ updateOneshotState f state = state {oneshot = f state.oneshot}
 
 updateOneshotStateVar :: MVar WorkerState -> (OneshotState -> OneshotState) -> IO ()
 updateOneshotStateVar var f = modifyMVar_ var (pure . updateOneshotState f)
+
+withMakeState ::
+  MVar WorkerState ->
+  (MakeState -> IO a) ->
+  IO a
+withMakeState var f = do
+  WorkerState {make} <- readMVar var
+  f make
 
 -- | Log a report for a completed compilation, using 'reportMessages' to assemble the content.
 report ::
@@ -150,7 +158,7 @@ dumpState logger state exception =
     writeD (showModGraph moduleGraph)
     write "-----------------"
     write "Home unit graph:"
-    writeD (showHugShort hug)
+    writeD =<< showHugShort hug
   where
     write = logDebug logger
     writeD = logDebugD logger

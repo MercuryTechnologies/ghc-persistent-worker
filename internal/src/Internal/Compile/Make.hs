@@ -1,6 +1,14 @@
-{-# LANGUAGE ViewPatterns, CPP, OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns, CPP, OverloadedStrings, PatternSynonyms #-}
+#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10))
 
 module Internal.Compile.Make where
+
+#if RECENT
+
+import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
+import GHC.Unit.Module.Location (pattern ModLocation)
+
+#endif
 
 import qualified GHC
 import GHC (
@@ -16,13 +24,13 @@ import GHC (
   mgLookupModule,
   )
 import GHC.Driver.DynFlags (gopt_set)
-import GHC.Driver.Env (HscEnv (..), hscUpdateHUG)
+import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
-import GHC.Driver.Monad (modifySession)
+import GHC.Driver.Monad (modifySessionM)
 import GHC.Driver.Pipeline (compileOne)
 import GHC.Runtime.Loader (initializeSessionPlugins)
-import GHC.Unit.Env (addHomeModInfoToHug, ue_unsafeHomeUnit)
+import GHC.Unit.Env (ue_unsafeHomeUnit)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
@@ -31,12 +39,9 @@ import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTem
 import Internal.Error (eitherMessages, noteGhc)
 import Internal.Log (logTimedD)
 import Internal.State (ModuleArtifacts (..))
+import Internal.UnitEnv (addDepsToHscEnv)
 import Types.Log (Logger (..))
 import Types.Target (ModuleTarget (..), Target (..), TargetSpec (..))
-
--- | Insert a compilation result into the current unit's home package table, as it is done by upsweep.
-addDepsToHscEnv :: [HomeModInfo] -> HscEnv -> HscEnv
-addDepsToHscEnv deps = hscUpdateHUG (\hug -> foldr addHomeModInfoToHug hug deps)
 
 -- | Update the location of the result of @summariseFile@ to point to the locations specified on the command line, since
 -- these are placed in the source file's directory by that function.
@@ -51,15 +56,39 @@ cleanCurrentModuleTempFilesMaybe logger tmpfs dflags =
     then liftIO $ keepCurrentModuleTempFiles logger tmpfs
     else liftIO $ cleanCurrentModuleTempFiles logger tmpfs
 
+computeSummary ::
+  Logger ->
+  HscEnv ->
+  FilePath ->
+  IO ModSummary
+computeSummary logger hsc_env src = do
+    logTimedD logger ("Computing fresh ModSummary for" <+> text src) do
+      summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
+      setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
+
 -- | Find a module in the module graph and return its `ModSummary`.
 lookupSummary ::
+  Logger ->
   HscEnv ->
   Module ->
   IO ModSummary
-lookupSummary hsc_env target = do
-  noteGhc notFound (mgLookupModule hsc_env.hsc_mod_graph target)
+lookupSummary _logger hsc_env target =
+  check =<< noteGhc notFound (mgLookupModule hsc_env.hsc_mod_graph target)
   where
     notFound = "Could not find ModSummary in the module graph for " ++ showPprUnsafe target
+
+#if RECENT
+    check = \case
+      ModuleNodeCompile ms -> pure ms
+      ModuleNodeFixed _ ModLocation {ml_hs_file} ->
+        case ml_hs_file of
+          Just src ->
+            computeSummary _logger hsc_env src
+          Nothing ->
+            throwGhcExceptionIO (PprProgramError "Fixed node without source path" (ppr target))
+#else
+    check = pure
+#endif
 
 -- | Obtain a `ModSummary` for the current target.
 -- If the target was specified by module name, we assume that the new workflow is used, in which the module graph is
@@ -74,11 +103,9 @@ ensureSummary ::
 ensureSummary logger hsc_env = \case
   TargetModule (ModuleTarget m) -> do
     logTimedD logger ("Fetching ModSummary for" <+> ppr m <+> "from module graph") do
-      lookupSummary hsc_env m
+      lookupSummary logger hsc_env m
   TargetSource (Target src) -> do
-    logTimedD logger ("Computing fresh ModSummary for" <+> text src) do
-      summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
-      setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
+    computeSummary logger hsc_env src
   TargetUnit unit ->
     throwGhcExceptionIO (PprProgramError "Specified target unit for compile request" (ppr unit))
   TargetUnknown spec ->
@@ -109,7 +136,7 @@ compileModuleWithDepsInHpt logger target =
       result <- compileOne hsc_env (forceRecomp summary) 1 100000 Nothing (HomeModLinkable Nothing Nothing)
       cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env) (hsc_tmpfs hsc_env) summary.ms_hspp_opts
       pure result
-    modifySession (addDepsToHscEnv [hmi])
+    modifySessionM (liftIO . addDepsToHscEnv [hmi])
     pure (Just ModuleArtifacts {iface, bytecode = homeMod_bytecode hm_linkable})
   where
     -- This bypasses another recompilation check in 'compileOne'

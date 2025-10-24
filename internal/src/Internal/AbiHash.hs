@@ -1,3 +1,6 @@
+{-# LANGUAGE CPP #-}
+#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10))
+
 module Internal.AbiHash where
 
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -5,10 +8,16 @@ import GHC.Driver.Config.Logger (initLogFlags)
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Session (targetProfile)
 import GHC.Iface.Binary (CheckHiWay (IgnoreHiWay), TraceBinIFace (QuietBinIFace), readBinIface)
-import GHC.Unit.Module.ModIface (mi_final_exts, mi_mod_hash, ModIface)
+import GHC.Unit.Module.ModIface (ModIface, mi_mod_hash)
 import GHC.Utils.Logger (LogFlags (..), log_default_dump_context)
 import GHC.Utils.Outputable (ppr, renderWithContext)
 import System.FilePath (dropExtension)
+
+#if !RECENT
+
+import GHC.Unit.Module.ModIface (mi_final_exts)
+
+#endif
 
 data AbiHash =
   AbiHash {
@@ -19,9 +28,15 @@ data AbiHash =
 
 showAbiHash :: HscEnv -> ModIface -> String
 showAbiHash HscEnv {hsc_dflags} iface =
-  dump hsc_dflags (mi_mod_hash (mi_final_exts iface))
+  dump hsc_dflags hash
   where
     dump dflags = renderWithContext (log_default_dump_context (initLogFlags dflags)) . ppr
+
+#if RECENT
+    hash = mi_mod_hash iface
+#else
+    hash = mi_mod_hash (mi_final_exts iface)
+#endif
 
 readAbiHash ::
   MonadIO m =>
