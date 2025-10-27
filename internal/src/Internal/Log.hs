@@ -2,7 +2,10 @@ module Internal.Log where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_)
 import Control.Monad (unless)
+import Control.Monad.Catch (MonadCatch, onException)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Fixed (Milli, Pico)
+import Data.Time (diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
 import GHC (Ghc, Severity (SevIgnore), noSrcSpan)
 import GHC.Driver.Config.Diagnostic (initDiagOpts)
 import GHC.Driver.DynFlags (getDynFlags)
@@ -60,7 +63,6 @@ newLogger state =
         debug,
         debugD = debug . showPprUnsafe
       }
-
 
 modifyLog :: Logger -> (Log -> IO Log) -> IO ()
 modifyLog Logger {withLog} f =
@@ -221,3 +223,31 @@ ghcLogd doc = do
           doc
       msgs = singleMessage (mkPlainMsgEnvelope diagOpts noSrcSpan msg)
   GHC.logDiagnostics (GhcDriverMessage <$> msgs)
+
+-- | Run the given computation and write the given description and the elapsed real time it took to the debug log.
+logTimed ::
+  MonadIO m =>
+  MonadCatch m =>
+  Logger ->
+  String ->
+  m a ->
+  m a
+logTimed logger desc ma = do
+  start <- liftIO getCurrentTime
+  res <- onException ma do
+    liftIO $ logger.debug ("Timed computation failed: " ++ desc)
+  liftIO do
+    end <- getCurrentTime
+    logger.debug (desc ++ " | " ++ show (realToFrac @Pico @Milli (nominalDiffTimeToSeconds (diffUTCTime end start))))
+    pure res
+
+-- | Like 'logTimed', but takes an 'SDoc'.
+logTimedD ::
+  MonadIO m =>
+  MonadCatch m =>
+  Logger ->
+  SDoc ->
+  m a ->
+  m a
+logTimedD logger =
+  logTimed logger . showPprUnsafe
