@@ -7,7 +7,6 @@ import Control.Monad (join)
 import Control.Monad.IO.Class (liftIO)
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
-import Data.IORef (readIORef)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Traversable (for)
@@ -16,19 +15,12 @@ import GHC.Linker.Types (LinkerEnv (..), Loader (..), LoaderState (..))
 import GHC.Runtime.Interpreter (Interp (..))
 import GHC.Types.Name.Cache (NameCache (..), OrigNameCache)
 import GHC.Types.Unique.DFM (plusUDFM)
+import GHC.Unit (InstalledModule)
 import GHC.Unit.Env (UnitEnv (..))
-import GHC.Unit.Finder (InstalledFindResult (..))
-import GHC.Unit.Finder.Types (FinderCache (..))
-import GHC.Unit.Module.Env (InstalledModuleEnv, plusModuleEnv)
+import GHC.Unit.Module.Env (plusModuleEnv)
+import Internal.State.Finder (newFinderCache)
 import Internal.State.Stats (basicLinkerStats, basicLoaderStats, basicSymbolsStats)
-import Types.State.Oneshot (
-  FinderState (..),
-  InterpCache (..),
-  OneshotCacheFeatures (..),
-  OneshotState (..),
-  SymbolCache (..),
-  SymbolMap,
-  )
+import Types.State.Oneshot (InterpCache (..), OneshotCacheFeatures (..), OneshotState (..), SymbolCache (..), SymbolMap)
 import Types.State.Stats (
   CacheStats (..),
   LinkerStats (..),
@@ -42,17 +34,8 @@ import Types.Target (Target)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
-import qualified Data.Map.Lazy as LazyMap
-import GHC.Fingerprint (Fingerprint, getFileHash)
-import GHC.IORef (atomicModifyIORef')
-import GHC.Unit (
-  InstalledModule,
-  extendInstalledModuleEnv,
-  lookupInstalledModuleEnv,
-  moduleName,
-  )
-import GHC.Utils.Panic (panic)
-import Internal.State.Stats (FinderStats (..))
+import GHC.Unit (moduleName)
+import Types.State.Stats (FinderStats (..))
 
 #else
 
@@ -61,20 +44,6 @@ import Internal.State.Stats (FinderStats (..))
 import Control.Concurrent.MVar (newMVar)
 
 #endif
-
-#endif
-
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
-
-finderEnv :: FinderState -> IO (InstalledModuleEnv InstalledFindResult)
-finderEnv FinderState {modules} =
-  readIORef modules
-
-#else
-
-finderEnv :: FinderState -> IO (InstalledModuleEnv InstalledFindResult)
-finderEnv FinderState {cache = FinderCache {fcModuleCache}} =
-  readIORef fcModuleCache
 
 #endif
 
@@ -235,61 +204,32 @@ updateState target InterpCache {..} newLoaderState newSymbols newNames cache = d
 -- the moment since we're also initializing each compilation session with a shared @HscEnv@.
 -- Ultimately this might be used to exert some more control over what modules GHC is allowed to access by using Buck's
 -- deps, or some additional optimization.
-newFinderCache ::
+finderCacheHook ::
   ((OneshotState -> OneshotState) -> IO ()) ->
-  OneshotState ->
   Target ->
-  IO FinderCache
-newFinderCache updateOneshot OneshotState {finder = FinderState {modules, files}} target = do
-  let flushFinderCaches :: UnitEnv -> IO ()
-      flushFinderCaches _ = panic "GHC attempted to flush finder caches, which shouldn't happen in worker mode"
-
-      addToFinderCache :: InstalledModule -> InstalledFindResult -> IO ()
-      addToFinderCache key val = do
-        atomicModifyIORef' modules $ \c ->
-          case (lookupInstalledModuleEnv c key, val) of
-            (Just InstalledFound{}, InstalledNotFound{}) -> (c, ())
-            _ -> (extendInstalledModuleEnv c key val, ())
-
-      lookupFinderCache :: InstalledModule -> IO (Maybe InstalledFindResult)
-      lookupFinderCache key = do
-        c <- readIORef modules
-        let result = lookupInstalledModuleEnv c key
-        case result of
-          Just _ -> cacheHit key
-          Nothing -> cacheMiss key
-        pure $! result
-
-      lookupFileCache :: FilePath -> IO Fingerprint
-      lookupFileCache key = do
-         fc <- readIORef files
-         case LazyMap.lookup key fc of
-           Nothing -> do
-             hash <- getFileHash key
-             atomicModifyIORef' files $ \c -> (LazyMap.insert key hash c, ())
-             return hash
-           Just fp -> return fp
-  return FinderCache {..}
+  InstalledModule ->
+  Bool ->
+  IO ()
+finderCacheHook updateOneshot target m = \case
+  True ->
+    updateStats \ FinderStats {hits, ..} -> FinderStats {hits = incStat hits, ..}
+  False ->
+    updateStats \ FinderStats {misses, ..} -> FinderStats {misses = incStat misses, ..}
   where
-    cacheHit m =
-      updateStats \ FinderStats {hits, ..} -> FinderStats {hits = incStat m hits, ..}
-
-    cacheMiss m =
-      updateStats \ FinderStats {misses, ..} -> FinderStats {misses = incStat m misses, ..}
-
-    incStat m = Map.alter (Just . succ . fromMaybe 0) (moduleName m)
+    incStat = Map.alter (Just . succ . fromMaybe 0) (moduleName m)
 
     updateStats f =
       updateOneshot $ modifyStats target \ CacheStats {..} -> CacheStats {finder = f finder, ..}
 
 #else
 
-newFinderCache ::
-  a ->
-  OneshotState ->
+finderCacheHook ::
+  ((OneshotState -> OneshotState) -> IO ()) ->
   Target ->
-  IO FinderCache
-newFinderCache _ OneshotState {finder = FinderState {cache}} _ = pure cache
+  InstalledModule ->
+  Bool ->
+  IO ()
+finderCacheHook _ _ _ _ = pure ()
 
 #endif
 
@@ -312,16 +252,16 @@ setTarget ::
   Target ->
   HscEnv ->
   IO HscEnv
-setTarget update cache target hsc_env = do
+setTarget update state target hsc_env = do
   -- The Finder cache is already shared by the base session, but with this, we can additionally inject the target file
   -- for stats collection.
   -- Only has an effect if the patch that abstracts the 'FinderCache' interface is in GHC, so >= 9.12.
-  if cache.features.finder
+  if state.features.finder
   then restoreFinderCache hsc_env
   else pure hsc_env
   where
     restoreFinderCache e = do
-      hsc_FC <- newFinderCache update cache target
+      hsc_FC <- newFinderCache (finderCacheHook update target) state.finder
       pure e {hsc_FC}
 
 -- | Restore cache parts related to oneshot mode.

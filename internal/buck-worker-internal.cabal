@@ -39,6 +39,7 @@ library
                       Internal.Metadata
                       Internal.Session
                       Internal.State
+                      Internal.State.Finder
                       Internal.State.Make
                       Internal.State.Oneshot
                       Internal.State.Stats
