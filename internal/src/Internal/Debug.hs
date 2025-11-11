@@ -137,7 +137,7 @@ showHpt hpt =
 
 showDbPath :: UnitDatabase UnitId -> SDoc
 showDbPath UnitDatabase {unitDatabasePath} =
-  text unitDatabasePath
+  text (show unitDatabasePath)
 
 showHomeUnitEnvShort :: HomeUnitEnv -> IO SDoc
 showHomeUnitEnvShort HomeUnitEnv {..} = do
