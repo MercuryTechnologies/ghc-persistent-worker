@@ -2,12 +2,13 @@
 
 module Internal.Session where
 
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, readMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, readMVar, withMVar)
 import Control.Exception (finally)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
 import Data.IORef (newIORef)
+import Data.Maybe (fromMaybe)
 import qualified GHC
 import GHC (
   DynFlags (..),
@@ -34,7 +35,7 @@ import GHC.Utils.Logger (getLogger)
 import GHC.Utils.Outputable (ppr, text, (<+>))
 import GHC.Utils.Panic (panic, pprPanic)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
-import Internal.Cache.Hpt (loadCachedDeps)
+import Internal.Cache.Hpt (loadCachedDeps, loadHomeUnit)
 import Internal.DynFlags (buckLocation, initDynFlags, instrumentLocation, parseFlags, setupPath)
 import Internal.Error (handleExceptions)
 import Internal.Log (logDebugD, logToState)
@@ -42,8 +43,9 @@ import Internal.State (withCacheMake, withCacheOneshot)
 import Prelude hiding (log)
 import Types.Args (Args (..))
 import Types.Env (Env (..))
-import Types.Log (Logger)
+import Types.Log (Logger (..))
 import Types.State (Options (..), WorkerState (..))
+import Types.State.Make (MakeState (..))
 import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
 
@@ -198,12 +200,19 @@ withGhcMakeModule ::
   Env ->
   (TargetSpec -> Ghc (Maybe a)) ->
   IO (Maybe a)
-withGhcMakeModule target =
+withGhcMakeModule target = do
   withGhc \ env srcs run -> do
+    dflags0 <- getSessionDynFlags
     ensureNoArgs srcs
     logDebugD env.log (text "Compiling module target" <+> ppr target)
     withCacheMake env.log env.state do
-      modifySession (hscSetActiveUnitId (moduleUnitId target.mod))
-      traverse_ (modifySessionM . loadCachedDeps env.log) env.args.cachedDeps
+      modifySessionM \ hsc_env0 -> do
+        hsc_env1 <- processArg hsc_env0 (loadHomeUnit env.log env.state dflags0 (moduleUnitId target.mod)) env.args.homeUnit
+        hsc_env2 <- liftIO $ withMVar env.state \ state -> pure hsc_env1 {hsc_mod_graph = state.make.moduleGraph}
+        let hsc_env3 = hscSetActiveUnitId (moduleUnitId target.mod) (hsc_env2)
+        processArg hsc_env3 (loadCachedDeps env.log) env.args.cachedDeps
       initializeSessionPlugins
       run (TargetModule target)
+  where
+    processArg :: HscEnv -> (HscEnv -> a -> IO HscEnv) -> Maybe a -> Ghc HscEnv
+    processArg hsc_env f arg = fromMaybe hsc_env <$> traverse (liftIO . f hsc_env) arg

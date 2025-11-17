@@ -3,23 +3,26 @@
 
 module Internal.Cache.Hpt where
 
+import Control.Concurrent (MVar, modifyMVar)
 import Control.Monad (foldM)
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.State.Strict (StateT (..))
 import Data.Foldable (toList)
 import Data.Function (on)
 import Data.Functor ((<&>))
 import Data.List.NonEmpty (NonEmpty ((:|)), groupBy)
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Time (getCurrentTime)
 import Data.Traversable (for)
-import GHC (Ghc, GhcException (..), ModIface, ModIface_ (..), ModLocation (..), ModuleName, mkModule)
+import Data.Tuple (swap)
+import GHC (DynFlags, GhcException (..), ModIface, ModIface_ (..), ModLocation (..), ModuleName, mkModule)
 import GHC.Data.Maybe (MaybeErr (..))
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hsc_HPT)
 import GHC.Driver.Main (initModDetails, initWholeCoreBindings)
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
 import GHC.Iface.Load (readIface)
 import GHC.Linker.Types (Linkable (..))
-import GHC.Unit (Definite (..), GenUnit (..))
+import GHC.Unit (Definite (..), GenUnit (..), UnitId)
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Unit.Module.ModDetails (ModDetails (..))
@@ -27,11 +30,14 @@ import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
 import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO)
+import Internal.Cache.Metadata (loadCachedUnit, loadCachedUnits)
 import Internal.Log (logTimed)
 import Internal.UnitEnv (addHomeModInfoToHpt, lookupHpt, unitEnv_member)
 import Prelude hiding (log)
-import Types.CachedDeps (CachedDep (..), CachedDeps (..), JsonFs (..))
+import Types.BuckArgs (decodeJsonArg)
+import Types.CachedDeps (CachedDep (..), CachedDeps (..), CachedUnit (..), JsonFs (..))
 import Types.Log (Logger (..))
+import Types.State (WorkerState)
 
 #if RECENT
 
@@ -150,6 +156,10 @@ loadCachedDep log name hsc_env ifaceFile = do
 
     hpt = hsc_HPT hsc_env
 
+hasUnit :: UnitId -> HscEnv -> Bool
+hasUnit uid hsc_env =
+  unitEnv_member uid hsc_env.hsc_unit_env.ue_home_unit_graph
+
 -- | Load all dependencies of the current module from the Buck cache into the HPT if they don't exist.
 --
 -- When the make worker is killed by Buck at the end of a build, and the user subsequently changes some code and starts
@@ -159,18 +169,18 @@ loadCachedDep log name hsc_env ifaceFile = do
 -- restore into the HPT here.
 loadCachedDeps ::
   Logger ->
-  CachedDeps ->
   HscEnv ->
-  Ghc HscEnv
-loadCachedDeps log (CachedDeps deps) hsc_env0 =
+  CachedDeps ->
+  IO HscEnv
+loadCachedDeps log hsc_env0 (CachedDeps deps) =
   logTimed log "Loading cached deps" do
-  hsc_env1 <- foldM loadDepUnit hsc_env0 byUnit
-  pure (hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1)
+    hsc_env1 <- foldM loadDepUnit hsc_env0 byUnit
+    pure (hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1)
   where
     -- If the unit isn't present in the unit env, it wasn't built by a worker, since it would have been loaded in the
     -- metadata restoration step.
     loadDepUnit hsc_env mods@(CachedDep {package = JsonFs uid} :| _) =
-      if unitEnv_member uid hsc_env.hsc_unit_env.ue_home_unit_graph
+      if hasUnit uid hsc_env
       then loadActiveUnit (hscSetActiveUnitId uid hsc_env) (toList mods)
       else pure hsc_env
 
@@ -180,3 +190,24 @@ loadCachedDeps log (CachedDeps deps) hsc_env0 =
       liftIO (loadCachedDep log name hsc_env iface)
 
     byUnit = groupBy (on (==) (.package)) deps
+
+loadHomeUnit ::
+  Logger ->
+  MVar WorkerState ->
+  DynFlags ->
+  UnitId ->
+  HscEnv ->
+  CachedUnit ->
+  IO HscEnv
+loadHomeUnit log stateVar dflags0 unit hsc_env0 cachedUnit
+  | hasUnit unit hsc_env0
+  = pure hsc_env0
+  | otherwise
+  = do
+    hsc_env1 <- fmap (fromMaybe hsc_env0) $ for cachedUnit.dep_units \ file -> do
+      deps <- decodeJsonArg "--home-unit" file
+      loadCachedUnits log stateVar dflags0 deps hsc_env0
+    modifyMVar stateVar $
+      logTimed log "Loading cached home unit" .
+      fmap swap .
+      runStateT (loadCachedUnit log hsc_env1 dflags0 unit cachedUnit)

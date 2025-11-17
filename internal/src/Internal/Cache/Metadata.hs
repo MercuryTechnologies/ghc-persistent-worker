@@ -23,9 +23,9 @@ import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), updateHug)
 import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
 import GHC.Utils.Outputable (ppr, quotes, text, (<+>))
+import Internal.DynFlags (buckLocation, parseFlags, setupPath)
 import Internal.Error (notePpr)
 import Internal.Log (logDebugD, logTimed, logTimedD)
-import Internal.DynFlags (buckLocation, parseFlags, setupPath)
 import Internal.State (updateMakeState)
 import Internal.State.Make (insertUnitEnv, storeModuleGraph)
 import Internal.UnitEnv (emptyHomePackageTable)
@@ -152,13 +152,12 @@ loadCachedUnit ::
   HscEnv ->
   DynFlags ->
   UnitId ->
-  FilePath ->
+  CachedUnit ->
   StateT WorkerState IO HscEnv
-loadCachedUnit logger hsc_env0 dflags0 unit file = do
-  CachedUnit {build_plan, unit_args, unit_buck_args} <- liftIO $ decodeJsonBuildPlan file
-  maybe (pure hsc_env0) (load build_plan unit_buck_args) unit_args
+loadCachedUnit logger hsc_env0 dflags0 unit CachedUnit {build_plan, unit_args, unit_buck_args} = do
+  maybe (pure hsc_env0) (load build_plan) unit_args
   where
-    load module_graph unit_buck_args args_file =
+    load module_graph args_file =
       logTimedD logger (text "Loading cached unit" <+> quotes (ppr unit)) do
         traverse_ loadCachedArgs unit_buck_args
         hsc_env2 <- liftIO do
@@ -189,7 +188,9 @@ loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 =
       present <- gets \ s -> isJust (unitEnv_lookup_maybe uid s.make.hug)
       if present
       then skipPresent hsc_env uid
-      else loadCachedUnit logger hsc_env dflags0 uid planFile
+      else do
+        cachedUnit <- liftIO $ decodeJsonBuildPlan planFile
+        loadCachedUnit logger hsc_env dflags0 uid cachedUnit
 
     skipPresent hsc_env uid = do
       logDebugD logger (text "Present in the unit env:" <+> quotes (ppr uid))

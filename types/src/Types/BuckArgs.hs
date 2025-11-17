@@ -48,6 +48,7 @@ data BuckArgs =
     moduleName :: Maybe String,
     depModules :: Maybe String,
     depUnits :: Maybe String,
+    homeUnit :: Maybe String,
     workerTargetId :: Maybe TargetId,
     pluginDb :: Maybe String,
     env :: Map String String,
@@ -77,6 +78,7 @@ emptyBuckArgs env =
     moduleName = Nothing,
     depModules = Nothing,
     depUnits = Nothing,
+    homeUnit = Nothing,
     workerTargetId = Nothing,
     pluginDb = Nothing,
     env,
@@ -102,6 +104,7 @@ options =
     withArg "--buck2-packagedb-dep" \ z a -> z {buck2PackageDbDep = Just a},
     withArg "--dep-modules" \ z a -> z {depModules = Just a},
     withArg "--dep-units" \ z a -> z {depUnits = Just a},
+    withArg "--home-unit" \ z a -> z {homeUnit = Just a},
     withArg "--extra-env-key" \ z a -> z {envKey = Just a},
     withArgErr "--extra-env-value" \ z a -> addEnv z a,
     withArg "--worker-target-id" \ z a -> z {workerTargetId = Just (TargetId a)},
@@ -189,6 +192,7 @@ toGhcArgs :: BuckArgs -> IO Args
 toGhcArgs args = do
   cachedDeps <- traverse (decodeJsonArg "--dep-modules") args.depModules
   cachedBuildPlans <- traverse (decodeJsonArg "--dep-units") args.depUnits
+  homeUnit <- traverse (decodeJsonArg "--home-unit") args.homeUnit
   topdir <- (<|> args.topdir) <$> readPath args.ghcDirFile
   packageDb <- readPath args.ghcDbFile
   -- When a module name was specified, we don't read any args because we can't use them when picking @ModSummary@ from
@@ -207,7 +211,8 @@ toGhcArgs args = do
     moduleTarget,
     ghcOptions = ghcArgs ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
     cachedBuildPlans,
-    cachedDeps
+    cachedDeps,
+    homeUnit
   }
   where
     packageDbArg path = ["-package-db", path]

@@ -6,7 +6,7 @@ import Data.Map (Map)
 import Data.Map.Strict ((!?))
 import GHC.Unit (UnitId)
 import GHC.Utils.Outputable (showPprUnsafe)
-import Types.CachedDeps (CachedBuildPlans, CachedDeps)
+import Types.CachedDeps (CachedBuildPlans, CachedDeps, CachedUnit)
 import Types.Target (ModuleTarget)
 
 newtype TargetId = TargetId {string :: String}
@@ -29,7 +29,8 @@ data Args =
     moduleTarget :: Maybe ModuleTarget,
     ghcOptions :: [String],
     cachedBuildPlans :: Maybe CachedBuildPlans,
-    cachedDeps :: Maybe CachedDeps
+    cachedDeps :: Maybe CachedDeps,
+    homeUnit :: Maybe CachedUnit
   }
   deriving stock (Eq, Show)
 
@@ -44,5 +45,6 @@ emptyArgs env =
     moduleTarget = Nothing,
     ghcOptions = [],
     cachedBuildPlans = Nothing,
-    cachedDeps = Nothing
+    cachedDeps = Nothing,
+    homeUnit = Nothing
   }
