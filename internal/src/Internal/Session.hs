@@ -6,111 +6,49 @@ import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, readMVar)
 import Control.Exception (finally)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
-import Data.Foldable (toList, traverse_)
+import Data.Foldable (traverse_)
 import Data.IORef (newIORef)
-import Data.List (intercalate)
-import Data.List.NonEmpty (nonEmpty)
-import Data.Maybe (maybeToList)
-import qualified Data.Set as Set
 import qualified GHC
 import GHC (
   DynFlags (..),
   GeneralFlag (Opt_KeepTmpFiles),
   Ghc,
-  GhcException (..),
-  GhcLink (LinkBinary),
   Phase,
   getSession,
   getSessionDynFlags,
   gopt,
-  parseDynamicFlags,
-  parseTargetFiles,
   popLogHookM,
   prettyPrintGhcErrors,
   pushLogHookM,
   setSessionDynFlags,
   withSignalHandlers,
   )
-import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
-import GHC.Driver.Config.Logger (initLogFlags)
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateFlags)
-import GHC.Driver.Errors (printOrThrowDiagnostics)
-import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
+import GHC.Driver.Errors.Types (DriverMessages)
 import GHC.Driver.Main (initHscEnv)
 import GHC.Driver.Monad (Session (Session), modifySession, modifySessionM, unGhc)
 import GHC.Runtime.Loader (initializeSessionPlugins)
-import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
+import GHC.Types.SrcLoc (Located)
 import GHC.Unit (moduleUnitId)
-import GHC.Utils.Logger (getLogger, setLogFlags)
+import GHC.Utils.Logger (getLogger)
 import GHC.Utils.Outputable (ppr, text, (<+>))
-import GHC.Utils.Panic (panic, pprPanic, throwGhcExceptionIO)
+import GHC.Utils.Panic (panic, pprPanic)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Cache.Hpt (loadCachedDeps)
+import Internal.DynFlags (buckLocation, initDynFlags, instrumentLocation, parseFlags, setupPath)
 import Internal.Error (handleExceptions)
 import Internal.Log (logDebugD, logToState)
 import Internal.State (withCacheMake, withCacheOneshot)
 import Prelude hiding (log)
-import System.Environment (setEnv)
 import Types.Args (Args (..))
 import Types.Env (Env (..))
 import Types.Log (Logger)
-import Types.State (BinPath (..), Options (..), WorkerState (..))
+import Types.State (Options (..), WorkerState (..))
 import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
 
--- | Add all the directories passed by Buck in @--bin-path@ options to the global @$PATH@.
--- Although Buck intends these to be module specific, all subsequent compile jobs will see all previous jobs' entries,
--- since we only have one process environment.
-setupPath :: [String] -> WorkerState -> IO WorkerState
-setupPath binPath old = do
-  setEnv "PATH" (intercalate ":" (toList path.extra ++ maybeToList path.initial))
-  pure new
-  where
-    path = new.path
-    new = old {path = old.path {extra}}
-    extra
-      | Just cur <- nonEmpty binPath
-      = Set.union old.path.extra (Set.fromList (toList cur))
-      | otherwise
-      = old.path.extra
-
 setTempDir :: String -> HscEnv -> HscEnv
 setTempDir dir = hscUpdateFlags \ dflags -> dflags {tmpDir = TempDir dir}
-
-buckLocation :: a -> Located a
-buckLocation = mkGeneralLocated "by Buck2"
-
-instrumentLocation :: a -> Located a
-instrumentLocation = mkGeneralLocated "by instrument"
-
--- | Parse command line flags into @DynFlags@ and set up the logger. Extracted from GHC.
--- Returns the subset of args that have not been recognized as options.
-parseFlags ::
-  DynFlags ->
-  GHC.Logger ->
-  [Located String] ->
-  IO (DynFlags, GHC.Logger, [Located String], DriverMessages)
-parseFlags dflags0 logger0 argv = do
-  let dflags1 = dflags0 {ghcLink = LinkBinary, verbosity = 0}
-  let logger1 = setLogFlags logger0 (initLogFlags dflags1)
-  (dflags, fileish_args, dynamicFlagWarnings) <- parseDynamicFlags logger1 dflags1 argv
-  pure (dflags, setLogFlags logger1 (initLogFlags dflags), fileish_args, dynamicFlagWarnings)
-
--- | Parse CLI args and initialize 'DynFlags'.
--- Returns the subset of args that have not been recognized as options.
-initDynFlags ::
-  DynFlags ->
-  GHC.Logger ->
-  [Located String] ->
-  DriverMessages ->
-  IO (DynFlags, [(String, Maybe Phase)])
-initDynFlags dflags0 logger fileish_args dynamicFlagWarnings = do
-  printOrThrowDiagnostics logger (initPrintConfig dflags0) (initDiagOpts dflags0) flagWarnings'
-  let (dflags1, srcs, objs) = parseTargetFiles dflags0 (map unLoc fileish_args)
-  unless (null objs) $ throwGhcExceptionIO (UsageError ("Targets contain object files: " ++ show objs))
-  pure (dflags1, srcs)
-  where
-    flagWarnings' = GhcDriverMessage <$> dynamicFlagWarnings
 
 -- | Parse CLI args and set up the GHC session.
 -- Returns the subset of args that have not been recognized as options.

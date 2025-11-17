@@ -37,6 +37,7 @@ library
                       Internal.Compile.Make
                       Internal.Compile.Oneshot
                       Internal.Debug
+                      Internal.DynFlags
                       Internal.Error
                       Internal.Log
                       Internal.MakeFile
