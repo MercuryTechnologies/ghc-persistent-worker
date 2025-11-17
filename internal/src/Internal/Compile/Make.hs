@@ -36,6 +36,7 @@ import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
+import Internal.Debug (pprModuleFull)
 import Internal.Error (eitherMessages, noteGhc)
 import Internal.Log (logTimedD)
 import Internal.State (ModuleArtifacts (..))
@@ -75,7 +76,10 @@ lookupSummary ::
 lookupSummary _logger hsc_env target =
   check =<< noteGhc notFound (mgLookupModule hsc_env.hsc_mod_graph target)
   where
-    notFound = "Could not find ModSummary in the module graph for " ++ showPprUnsafe target
+    notFound =
+      "Could not find ModSummary in the module graph for "
+      ++
+      showPprUnsafe (pprModuleFull target)
 
 #if RECENT
     check = \case
