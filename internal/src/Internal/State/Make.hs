@@ -7,6 +7,7 @@ import GHC.Driver.Env (HscEnv (..))
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Module.Graph (ModuleGraph)
 import Internal.State.Stats (logMemStats)
+import Internal.State.UnitIndex (restoreUnitIndex)
 import Internal.UnitEnv (mergeUnitEnvs)
 import Types.Log (Logger)
 import Types.State.Make (MakeState (..))
@@ -43,7 +44,7 @@ loadState ::
   IO HscEnv
 loadState logger hsc_env state = do
   logMemStats "load state" logger
-  pure (restoreHug (restoreModuleGraph hsc_env))
+  pure (restoreUnitIndex state (restoreHug (restoreModuleGraph hsc_env)))
   where
     restoreModuleGraph e = e {hsc_mod_graph = state.moduleGraph}
 

@@ -1,8 +1,20 @@
+{-# LANGUAGE CPP #-}
+
 module Types.State.Make where
 
 import GHC (ModuleGraph)
 import GHC.Runtime.Interpreter (Interp)
 import GHC.Unit.Env (HomeUnitGraph)
+
+#if defined(UNIT_INDEX)
+
+import GHC.Unit.State (UnitIndex)
+
+#else
+
+data UnitIndex = UnitIndex
+
+#endif
 
 -- | Data extracted from 'HscEnv' for the purpose of persisting it across sessions.
 --
@@ -24,5 +36,8 @@ data MakeState =
     -- | While the interpreter state contains a mutable variable that would be shared across sessions, it isn't
     -- initialized properly until the first module compilation's flags have been parsed, so we store it in the shared
     -- state for consistency.
-    interp :: Maybe Interp
+    interp :: Maybe Interp,
+
+    unitIndex :: UnitIndex
+
   }

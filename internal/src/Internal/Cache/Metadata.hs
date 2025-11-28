@@ -19,7 +19,7 @@ import GHC (DynFlags (..), IsBootInterface (..), ModuleName (..), mkModuleGraph)
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
 import GHC.Driver.Make (ModNodeKeyWithUid (..))
 import GHC.Driver.Session (updatePlatformConstants)
-import GHC.Unit (GenWithIsBoot (..), HomeUnit, UnitDatabase, UnitId, UnitState, initUnits)
+import GHC.Unit (GenWithIsBoot (..), HomeUnit, UnitDatabase, UnitId (..), UnitState, initUnits)
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), updateHug)
 import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
@@ -89,7 +89,11 @@ insertHomeUnit unit dflags dbs unit_state home_unit unit_env = do
 -- | Create a new home unit using the supplied 'DynFlags'.
 initHomeUnit :: DynFlags -> GHC.Logger -> UnitId -> UnitEnv -> IO UnitEnv
 initHomeUnit dflags0 logger unit unit_env = do
+#if defined(UNIT_INDEX)
+  (dbs, unit_state, home_unit, mconstants) <- initUnits logger dflags0 unit_env.ue_index Nothing allUnitIds
+#else
   (dbs, unit_state, home_unit, mconstants) <- initUnits logger dflags0 Nothing allUnitIds
+#endif
   dflags1 <- updatePlatformConstants dflags0 mconstants
   insertHomeUnit unit dflags1 dbs unit_state home_unit unit_env
   where

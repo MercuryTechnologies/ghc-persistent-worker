@@ -1,3 +1,5 @@
+{-# LANGUAGE NoFieldSelectors #-}
+
 module Types.Env where
 
 import Control.Concurrent (MVar)

@@ -33,6 +33,11 @@ flag downsweep-cache
     manual: True
     default: False
 
+flag unit-index
+    description: GHC contains the patch for the abstraction of parts of the unit state
+    manual: True
+    default: False
+
 library
     ghc-options:      -Wall
     hs-source-dirs:   src
@@ -54,6 +59,8 @@ library
                       Internal.State.Make
                       Internal.State.Oneshot
                       Internal.State.Stats
+                      Internal.State.UnitIndex
+                      Internal.State.UnitIndex.Update
                       Internal.UnitEnv
 
     if (impl(ghc >= 9.11))
@@ -77,12 +84,16 @@ library
     if (flag(downsweep-cache))
         cpp-options: -DDOWNSWEEP_CACHE
 
+    if (flag(unit-index))
+        cpp-options: -DUNIT_INDEX
+
     build-depends:    aeson,
                       binary,
                       buck-worker-types,
                       bytestring,
                       containers,
                       directory,
+                      deepseq,
                       exceptions,
                       filepath,
                       ghc,

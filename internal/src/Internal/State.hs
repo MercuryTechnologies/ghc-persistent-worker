@@ -15,6 +15,7 @@ import Internal.Log (logDebug, logDebugD)
 import qualified Internal.State.Make as Make
 import qualified Internal.State.Oneshot as Oneshot
 import qualified Internal.State.Stats as Stats
+import Internal.State.UnitIndex (newUnitIndex)
 import System.Environment (lookupEnv)
 import Types.Args (TargetId (..))
 import Types.Log (Logger)
@@ -43,6 +44,7 @@ newStateWith :: OneshotCacheFeatures -> IO (MVar WorkerState)
 newStateWith features = do
   initialPath <- lookupEnv "PATH"
   oneshot <- newOneshotStateWith features
+  unitIndex <- newUnitIndex
   newMVar WorkerState {
     path = BinPath {
       initial = initialPath,
@@ -53,7 +55,8 @@ newStateWith features = do
     make = MakeState {
       moduleGraph = emptyMG,
       hug = unitEnv_new mempty,
-      interp = Nothing
+      interp = Nothing,
+      unitIndex
     },
     oneshot,
     targetArgs = mempty

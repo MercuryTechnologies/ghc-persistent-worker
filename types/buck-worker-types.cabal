@@ -6,6 +6,11 @@ license: MIT
 license-file: LICENSE
 build-type: Simple
 
+flag unit-index
+    description: GHC contains the patch for the abstraction of parts of the unit state
+    manual: True
+    default: False
+
 library
   ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages -O2
   default-language: GHC2021
@@ -48,3 +53,6 @@ library
     ghc,
     split,
     text
+
+  if (flag(unit-index))
+      cpp-options: -DUNIT_INDEX
