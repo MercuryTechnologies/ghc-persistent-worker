@@ -30,6 +30,7 @@ import Control.Monad (unless, when)
 import Data.Foldable (traverse_)
 import Data.IORef
 import Data.List (partition)
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified GHC
 import GHC.Data.Graph.Directed (SCC (..))
@@ -43,15 +44,11 @@ import GHC.Driver.Phases (Phase (Unlit), StopPhase (StopPreprocess), startPhase)
 import GHC.Driver.Pipeline (TPhase (T_FileArgs, T_Unlit), mkPipeEnv, runPipeline, use)
 import GHC.Driver.Pipeline.Monad (PipelineOutput (NoOutputFile))
 import GHC.Driver.Session (pgm_F)
-import GHC.Iface.Errors.Types
-import GHC.Iface.Load (cannotFindModule)
 import GHC.Prelude
 import qualified GHC.SysTools as SysTools
 import GHC.Types.Error (unionManyMessages)
-import GHC.Types.PkgQual
 import GHC.Types.SourceError
 import GHC.Types.SrcLoc
-import GHC.Unit.Finder
 import GHC.Unit.Module
 import GHC.Unit.Module.Graph
 import GHC.Unit.Module.ModSummary
@@ -127,11 +124,13 @@ doMkDependModuleGraph dflags module_graph = do
     -- Print out the dependencies if wanted
     liftIO $ debugTraceMsg logger 2 (text "Module dependencies" $$ ppr sorted)
 
+    hsc_env <- getSession
+    let node_dep_map = buildNodeDepMap hsc_env sorted
+
     -- Process them one by one, dumping results into makefile
     -- and complaining about cycles
-    hsc_env <- getSession
     root <- liftIO getCurrentDirectory
-    mapM_ (liftIO . processDeps dflags hsc_env excl_mods root (mkd_tmp_hdl files) (mkd_dep_json files)) sorted
+    mapM_ (liftIO . processDeps dflags hsc_env excl_mods root (mkd_tmp_hdl files) (mkd_dep_json files) node_dep_map) sorted
 
     -- If -ddump-mod-cycles, show cycles in the module graph
     liftIO $ dumpModCycles logger module_graph
@@ -210,12 +209,50 @@ beginMkDependHS logger tmpfs dflags = do
 --
 -----------------------------------------------------------------
 
+type NodeDepMap = Map.Map NodeKey Dep
+
+buildNodeDepMap :: HscEnv -> [SCC ModuleGraphNode] -> NodeDepMap
+buildNodeDepMap hsc_env =
+  foldl' insertScc Map.empty
+  where
+    insertScc acc = foldl' insertNode acc . flatten
+
+    flatten (AcyclicSCC node) = [node]
+    flatten (CyclicSCC nodes) = nodes
+
+    insertNode acc node =
+      case node of
+#if FIXED_NODES
+        ModuleNode _ (ModuleNodeCompile info) ->
+          Map.insert (mkNodeKey node) (mkDep info) acc
+#else
+        ModuleNode _ info ->
+          Map.insert (mkNodeKey node) (mkDep info) acc
+#endif
+        _ -> acc
+
+    mkDep :: ModSummary -> Dep
+    mkDep info =
+      let loc = ms_location info
+          dep_unit_id = ms_unitid info
+          dep_mod = ms_mod info
+          dep_local = isJust (ml_hs_file loc) && dep_unit_id == hscActiveUnitId hsc_env
+      in DepHi
+        { dep_mod
+        , dep_unit_id
+        , dep_path = ml_hi_file loc
+        , dep_unit = lookupUnitId (hsc_units hsc_env) dep_unit_id
+        , dep_local
+        , dep_boot = isBootSummary info
+        }
+
 processDeps :: DynFlags
             -> HscEnv
             -> [ModuleName]
             -> FilePath
             -> Handle           -- Write dependencies to here
             -> Maybe (JsonOutput DepJSON)
+            -> NodeDepMap
             -> SCC ModuleGraphNode
             -> IO ()
 -- Write suitable dependencies to handle
@@ -233,40 +270,40 @@ processDeps :: DynFlags
 --
 -- For {-# SOURCE #-} imports the "hi" will be "hi-boot".
 
-processDeps _dflags_ _ _ _ _ _ (AcyclicSCC (LinkNode {})) = return ()
+processDeps _dflags_ _ _ _ _ _ _ (AcyclicSCC (LinkNode {})) = return ()
 
 #if FIXED_NODES
 
-processDeps _ _ _ _ _ _ (CyclicSCC nodes)
+processDeps _ _ _ _ _ _ _ (CyclicSCC nodes)
   =     -- There shouldn't be any cycles; report them
     throwOneError $ cyclicModuleErr nodes
-processDeps _ _ _ _ _ _ (AcyclicSCC (InstantiationNode _uid node))
+processDeps _ _ _ _ _ _ _ (AcyclicSCC (InstantiationNode _uid node))
   =     -- There shouldn't be any backpack instantiations; report them as well
     throwOneError $
       mkPlainErrorMsgEnvelope noSrcSpan $
       GhcDriverMessage $ DriverInstantiationNodeInDependencyGeneration node
-processDeps _ _ _ _ _ _ (AcyclicSCC (UnitNode {})) = return ()
-processDeps _ _ _ _ _ _ (AcyclicSCC (ModuleNode _ (ModuleNodeFixed {})))
+processDeps _ _ _ _ _ _ _ (AcyclicSCC (UnitNode {})) = return ()
+processDeps _ _ _ _ _ _ _ (AcyclicSCC (ModuleNode _ (ModuleNodeFixed {})))
   -- No dependencies needed for fixed modules (already compiled)
   = return ()
 
-processDeps dflags hsc_env excl_mods root hdl m_dep_json (AcyclicSCC (ModuleNode _ (ModuleNodeCompile node)))
+processDeps dflags hsc_env excl_mods root hdl m_dep_json node_dep_map (AcyclicSCC (ModuleNode node_deps (ModuleNodeCompile node)))
 
 #else
 
-processDeps dflags _ _ _ _ _ (CyclicSCC nodes)
+processDeps dflags _ _ _ _ _ _ (CyclicSCC nodes)
   =     -- There shouldn't be any cycles; report them
     throwGhcExceptionIO $ ProgramError $
       showSDoc dflags $ cyclicModuleErr nodes
 
-processDeps dflags _ _ _ _ _ (AcyclicSCC (InstantiationNode _uid node))
+processDeps dflags _ _ _ _ _ _ (AcyclicSCC (InstantiationNode _uid node))
   =     -- There shouldn't be any backpack instantiations; report them as well
     throwGhcExceptionIO $ ProgramError $
       showSDoc dflags $
         vcat [ text "Unexpected backpack instantiation in dependency graph while constructing Makefile:"
              , nest 2 $ ppr node ]
 
-processDeps dflags hsc_env excl_mods root hdl m_dep_json (AcyclicSCC (ModuleNode _ node))
+processDeps dflags hsc_env excl_mods root hdl m_dep_json node_dep_map (AcyclicSCC (ModuleNode node_deps node))
 
 #endif
 
@@ -277,8 +314,7 @@ processDeps dflags hsc_env excl_mods root hdl m_dep_json (AcyclicSCC (ModuleNode
   pp <- preprocessor
   deps <- fmap concat $ sequence $
     [cpp_deps | depIncludeCppDeps dflags] ++ [
-      import_deps IsBoot (ms_srcimps node),
-      import_deps NotBoot (ms_imps node)
+      pure graph_deps
     ]
   updateJson m_dep_json (updateDepJSON include_pkg_deps pp dep_node deps)
   writeDependencies include_pkg_deps root hdl extra_suffixes dep_node deps
@@ -295,6 +331,12 @@ processDeps dflags hsc_env excl_mods root hdl m_dep_json (AcyclicSCC (ModuleNode
         dn_boot = isBootSummary node,
         dn_options = Set.fromList (ms_opts node)
       }
+    graph_deps =
+      [ dep
+      | edge <- node_deps
+      , dep <- maybeToList (Map.lookup edge node_dep_map)
+      , moduleName (dep.dep_mod) `notElem` excl_mods
+      ]
 
     preprocessor
       | Just src <- ml_hs_file (ms_location node)
@@ -326,47 +368,6 @@ processDeps dflags hsc_env excl_mods root hdl m_dep_json (AcyclicSCC (ModuleNode
       session <- Session <$> newIORef hsc_env
       parsedMod <- reflectGhc (GHC.parseModule node) session
       pure (DepCpp <$> GHC.pm_extra_src_files parsedMod)
-
-    -- Emit a dependency for each import
-    import_deps is_boot idecls =
-      sequence [
-        findDependency hsc_env loc mb_pkg mod is_boot
-        | (mb_pkg, L loc mod) <- idecls
-        , mod `notElem` excl_mods
-        ]
-
-
-findDependency  :: HscEnv
-                -> SrcSpan
-                -> PkgQual              -- package qualifier, if any
-                -> ModuleName           -- Imported module
-                -> IsBootInterface      -- Source import
-                -> IO Dep
-findDependency hsc_env srcloc pkg imp dep_boot = do
-  -- Find the module; this will be fast because
-  -- we've done it once during downsweep
-  findImportedModule hsc_env imp pkg >>= \case
-    Found loc dep_mod ->
-      pure DepHi {
-        dep_mod,
-        dep_unit_id,
-        dep_path = ml_hi_file loc,
-        dep_unit = lookupUnitId (hsc_units hsc_env) dep_unit_id,
-        dep_local,
-        dep_boot
-      }
-      where
-        dep_local = isJust (ml_hs_file loc) && hscActiveUnitId hsc_env == dep_unit_id
-
-        dep_unit_id = moduleUnitId dep_mod
-
-    fail ->
-      throwOneError $
-      mkPlainErrorMsgEnvelope srcloc $
-      GhcDriverMessage $
-      DriverInterfaceError $
-      Can'tFindInterface (cannotFindModule hsc_env imp fail) $
-      LookingForModule imp dep_boot
 
 writeDependencies ::
   Bool ->
@@ -429,14 +430,14 @@ writeDependencies include_pkgs root hdl suffixes node deps =
 writeDependency :: FilePath -> Handle -> [FilePath] -> FilePath -> IO ()
 -- (writeDependency r h [t1,t2] dep) writes to handle h the dependency
 --      t1 t2 : dep
-writeDependency root hdl targets dep
+writeDependency _root hdl targets dep
   = do let -- We need to avoid making deps on
            --     c:/foo/...
            -- on cygwin as make gets confused by the :
            -- Making relative deps avoids some instances of this.
-           dep' = makeRelative root dep
+           -- dep' = makeRelative root dep
            forOutput = escapeSpaces . reslash Forwards . normalise
-           output = unwords (map forOutput targets) ++ " : " ++ forOutput dep'
+           output = unwords (map forOutput targets) ++ " : " ++ dep -- forOutput dep'
        hPutStrLn hdl output
 
 -----------------------------
