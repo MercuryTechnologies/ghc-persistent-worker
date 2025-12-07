@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+
 #define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10))
 
 module Internal.Cache.Metadata where
@@ -30,7 +31,14 @@ import Internal.State (updateMakeState)
 import Internal.State.Make (insertUnitEnv, storeModuleGraph)
 import Internal.UnitEnv (emptyHomePackageTable)
 import Types.BuckArgs (CachedBuckArgs (..), parseCachedBuckArgs)
-import Types.CachedDeps (CachedBuildPlan (..), CachedBuildPlans (..), CachedModule (..), CachedUnit (..), JsonFs (..))
+import Types.CachedDeps (
+  CachedBuildPlan (..),
+  CachedBuildPlans (..),
+  CachedModule (..),
+  CachedPackageDep (..),
+  CachedUnit (..),
+  JsonFs (..),
+  )
 import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
 import Types.State.Make (MakeState (..))
@@ -103,16 +111,30 @@ decodeJsonBuildPlan =
     Right a -> pure a
     Left err -> throwIO (userError err)
 
--- | This doesn't restore any non-home-unit dependencies. I'm not sure why...maybe those aren't needed for cached
--- modules.
--- I would expect TH to fail, but it appear not to.
+-- | Construct a 'ModuleGraphNode' from data obtained from the Buck cache and add its location to the @Finder@.
+--
+-- If GHC has fixed module graph nodes, those are constructed; otherwise we have to call 'summariseFile' to create a
+-- full node, which parses the module.
 loadCachedModule :: HscEnv -> UnitId -> JsonFs ModuleName -> CachedModule -> IO ModuleGraphNode
-loadCachedModule hsc_env unit (JsonFs name) CachedModule {sources, modules} = do
+loadCachedModule hsc_env unit (JsonFs name) CachedModule {sources, modules, packages} = do
   src <- notePpr "Number of sources /= 1 for module:" name (listToMaybe sources)
   node <- createNode src
-  pure (ModuleNode deps node)
+  pure (ModuleNode (homeDeps ++ packageDeps) node)
   where
-    deps = [NodeKey_Module (ModNodeKeyWithUid (GWIB depName NotBoot) unit) | JsonFs depName <- modules]
+    homeDeps =
+      [
+        NodeKey_Module (ModNodeKeyWithUid (GWIB depName NotBoot) unit)
+        |
+        JsonFs depName <- modules
+      ]
+
+    packageDeps =
+      [
+        NodeKey_Module (ModNodeKeyWithUid (GWIB depName NotBoot) depUnit)
+        |
+        CachedPackageDep {id = JsonFs depUnit, modules = depModules} <- packages,
+        JsonFs depName <- depModules
+      ]
 
 #if RECENT
     createNode src = do

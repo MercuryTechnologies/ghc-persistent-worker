@@ -55,10 +55,19 @@ newtype CachedDeps =
   deriving stock (Eq, Show, Generic)
   deriving newtype (FromJSON)
 
+data CachedPackageDep =
+  CachedPackageDep {
+     id :: JsonFs UnitId,
+     modules :: [JsonFs ModuleName]
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (FromJSON)
+
 data CachedModule =
   CachedModule {
     sources :: [FilePath],
-    modules :: [JsonFs ModuleName]
+    modules :: [JsonFs ModuleName],
+    packages :: [CachedPackageDep]
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON)
