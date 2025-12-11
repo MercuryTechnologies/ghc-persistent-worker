@@ -2,10 +2,10 @@
 
 module Internal.State where
 
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, readMVar, withMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar, withMVar)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Foldable (traverse_)
-import GHC (Ghc, ModIface, mi_module, moduleName, moduleNameString, setSession)
+import GHC (Ghc, ModIface, emptyMG, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Monad (modifySessionM, withSession)
 import GHC.Linker.Types (Linkable)
@@ -15,12 +15,19 @@ import Internal.Log (logDebug, logDebugD)
 import qualified Internal.State.Make as Make
 import qualified Internal.State.Oneshot as Oneshot
 import qualified Internal.State.Stats as Stats
+import System.Environment (lookupEnv)
 import Types.Args (TargetId (..))
 import Types.Log (Logger)
-import Types.State (WorkerState (..))
+import Types.State (BinPath (..), WorkerState (..), defaultOptions)
 import Types.State.Make (MakeState (..))
-import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
+import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..), newOneshotCacheFeatures, newOneshotStateWith)
 import Types.Target (Target)
+
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+import GHC.Unit.Home.Graph (unitEnv_new)
+#else
+import GHC.Unit.Env (unitEnv_new)
+#endif
 
 data ModuleArtifacts =
   ModuleArtifacts {
@@ -31,6 +38,29 @@ data ModuleArtifacts =
 instance Show ModuleArtifacts where
   show ModuleArtifacts {iface} =
     "ModuleArtifacts { iface = " ++ moduleNameString (moduleName (mi_module iface)) ++ " }"
+
+newStateWith :: OneshotCacheFeatures -> IO (MVar WorkerState)
+newStateWith features = do
+  initialPath <- lookupEnv "PATH"
+  oneshot <- newOneshotStateWith features
+  newMVar WorkerState {
+    path = BinPath {
+      initial = initialPath,
+      extra = mempty
+    },
+    baseSession = Nothing,
+    options = defaultOptions,
+    make = MakeState {
+      moduleGraph = emptyMG,
+      hug = unitEnv_new mempty,
+      interp = Nothing
+    },
+    oneshot,
+    targetArgs = mempty
+  }
+
+newState :: Bool -> IO (MVar WorkerState)
+newState enable = newStateWith newOneshotCacheFeatures {enable}
 
 modifyMakeState :: MVar WorkerState -> (MakeState -> IO (MakeState, a)) -> IO a
 modifyMakeState var f =

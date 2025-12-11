@@ -1,23 +1,12 @@
-{-# LANGUAGE CPP #-}
-
 module Types.State where
 
-import Control.Concurrent (MVar, newMVar)
 import Data.Map.Strict (Map)
 import Data.Set (Set)
-import GHC (HscEnv, emptyMG)
-import System.Environment (lookupEnv)
+import GHC (HscEnv)
 import Types.Grpc (CommandEnv, RequestArgs)
 import Types.State.Make (MakeState (..))
-import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState, newOneshotCacheFeatures, newOneshotStateWith)
+import Types.State.Oneshot (OneshotState)
 import Types.Target (TargetSpec)
-
-
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
-import GHC.Unit.Home.Graph (unitEnv_new)
-#else
-import GHC.Unit.Env (unitEnv_new)
-#endif
 
 data BinPath =
   BinPath {
@@ -46,26 +35,3 @@ data WorkerState =
     oneshot :: OneshotState,
     targetArgs :: Map TargetSpec (CommandEnv, RequestArgs)
   }
-
-newStateWith :: OneshotCacheFeatures -> IO (MVar WorkerState)
-newStateWith features = do
-  initialPath <- lookupEnv "PATH"
-  oneshot <- newOneshotStateWith features
-  newMVar WorkerState {
-    path = BinPath {
-      initial = initialPath,
-      extra = mempty
-    },
-    baseSession = Nothing,
-    options = defaultOptions,
-    make = MakeState {
-      moduleGraph = emptyMG,
-      hug = unitEnv_new mempty,
-      interp = Nothing
-    },
-    oneshot,
-    targetArgs = mempty
-  }
-
-newState :: Bool -> IO (MVar WorkerState)
-newState enable = newStateWith newOneshotCacheFeatures {enable}
