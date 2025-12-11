@@ -93,7 +93,13 @@ doMkDependHS srcs = do
     targets <- mapM (\s -> GHC.guessTarget s Nothing Nothing) srcs
     GHC.setTargets targets
     let excl_mods = depExcludeMods dflags
+#if defined(DOWNSWEEP_CACHE)
+    hsc_env <- getSession
+    let mod_graph = hsc_mod_graph hsc_env
+    (errs, module_graph) <- withSession \ hsc_env -> liftIO $ downsweepCompat hsc_env (mgModSummaries mod_graph) (Just mod_graph) excl_mods True
+#else
     (errs, module_graph) <- withSession \ hsc_env -> liftIO $ downsweepCompat hsc_env [] excl_mods True
+#endif
     let msgs = unionManyMessages errs
     unless (isEmptyMessages msgs) $ throwErrors (fmap GhcDriverMessage msgs)
     doMkDependModuleGraph dflags module_graph
@@ -101,6 +107,9 @@ doMkDependHS srcs = do
     where
 #if FIXED_NODES
       downsweepCompat hsc_env = downsweep hsc_env mkUnknownDiagnostic Nothing
+#elif defined(DOWNSWEEP_CACHE)
+      downsweepCompat hsc_env old_summaries old_graph excl_mods allow_dup_roots =
+        fmap mkModuleGraph <$> downsweep hsc_env old_summaries old_graph excl_mods allow_dup_roots
 #else
       downsweepCompat hsc_env old_summaries excl_mods allow_dup_roots =
         fmap mkModuleGraph <$> downsweep hsc_env old_summaries excl_mods allow_dup_roots

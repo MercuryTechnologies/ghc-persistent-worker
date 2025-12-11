@@ -28,6 +28,11 @@ flag mwb-25-10
     manual: True
     default: False
 
+flag downsweep-cache
+    description: GHC contains the patch for using an old module graph as a cache for downsweep
+    manual: True
+    default: False
+
 library
     ghc-options:      -Wall
     hs-source-dirs:   src
@@ -68,6 +73,9 @@ library
 
     if (flag(mwb-25-10))
         cpp-options: -DMWB -DMWB_2025_10
+
+    if (flag(downsweep-cache))
+        cpp-options: -DDOWNSWEEP_CACHE
 
     build-depends:    aeson,
                       binary,
