@@ -60,7 +60,7 @@ executable ghc-worker
   import: all
   main-is: Main.hs
   hs-source-dirs: app/ghc-worker
-  ghc-options: -O2 -threaded "-with-rtsopts=-N -T"
+  ghc-options: -O2 -threaded "-with-rtsopts=-K512M -I5 -A128M -T -N"
   build-depends:
     ghc-worker
 
