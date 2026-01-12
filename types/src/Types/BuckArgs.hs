@@ -24,8 +24,6 @@ data Mode =
   |
   ModeMetadata
   |
-  ModeClose
-  |
   ModeUnknown String
   deriving stock (Eq, Show)
 
@@ -34,7 +32,6 @@ parseMode = \case
   "compile" -> ModeCompile
   "link" -> ModeLink
   "metadata" -> ModeMetadata
-  "close" -> ModeClose
   mode -> ModeUnknown mode
 
 data BuckArgs =
@@ -119,7 +116,6 @@ options =
     withArg "--bin-exe" \ z a -> z {binPath = takeDirectory a : z.binPath},
     withArg "--worker-mode" \ z a -> z {mode = Just (parseMode a)},
     flag "--worker-multiplexer-custom" \ z -> z {multiplexerCustom = True},
-    withArg "--worker-close" \z _a -> z {mode = Just ModeClose},
     withArg "--close-input" \z a -> z {closeInput = Just a},
     withArg "--close-output" \z a -> z {closeOutput = Just a},
     ("-c", \ rest z -> Right (rest, z {mode = Just ModeCompile})),

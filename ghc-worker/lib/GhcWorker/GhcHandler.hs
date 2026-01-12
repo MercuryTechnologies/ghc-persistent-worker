@@ -1,7 +1,7 @@
 module GhcWorker.GhcHandler where
 
 import Common.Grpc (GrpcHandler (..))
-import Control.Concurrent (MVar, forkIO, modifyMVar_, threadDelay)
+import Control.Concurrent (MVar, modifyMVar_)
 import Control.Exception (throwIO, try)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
@@ -14,20 +14,18 @@ import GHC.Debug.Stub (withGhcDebugUnix)
 import GHC.Driver.DynFlags (GhcMode (..))
 import GHC.Driver.Env (hscUpdateFlags)
 import GHC.Driver.Monad (modifySession, reflectGhc, reifyGhc)
-import GhcWorker.CompileResult (CompileResult (..), writeCloseOutput, writeResult)
+import GhcWorker.CompileResult (CompileResult (..), writeResult)
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import GhcWorker.Orchestration (FeatureInstrument (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Compile.Make (compileModuleWithDepsInHpt)
 import Internal.Compile.Oneshot (compileModuleWithDepsInEps)
 import Internal.Debug (debugSocketPath)
-import Internal.Log (dbg, logFlush, newLogger)
+import Internal.Log (logFlush, newLogger)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (withGhcMakeModule, withGhcMakeSource, withGhcOneshotSource)
 import Internal.State (ModuleArtifacts (..), dumpState)
 import Prelude hiding (log)
-import System.Exit (ExitCode (ExitSuccess))
-import System.Posix.Process (exitImmediately)
 import Types.Args (Args (..))
 import qualified Types.BuckArgs
 import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
@@ -81,13 +79,6 @@ dispatch workerMode hooks env args targetCallback =
     Just ModeMetadata -> do
       (success, target) <- computeMetadata env
       pure (if success then 0 else 1, target)
-    Just ModeClose -> do
-      dbg "in dispatch. Mode Close"
-      _ <- writeCloseOutput args
-      _ <- forkIO $ do
-        threadDelay 1_000_000
-        exitImmediately ExitSuccess
-      pure (0, Nothing)
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
   where
