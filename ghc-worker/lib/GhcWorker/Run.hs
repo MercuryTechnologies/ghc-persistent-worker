@@ -10,7 +10,7 @@ import GhcWorker.GhcHandler (ghcHandler)
 import GhcWorker.Grpc (instrumentMethods)
 import GhcWorker.Instrumentation (WorkerStatus (..), toGrpcHandler)
 import GhcWorker.Orchestration (CreateMethods (..), FeatureInstrument (..), runCentralGhcSpawned)
-import Internal.State (newState, newStateWith)
+import Internal.State (newStateWith)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
 import Network.GRPC.Server.StreamType (Methods)
 import Types.GhcHandler (WorkerMode (..))
@@ -38,7 +38,7 @@ data CliOptions =
 defaultCliOptions :: CliOptions
 defaultCliOptions =
   CliOptions {
-    workerMode = WorkerOneshotMode,
+    workerMode = WorkerMakeMode,
     serve = ServerSocketPath "" "" "",
     instrument = FeatureInstrument False
   }
@@ -49,7 +49,6 @@ parseOptions =
   where
     spin z = \case
       [] -> pure z
-      "--make" : rest -> spin z {workerMode = WorkerMakeMode} rest
       "--serve" : socket : rest -> spin z {serve = serverSocketFromPath socket} rest
       "--instrument" : rest -> spin z {instrument = FeatureInstrument True} rest
       arg -> throwIO (userError ("Invalid worker CLI args: " ++ unwords arg))
@@ -84,17 +83,13 @@ createGhcMethods state workerMode instrument status traceId instrChan =
 -- | Main function for running the default persistent worker using the provided server socket path and CLI options.
 runWorker :: CliOptions -> IO ()
 runWorker CliOptions {workerMode, serve, instrument} = do
-  state <-
-    case workerMode of
-      WorkerMakeMode ->
-        newStateWith OneshotCacheFeatures {
-          loader = False,
-          enable = True,
-          names = False,
-          finder = False,
-          eps = False
-        }
-      WorkerOneshotMode -> newState True
+  state <- newStateWith OneshotCacheFeatures {
+    loader = False,
+    enable = True,
+    names = False,
+    finder = False,
+    eps = False
+  }
   status <- newMVar WorkerStatus {active = 0}
   let
     methods = CreateMethods {

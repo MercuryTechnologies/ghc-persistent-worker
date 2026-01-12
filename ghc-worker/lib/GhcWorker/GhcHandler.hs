@@ -19,11 +19,10 @@ import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import GhcWorker.Orchestration (FeatureInstrument (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Compile.Make (compileModuleWithDepsInHpt)
-import Internal.Compile.Oneshot (compileModuleWithDepsInEps)
 import Internal.Debug (debugSocketPath)
 import Internal.Log (logFlush, newLogger)
 import Internal.Metadata (computeMetadata)
-import Internal.Session (withGhcMakeModule, withGhcMakeSource, withGhcOneshotSource)
+import Internal.Session (withGhcMakeModule, withGhcMakeSource)
 import Internal.State (ModuleArtifacts (..), dumpState)
 import Prelude hiding (log)
 import Types.Args (Args (..))
@@ -83,8 +82,6 @@ dispatch workerMode hooks env args targetCallback =
     Nothing -> error "worker: no mode specified"
   where
     compile = case workerMode of
-      WorkerOneshotMode ->
-        withGhcOneshotSource env (withTarget (compileAndReadAbiHash OneShot compileModuleWithDepsInEps hooks args) . TargetSource)
       WorkerMakeMode
         | Just target <- env.args.moduleTarget -> do
           env.log.setTarget (TargetModule target)
