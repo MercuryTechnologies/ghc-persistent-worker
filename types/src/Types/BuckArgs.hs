@@ -188,7 +188,6 @@ toGhcArgs :: BuckArgs -> IO Args
 toGhcArgs args = do
   cachedDeps <- traverse (decodeJsonArg "--dep-modules") args.depModules
   cachedBuildPlans <- traverse (decodeJsonArg "--dep-units") args.depUnits
-  homeUnit <- traverse (decodeJsonArg "--home-unit") args.homeUnit
   topdir <- (<|> args.topdir) <$> readPath args.ghcDirFile
   packageDb <- readPath args.ghcDbFile
   -- When a module name was specified, we don't read any args because we can't use them when picking @ModSummary@ from
@@ -208,7 +207,7 @@ toGhcArgs args = do
     ghcOptions = ghcArgs ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
     cachedBuildPlans,
     cachedDeps,
-    homeUnit
+    homeUnit = args.homeUnit
   }
   where
     packageDbArg path = ["-package-db", path]

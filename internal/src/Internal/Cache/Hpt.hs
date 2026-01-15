@@ -197,13 +197,14 @@ loadHomeUnit ::
   DynFlags ->
   UnitId ->
   HscEnv ->
-  CachedUnit ->
+  FilePath ->
   IO HscEnv
-loadHomeUnit log stateVar dflags0 unit hsc_env0 cachedUnit
+loadHomeUnit log stateVar dflags0 unit hsc_env0 path
   | hasUnit unit hsc_env0
   = pure hsc_env0
   | otherwise
   = do
+    cachedUnit <- decodeJsonArg "--home-unit" path
     hsc_env1 <- fmap (fromMaybe hsc_env0) $ for cachedUnit.dep_units \ file -> do
       deps <- decodeJsonArg "--home-unit" file
       loadCachedUnits log stateVar dflags0 deps hsc_env0
