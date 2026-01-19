@@ -17,12 +17,17 @@ module Internal.MakeFile where
 #if FIXED_NODES
 
 import Data.Either (partitionEithers)
-import GHC.Data.OsPath (unsafeDecodeUtf, unsafeEncodeUtf)
 import GHC.Types.Error (mkUnknownDiagnostic)
 
 #else
 
 import GHC.Driver.Ppr
+
+#endif
+
+#if FIXED_NODES || defined(MWB_2026_01)
+
+import GHC.Data.OsPath (unsafeDecodeUtf, unsafeEncodeUtf)
 
 #endif
 
@@ -425,7 +430,7 @@ writeDependencies include_pkgs root hdl suffixes node deps =
 
     DepNode {dn_src, dn_obj, dn_hi, dn_boot} = node
 
-#if FIXED_NODES
+#if FIXED_NODES || defined(MWB_2026_01)
 
     viaOsPath f a = unsafeDecodeUtf (f (unsafeEncodeUtf a))
 

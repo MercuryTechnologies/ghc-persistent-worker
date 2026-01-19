@@ -16,11 +16,10 @@ import GHC.Utils.Outputable (Outputable, SDoc, hang, hcat, ppr, text, vcat, (<+>
 import System.FilePath ((</>))
 import Types.Target (TargetSpec, renderTargetSpec)
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB_2026_01)
 
 import GHC.Unit.Home.Graph (UnitEnvGraph (..))
 import GHC.Unit.Home.PackageTable (HomePackageTable (..), pprHPT)
-import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 
 #else
 
@@ -28,6 +27,12 @@ import GHC.Types.Unique.DFM (udfmToList)
 import GHC.Unit.Env (UnitEnvGraph (..))
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomePackageTable, hm_iface)
 import GHC.Utils.Outputable (comma, punctuate)
+
+#endif
+
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+
+import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 
 #endif
 
@@ -121,7 +126,7 @@ showHomeUnitDflags DynFlags {..} =
     ("homeUnitId", ppr homeUnitId_)
   ]
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB_2026_01)
 
 showHpt :: HomePackageTable -> IO SDoc
 showHpt = pprHPT

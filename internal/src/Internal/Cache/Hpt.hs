@@ -39,10 +39,21 @@ import Types.CachedDeps (CachedDep (..), CachedDeps (..), CachedUnit (..), JsonF
 import Types.Log (Logger (..))
 import Types.State (WorkerState)
 
-#if RECENT
+#if RECENT || defined(MWB_2026_01)
 
 import GHC (pattern ModIface)
 import GHC.Unit.Module.Location (pattern ModLocation)
+
+#endif
+
+#if defined(MWB_2026_01) && defined(MWB_2025_07)
+
+import GHC.Unit.Module.ModIface (mi_foreign)
+
+#endif
+
+#if RECENT
+
 import GHC.Unit.Module.ModIface (mi_sc_extra_decls, mi_sc_foreign)
 
 #endif

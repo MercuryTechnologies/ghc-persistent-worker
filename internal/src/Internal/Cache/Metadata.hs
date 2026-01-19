@@ -43,21 +43,29 @@ import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
 import Types.State.Make (MakeState (..))
 
-#if RECENT
+#if RECENT || defined(MWB_2026_01)
 
 import GHC.Data.OsPath (unsafeEncodeUtf)
 import GHC.Driver.Config.Finder (initFinderOpts)
 import GHC.Types.SourceFile (HscSource (HsSrcFile))
 import GHC.Unit.Finder (addHomeModuleToFinder, mkHomeModLocation)
 import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
-import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 import System.FilePath (splitExtension)
+
+#else
+
+import GHC.Unit.Env (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
+
+#endif
+
+#if RECENT
+
+import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 
 #else
 
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
-import GHC.Unit.Env (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
 import Internal.Error (eitherMessages)
 
 #endif
