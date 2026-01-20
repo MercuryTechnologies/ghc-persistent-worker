@@ -57,7 +57,8 @@ import System.FilePath (splitExtension)
 
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
-import GHC.Unit.Env (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
+import GHC.Unit.Env -- (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
+import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
 import Internal.Error (eitherMessages)
 
 #endif

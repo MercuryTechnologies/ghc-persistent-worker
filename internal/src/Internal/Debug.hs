@@ -25,8 +25,10 @@ import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 #else
 
 import GHC.Types.Unique.DFM (udfmToList)
-import GHC.Unit.Env (UnitEnvGraph (..))
-import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomePackageTable, hm_iface)
+import GHC.Unit.Env
+import GHC.Unit.Home.Graph
+import GHC.Unit.Home.ModInfo
+import GHC.Unit.Home.PackageTable
 import GHC.Utils.Outputable (comma, punctuate)
 
 #endif
@@ -121,7 +123,7 @@ showHomeUnitDflags DynFlags {..} =
     ("homeUnitId", ppr homeUnitId_)
   ]
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+#if 1
 
 showHpt :: HomePackageTable -> IO SDoc
 showHpt = pprHPT

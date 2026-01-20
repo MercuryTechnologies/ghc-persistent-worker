@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10))
+#define RECENT 1 || (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10))
 
 module Internal.State.Make where
 

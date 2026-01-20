@@ -15,7 +15,7 @@ import Data.Maybe (fromMaybe, isJust)
 import Data.Time (getCurrentTime)
 import Data.Traversable (for)
 import Data.Tuple (swap)
-import GHC (DynFlags, GhcException (..), ModIface, ModIface_ (..), ModLocation (..), ModuleName, mkModule)
+import GHC (DynFlags, GhcException (..), ModIface, ModIface_ (..), ModLocation (..), ModuleName, mkModule, pattern ModIface)
 import GHC.Data.Maybe (MaybeErr (..))
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hsc_HPT)
 import GHC.Driver.Main (initModDetails, initWholeCoreBindings)
@@ -38,6 +38,7 @@ import Types.BuckArgs (decodeJsonArg)
 import Types.CachedDeps (CachedDep (..), CachedDeps (..), CachedUnit (..), JsonFs (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState)
+import GHC.Unit.Module.ModIface
 
 #if RECENT
 
@@ -50,7 +51,8 @@ import GHC.Unit.Module.ModIface (mi_sc_extra_decls, mi_sc_foreign)
 -- This preprocessor variable indicates that we're building with a GHC that has the final version of the oneshot
 -- bytecode patch.
 #if defined(MWB_2025_07) || MIN_VERSION_GLASGOW_HASKELL(9,12,0,0)
-import GHC.Linker.Types (LinkablePart (..))
+--import GHC.Linker.Types (LinkablePart (..))
+import GHC.Linker.Types (Unlinked (..))
 #else
 import GHC.Linker.Types (Unlinked (..))
 #endif
@@ -83,7 +85,7 @@ loadCachedByteCode hsc_env ifaceFile iface details =
       mi_simplified_core <&> \ sc ->
         WholeCoreBindings {wcb_mod_location, wcb_bindings = mi_sc_extra_decls sc, wcb_foreign = mi_sc_foreign sc, ..}
 
-#elif defined(MWB_2025_07)
+#elif 0 && defined(MWB_2025_07)
 
     core_bindings =
       mi_extra_decls <&> \ wcb_bindings ->

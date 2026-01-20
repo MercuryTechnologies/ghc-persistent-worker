@@ -7,7 +7,7 @@ packages: ./buck-proxy
           ./types
 
 -- For MWB-customized GHC, turn this on.
--- flags: +mwb
+flags: +mwb +unit-index +downsweep-cache
 
 package ghc-worker
   executable-dynamic: true
