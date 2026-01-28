@@ -123,5 +123,5 @@ storeState ::
 storeState logger hsc_env state = do
   logMemStats "store make state" logger
   let !new = hsc_env.hsc_unit_env.ue_home_unit_graph
-  !hug <- mergeUnitEnvs state.hug new
+      !hug = mergeUnitEnvs state.hug new
   pure state {hug}

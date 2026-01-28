@@ -13,7 +13,8 @@ import GHC.Unit.Home.ModInfo (HomeModInfo)
 #if RECENT
 
 import Data.Foldable (for_)
-import Data.IORef (modifyIORef, readIORef)
+import Data.Functor ((<&>))
+import Data.IORef (modifyIORef', readIORef)
 import qualified Data.Map.Merge.Strict as Map
 import Data.Map.Merge.Strict (preserveMissing, zipWithAMatched)
 import Data.Maybe (isJust)
@@ -42,14 +43,8 @@ unitEnv_union :: (a -> a -> IO a) -> UnitEnvGraph a -> UnitEnvGraph a -> IO (Uni
 unitEnv_union f (UnitEnvGraph env1) (UnitEnvGraph env2) =
   UnitEnvGraph <$> Map.mergeA preserveMissing preserveMissing (zipWithAMatched (const f)) env1 env2
 
-mergeHugs :: HomeUnitEnv -> HomeUnitEnv -> IO HomeUnitEnv
-mergeHugs old new = do
-  oldHpt <- readIORef old.homeUnitEnv_hpt.table
-  modifyIORef new.homeUnitEnv_hpt.table (plusUDFM oldHpt)
-  pure new
-
-mergeUnitEnvs :: HomeUnitGraph -> HomeUnitGraph -> IO HomeUnitGraph
-mergeUnitEnvs = unitEnv_union mergeHugs
+mergeUnitEnvs :: HomeUnitGraph -> HomeUnitGraph -> HomeUnitGraph
+mergeUnitEnvs _ = id
 
 lookupHpt :: HomePackageTable -> ModuleName -> IO (Maybe HomeModInfo)
 lookupHpt = GHC.lookupHpt
@@ -84,10 +79,10 @@ emptyHomePackageTable = pure GHC.emptyHomePackageTable
 addDepsToHscEnv :: [HomeModInfo] -> HscEnv -> IO HscEnv
 addDepsToHscEnv deps hsc_env = pure (hscUpdateHUG (\hug -> foldr addHomeModInfoToHug hug deps) hsc_env)
 
-mergeHugs :: HomeUnitEnv -> HomeUnitEnv -> HomeUnitEnv
-mergeHugs old new = new {homeUnitEnv_hpt = plusUDFM old.homeUnitEnv_hpt new.homeUnitEnv_hpt}
+mergeHpts :: HomeUnitEnv -> HomeUnitEnv -> HomeUnitEnv
+mergeHpts old new = new {homeUnitEnv_hpt = plusUDFM old.homeUnitEnv_hpt new.homeUnitEnv_hpt}
 
-mergeUnitEnvs :: HomeUnitGraph -> HomeUnitGraph -> IO HomeUnitGraph
-mergeUnitEnvs old new = pure (GHC.unitEnv_union mergeHugs old new)
+mergeUnitEnvs :: HomeUnitGraph -> HomeUnitGraph -> HomeUnitGraph
+mergeUnitEnvs old new = GHC.unitEnv_union mergeHpts old new
 
 #endif
