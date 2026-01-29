@@ -1,20 +1,17 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE PatternSynonyms #-}
-#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10) || defined(MWB_2026_01))
+#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB) || defined(MWB_2025_10))
 
 module Internal.UnitEnv where
 
 import GHC (HscEnv)
-import GHC.Types.Unique.DFM (plusUDFM)
 import GHC.Unit (ModuleName, UnitId)
-import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph)
+import GHC.Unit.Env (HomeUnitGraph)
 import GHC.Unit.Home.ModInfo (HomeModInfo)
 
 #if RECENT
 
 import Data.Foldable (for_)
-import Data.Functor ((<&>))
-import Data.IORef (modifyIORef', readIORef)
 import qualified Data.Map.Merge.Strict as Map
 import Data.Map.Merge.Strict (preserveMissing, zipWithAMatched)
 import Data.Maybe (isJust)
@@ -26,9 +23,9 @@ import GHC.Unit.Home.PackageTable (HomePackageTable (..))
 #else
 
 import GHC.Driver.Env (hscUpdateHPT, hscUpdateHUG)
-import GHC.Types.Unique.DFM (addToUDFM)
+import GHC.Types.Unique.DFM (addToUDFM, plusUDFM)
 import qualified GHC.Unit.Env as GHC
-import GHC.Unit.Env (UnitEnvGraph, addHomeModInfoToHug)
+import GHC.Unit.Env (HomeUnitEnv (..), UnitEnvGraph, addHomeModInfoToHug)
 import qualified GHC.Unit.Home.ModInfo as GHC
 import GHC.Unit.Home.ModInfo (HomePackageTable)
 

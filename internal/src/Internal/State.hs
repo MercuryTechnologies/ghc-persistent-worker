@@ -24,7 +24,7 @@ import Types.State.Make (MakeState (..))
 import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..), newOneshotCacheFeatures, newOneshotStateWith)
 import Types.Target (Target)
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB_2026_01)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 import GHC.Unit.Home.Graph (unitEnv_new)
 #else
 import GHC.Unit.Env (unitEnv_new)

@@ -39,14 +39,14 @@ import Types.CachedDeps (CachedDep (..), CachedDeps (..), CachedUnit (..), JsonF
 import Types.Log (Logger (..))
 import Types.State (WorkerState)
 
-#if RECENT || defined(MWB_2026_01)
+#if RECENT || defined(MWB)
 
 import GHC (pattern ModIface)
 import GHC.Unit.Module.Location (pattern ModLocation)
 
 #endif
 
-#if defined(MWB_2026_01) && defined(MWB_2025_07)
+#if defined(MWB)
 
 import GHC.Unit.Module.ModIface (mi_foreign)
 
@@ -58,12 +58,14 @@ import GHC.Unit.Module.ModIface (mi_sc_extra_decls, mi_sc_foreign)
 
 #endif
 
--- This preprocessor variable indicates that we're building with a GHC that has the final version of the oneshot
--- bytecode patch.
-#if defined(MWB_2025_07) || MIN_VERSION_GLASGOW_HASKELL(9,12,0,0)
+#if defined(MWB) || MIN_VERSION_GLASGOW_HASKELL(9,12,0,0)
+
 import GHC.Linker.Types (LinkablePart (..))
+
 #else
+
 import GHC.Linker.Types (Unlinked (..))
+
 #endif
 
 -- | Load bytecode from an interface.
@@ -94,12 +96,6 @@ loadCachedByteCode hsc_env ifaceFile iface details =
       mi_simplified_core <&> \ sc ->
         WholeCoreBindings {wcb_mod_location, wcb_bindings = mi_sc_extra_decls sc, wcb_foreign = mi_sc_foreign sc, ..}
 
-#elif defined(MWB_2025_07)
-
-    core_bindings =
-      mi_extra_decls <&> \ wcb_bindings ->
-        WholeCoreBindings {wcb_mod_location, wcb_foreign = mi_foreign, ..}
-
 #else
 
     core_bindings =
@@ -113,7 +109,7 @@ loadCachedByteCode hsc_env ifaceFile iface details =
     bcoLinkable parts = do
       if_time <- modificationTimeIfExists (ml_hi_file wcb_mod_location)
       time <- maybe getCurrentTime pure if_time
-#if defined(MWB_2025_07) || MIN_VERSION_GLASGOW_HASKELL(9,12,0,0)
+#if defined(MWB) || MIN_VERSION_GLASGOW_HASKELL(9,12,0,0)
       return $! Linkable time (mi_module iface) parts
 #else
       return $! LM time (mi_module iface) parts

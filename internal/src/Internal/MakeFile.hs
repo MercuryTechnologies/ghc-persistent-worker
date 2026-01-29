@@ -25,7 +25,7 @@ import GHC.Driver.Ppr
 
 #endif
 
-#if FIXED_NODES || defined(MWB_2026_01)
+#if FIXED_NODES || defined(MWB)
 
 import GHC.Data.OsPath (unsafeDecodeUtf, unsafeEncodeUtf)
 
@@ -75,7 +75,7 @@ import System.IO.Error (isEOFError)
 import GHC.Utils.Panic.Plain
 #endif
 
-#if !defined(MWB)
+#if !defined(MWB) && !defined(MWB_2025_10)
 depJSON :: DynFlags -> Maybe FilePath
 depJSON _ = Nothing
 
@@ -349,8 +349,12 @@ processDeps dflags hsc_env excl_mods root hdl m_dep_json node_dep_map (AcyclicSC
       [ dep
       | edge <- node_deps
       , dep <- maybeToList (Map.lookup edge node_dep_map)
-      , moduleName (dep.dep_mod) `notElem` excl_mods
+      , not (excluded dep)
       ]
+
+    excluded = \case
+      DepHi {dep_mod} -> moduleName dep_mod `elem` excl_mods
+      DepCpp {} -> False
 
     preprocessor
       | Just src <- ml_hs_file (ms_location node)
@@ -430,7 +434,7 @@ writeDependencies include_pkgs root hdl suffixes node deps =
 
     DepNode {dn_src, dn_obj, dn_hi, dn_boot} = node
 
-#if FIXED_NODES || defined(MWB_2026_01)
+#if FIXED_NODES || defined(MWB)
 
     viaOsPath f a = unsafeDecodeUtf (f (unsafeEncodeUtf a))
 

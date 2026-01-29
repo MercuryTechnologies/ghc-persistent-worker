@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10) || defined(MWB_2026_01))
+#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB) || defined(MWB_2025_10))
 
 module Internal.State.Make where
 
@@ -12,21 +12,12 @@ import Internal.UnitEnv (mergeUnitEnvs)
 import Types.Log (Logger)
 import Types.State.Make (MakeState (..))
 
-#if defined(MWB)
+#if defined(MWB) || defined(MWB_2025_10)
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries', mkModuleGraph, mkNodeKey)
-
-#if RECENT
-
 import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_lookup)
-
-#else
-
-import GHC.Unit.Env (unitEnv_insert, unitEnv_lookup)
-
-#endif
+import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries', mkModuleGraph, mkNodeKey)
 
 #else
 
@@ -82,7 +73,7 @@ loadStateCompile logger hsc_env0 state = do
 -- There was also some issue with node duplication, which is why this function is so convoluted.
 storeModuleGraph :: ModuleGraph -> MakeState -> MakeState
 storeModuleGraph new state =
-#if defined(MWB)
+#if defined(MWB) || defined(MWB_2025_10)
   state {moduleGraph = merged}
   where
     !merged = merge state.moduleGraph

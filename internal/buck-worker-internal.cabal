@@ -14,22 +14,12 @@ extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
 flag mwb
-    description: use mwb-customized GHC
-    manual: True
-    default: False
-
-flag mwb-25-07
-    description: use mwb-customized GHC from July 2025
+    description: Use mwb-customized GHC from January 2026
     manual: True
     default: False
 
 flag mwb-25-10
     description: use mwb-customized GHC from October 2025
-    manual: True
-    default: False
-
-flag mwb-26-01
-    description: Use mwb-customized GHC from January 2026
     manual: True
     default: False
 
@@ -78,16 +68,10 @@ library
         build-depends: base ^>=4.19
 
     if (flag(mwb))
-        cpp-options: -DMWB
-
-    if (flag(mwb-25-07))
-        cpp-options: -DMWB -DMWB_2025_07
+        cpp-options: -DMWB -DDOWNSWEEP_CACHE -DUNIT_INDEX
 
     if (flag(mwb-25-10))
-        cpp-options: -DMWB -DMWB_2025_10
-
-    if (flag(mwb-26-01))
-        cpp-options: -DMWB -DMWB_2026_01
+        cpp-options: -DMWB_2025_10
 
     if (flag(downsweep-cache))
         cpp-options: -DDOWNSWEEP_CACHE
