@@ -16,7 +16,7 @@ import GHC.Utils.Outputable (Outputable, SDoc, hang, hcat, ppr, text, vcat, (<+>
 import System.FilePath ((</>))
 import Types.Target (TargetSpec, renderTargetSpec)
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB_2026_01)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 
 import GHC.Unit.Home.Graph (UnitEnvGraph (..))
 import GHC.Unit.Home.PackageTable (HomePackageTable (..), pprHPT)
@@ -126,7 +126,7 @@ showHomeUnitDflags DynFlags {..} =
     ("homeUnitId", ppr homeUnitId_)
   ]
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB_2026_01)
+#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 
 showHpt :: HomePackageTable -> IO SDoc
 showHpt = pprHPT

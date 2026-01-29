@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
 
-#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10))
+#define FIXED_NODES (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10))
 
 module Internal.Cache.Metadata where
 
@@ -44,14 +44,9 @@ import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
 import Types.State.Make (MakeState (..))
 
-#if RECENT || defined(MWB_2026_01)
+#if FIXED_NODES || defined(MWB)
 
-import GHC.Data.OsPath (unsafeEncodeUtf)
-import GHC.Driver.Config.Finder (initFinderOpts)
-import GHC.Types.SourceFile (HscSource (HsSrcFile))
-import GHC.Unit.Finder (addHomeModuleToFinder, mkHomeModLocation)
 import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
-import System.FilePath (splitExtension)
 
 #else
 
@@ -59,9 +54,14 @@ import GHC.Unit.Env (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
 
 #endif
 
-#if RECENT
+#if FIXED_NODES
 
+import GHC.Data.OsPath (unsafeEncodeUtf)
+import GHC.Driver.Config.Finder (initFinderOpts)
+import GHC.Types.SourceFile (HscSource (HsSrcFile))
+import GHC.Unit.Finder (addHomeModuleToFinder, mkHomeModLocation)
 import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
+import System.FilePath (splitExtension)
 
 #else
 
@@ -149,7 +149,7 @@ loadCachedModule hsc_env unit (JsonFs name) CachedModule {sources, modules, pack
         JsonFs depName <- depModules
       ]
 
-#if RECENT
+#if FIXED_NODES
     createNode src = do
       _ <- addHomeModuleToFinder hsc_env.hsc_FC (DefiniteHomeUnit unit Nothing) name location HsSrcFile
       pure $ ModuleNodeFixed (ModNodeKeyWithUid (GWIB name NotBoot) unit) location
