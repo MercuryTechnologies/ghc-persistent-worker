@@ -96,6 +96,12 @@ loadCachedByteCode hsc_env ifaceFile iface details =
       mi_simplified_core <&> \ sc ->
         WholeCoreBindings {wcb_mod_location, wcb_bindings = mi_sc_extra_decls sc, wcb_foreign = mi_sc_foreign sc, ..}
 
+#elif defined(MWB)
+
+    core_bindings =
+      mi_extra_decls <&> \ wcb_bindings ->
+        WholeCoreBindings {wcb_mod_location, wcb_foreign = mi_foreign, ..}
+
 #else
 
     core_bindings =
