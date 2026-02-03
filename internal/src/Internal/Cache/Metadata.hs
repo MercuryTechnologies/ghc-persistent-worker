@@ -16,18 +16,20 @@ import Data.Maybe (isJust, listToMaybe)
 import Data.Tuple (swap)
 import qualified GHC
 import GHC (DynFlags (..), IsBootInterface (..), ModuleName (..), mkModuleGraph)
-import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
+import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateFlags)
 import GHC.Driver.Make (ModNodeKeyWithUid (..))
 import GHC.Driver.Session (updatePlatformConstants)
 import GHC.Unit (GenWithIsBoot (..), HomeUnit, UnitDatabase, UnitId (..), UnitState, initUnits)
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), updateHug)
 import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
-import GHC.Utils.Outputable (ppr, quotes, text, (<+>))
+import GHC.Utils.Outputable (ppr, quotes, showPprUnsafe, text, (<+>))
+import Internal.Debug (showUnitEnv)
 import Internal.DynFlags (buckLocation, parseFlags, setupPath)
 import Internal.Error (notePpr)
 import Internal.Log (logDebugD, logTimed, logTimedD)
 import Internal.State (updateMakeState)
+import qualified Internal.State.Make as Make
 import Internal.State.Make (insertUnitEnv, storeModuleGraph)
 import Internal.UnitEnv (emptyHomePackageTable)
 import Types.BuckArgs (CachedBuckArgs (..), parseCachedBuckArgs)
@@ -205,6 +207,11 @@ loadCachedUnit logger hsc_env0 dflags0 unit CachedUnit {build_plan, unit_args, u
         pure hsc_env2
 
 -- | Restore the unit state and module graph for each unit in cache that isn't present in the unit env.
+--
+-- Restore the unit env from state because 'initUnits' looks up dependencies.
+--
+-- TODO Check if the loader state needs to be restored too – it might be referenced in a closure?
+-- Simple memory comparison should do it.
 loadCachedUnits ::
   Logger ->
   MVar WorkerState ->
@@ -212,11 +219,11 @@ loadCachedUnits ::
   CachedBuildPlans ->
   HscEnv ->
   IO HscEnv
-loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 =
-  modifyMVar stateVar $
-    logTimed logger "Loading cached units" .
-    fmap swap .
-    runStateT (foldM ensureBuildPlan hsc_env0 buildPlans)
+loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 = do
+  modifyMVar stateVar \ state -> do
+    hsc_env1 <- Make.loadState logger hsc_env0 state.make
+    logTimed logger "Loading cached units" $ fmap swap do
+      runStateT (foldM ensureBuildPlan hsc_env1 buildPlans) state
   where
     ensureBuildPlan hsc_env CachedBuildPlan {name = JsonFs uid, build_plan = planFile} = do
       present <- gets \ s -> isJust (unitEnv_lookup_maybe uid s.make.hug)
