@@ -71,8 +71,6 @@ initGhc dflags0 logger fileish_args dynamicFlagWarnings = do
 -- In a Buck compile step these should always be a single path, but in the metadata step they enumerate an entire unit.
 withDynFlags :: Env -> (DynFlags -> [(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
 withDynFlags env prog argv = do
-  let !log = env.log
-  pushLogHookM (const (logToState log))
   state <- liftIO $ readMVar env.state
   dflags0 <- GHC.getSessionDynFlags
   logger0 <- getLogger
@@ -127,7 +125,9 @@ runSession reuse Env {log, args, state} prog = do
     run session =
       flip unGhc session $ withSignalHandlers do
         traverse_ (modifySession . setTempDir) args.tempDir
-        handleExceptions log Nothing (prog (map buckLocation args.ghcOptions))
+        handleExceptions log Nothing do
+          pushLogHookM (const (logToState log))
+          prog (map buckLocation args.ghcOptions)
 
     cleanup session =
       flip unGhc session do
