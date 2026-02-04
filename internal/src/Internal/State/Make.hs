@@ -8,7 +8,7 @@ import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Module.Graph (ModuleGraph)
 import Internal.State.Stats (logMemStats)
 import Internal.State.UnitIndex (restoreUnitIndex)
-import Internal.UnitEnv (mergeUnitEnvs)
+import Internal.UnitEnv (mergeHugs)
 import Types.Log (Logger)
 import Types.State.Make (MakeState (..))
 
@@ -123,5 +123,5 @@ storeState ::
 storeState logger hsc_env state = do
   logMemStats "store make state" logger
   let !new = hsc_env.hsc_unit_env.ue_home_unit_graph
-      !hug = mergeUnitEnvs state.hug new
+      !hug = mergeHugs state.hug new
   pure state {hug}
