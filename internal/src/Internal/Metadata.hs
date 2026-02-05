@@ -28,7 +28,7 @@ import Types.Target (TargetSpec (..), UnitTarget (..))
 -- | 'doMkDependHS' needs this to be enabled.
 metadataTempSession :: HscEnv -> HscEnv
 metadataTempSession =
-  hscUpdateFlags \ d -> d {ghcMode = MkDepend, targetWays_ = addWay WayDyn (targetWays_ d)}
+  hscUpdateFlags \ d -> d {ghcMode = MkDepend}
 
 -- | Add a new home unit to the current session using the provided 'DynFlags'.
 -- The flags have been constructed from Buck CLI args passed to the metadata step, which, crucially, contain the package
@@ -74,9 +74,6 @@ writeMetadata srcs = do
 -- This is executed for the metadata step, which natively only calls 'doMkDependHS'.
 -- Since that function doesn't give us access to the module graph in its original shape, we inline it into this project
 -- to exfiltrate the graph.
--- This has @WayDyn@ hardcoded for now, but it should be adapted to Buck's build configuration.
--- This is usually not necessary (in fact, 'doMkDependHS' clears the target ways) but since we're keeping the module
--- graph the target way will be reflected in the stored @ModSummary@ nodes.
 --
 -- Before downsweep, we also create a fresh @Finder@ to prevent 'doMkDependHS' from polluting the cache with entries
 -- with different compilation ways and restore the previous unit env so dependencies are visible.
