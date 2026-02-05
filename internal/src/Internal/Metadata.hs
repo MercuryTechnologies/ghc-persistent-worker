@@ -28,7 +28,7 @@ import Types.Target (TargetSpec (..), UnitTarget (..))
 -- | 'doMkDependHS' needs this to be enabled.
 metadataTempSession :: HscEnv -> HscEnv
 metadataTempSession =
-  hscUpdateFlags \ d -> d {ghcMode = MkDepend, targetWays_ = addWay WayDyn (targetWays_ d)}
+  hscUpdateFlags \ d -> d {ghcMode = MkDepend} -- , targetWays_ = addWay WayDyn (targetWays_ d)}
 
 -- | Add a new home unit to the current session using the provided 'DynFlags'.
 -- The flags have been constructed from Buck CLI args passed to the metadata step, which, crucially, contain the package
