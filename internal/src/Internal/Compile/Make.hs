@@ -18,6 +18,7 @@ import GHC (
   GhcException (..),
   GhcMonad (..),
   ModLocation (..),
+  pattern ModLocation,
   ModSummary (..),
   Module,
   gopt,
@@ -47,8 +48,12 @@ import Types.Target (ModuleTarget (..), Target (..), TargetSpec (..))
 -- | Update the location of the result of @summariseFile@ to point to the locations specified on the command line, since
 -- these are placed in the source file's directory by that function.
 setHiLocation :: HscEnv -> ModSummary -> ModSummary
-setHiLocation HscEnv {hsc_dflags = DynFlags {outputHi = Just ml_hi_file, outputFile_ = Just ml_obj_file}} summ =
-  summ {ms_location = summ.ms_location {ml_hi_file, ml_obj_file}}
+setHiLocation
+  HscEnv {hsc_dflags = DynFlags {outputHi = Just ml_hi_file, outputFile_ = Just ml_obj_file}}
+  summ@ModSummary {ms_location = ModLocation {ml_obj_file = _, ml_hi_file = _, ..}}
+  =
+  summ {ms_location = ModLocation {ml_hi_file, ml_obj_file, ..}}
+  where
 setHiLocation _ summ = summ
 
 cleanCurrentModuleTempFilesMaybe :: MonadIO m => GHC.Logger -> TmpFs -> DynFlags -> m ()

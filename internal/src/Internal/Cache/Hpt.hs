@@ -41,7 +41,6 @@ import Types.State (WorkerState)
 
 #if RECENT || defined(MWB_2026_01)
 
-import GHC (pattern ModIface)
 import GHC.Unit.Module.Location (pattern ModLocation)
 
 #endif
@@ -91,24 +90,22 @@ loadCachedByteCode hsc_env ifaceFile iface details =
 #if RECENT
 
     core_bindings =
-      mi_simplified_core <&> \ sc ->
+      mi_simplified_core iface <&> \ sc ->
         WholeCoreBindings {wcb_mod_location, wcb_bindings = mi_sc_extra_decls sc, wcb_foreign = mi_sc_foreign sc, ..}
 
 #elif defined(MWB_2025_07)
 
     core_bindings =
-      mi_extra_decls <&> \ wcb_bindings ->
-        WholeCoreBindings {wcb_mod_location, wcb_foreign = mi_foreign, ..}
+      mi_extra_decls iface <&> \ wcb_bindings ->
+        WholeCoreBindings {wcb_mod_location, wcb_foreign = mi_foreign iface, wcb_module = mi_module iface, ..}
 
 #else
 
     core_bindings =
-      mi_extra_decls <&> \ wcb_bindings ->
+      mi_extra_decls iface <&> \ wcb_bindings ->
         WholeCoreBindings {wcb_mod_location, ..}
 
 #endif
-
-    ModIface {mi_module = wcb_module, ..} = iface
 
     bcoLinkable parts = do
       if_time <- modificationTimeIfExists (ml_hi_file wcb_mod_location)
