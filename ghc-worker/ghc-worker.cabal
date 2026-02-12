@@ -69,6 +69,8 @@ test-suite worker-test
   hs-source-dirs: test
   other-modules:
     CompileHptTest,
+    Test.Data.TestLog,
+    Test.Log,
     Test.Run,
     TestSetup
   ghc-options: -threaded -rtsopts "-with-rtsopts=-N -T"
