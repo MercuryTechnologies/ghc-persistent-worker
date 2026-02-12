@@ -29,6 +29,8 @@ import Internal.State.Stats (logMemStats)
 import Prelude hiding (log)
 import System.Directory (createDirectoryIfMissing, listDirectory, removeDirectoryRecursive)
 import System.FilePath (dropExtension, takeBaseName, takeExtension, takeFileName, (</>))
+import Test.Tasty (TestTree)
+import Test.Run (unitTest)
 import TestSetup (Conf (..), Module (..), ModuleSpec (..), Unit (..), UnitSpec (..), withProject)
 import Types.Args (Args (..))
 import Types.Env (Env (..))
@@ -333,6 +335,7 @@ testWorker mkSpecs = do
     dbgs =<< listDirectory (conf.tmp </> "out")
 
 -- | A very simple test consisting of two home units, using a transitive TH dependency across unit boundaries.
-test_compileHpt :: IO ()
+test_compileHpt :: TestTree
 test_compileHpt =
-  testWorker (const targets1)
+  unitTest "compile" do
+    liftIO $ testWorker (const targets1)

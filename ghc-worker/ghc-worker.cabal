@@ -69,6 +69,7 @@ test-suite worker-test
   hs-source-dirs: test
   other-modules:
     CompileHptTest,
+    Test.Run,
     TestSetup
   ghc-options: -threaded -rtsopts "-with-rtsopts=-N -T"
   build-depends:
@@ -77,7 +78,13 @@ test-suite worker-test
     containers,
     directory,
     filepath,
+    exceptions,
     ghc,
+    hedgehog ^>= 1.7,
+    lifted-base,
+    monad-control,
+    tasty,
+    tasty-hedgehog,
     temporary,
     transformers,
     typed-process

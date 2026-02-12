@@ -17,6 +17,7 @@ allow-newer:
   , *:containers
   , *:bytestring
   , ghc-debug-brick:*
+  , tasty-hedgehog:hedgehog
 
 if (impl(ghc >= 9.11))
   allow-newer:
