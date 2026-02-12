@@ -7,7 +7,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Fixed (Milli, Pico)
 import Data.Foldable (for_, traverse_)
 import Data.Time (diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
-import GHC (Ghc, Severity (SevIgnore), noSrcSpan)
+import GHC (Ghc, Severity (SevIgnore), SrcSpan, noSrcSpan)
 import GHC.Driver.Config.Diagnostic (initDiagOpts)
 import GHC.Driver.DynFlags (getDynFlags)
 import GHC.Driver.Errors.Types (DriverMessage (..), GhcMessage (GhcDriverMessage))
@@ -80,31 +80,39 @@ logOther logVar level msg =
   liftIO $ mapLog logVar \ Log {other, ..} ->
     Log {other = (msg, level) : other, ..}
 
+decorateDiagnostic ::
+  LogFlags ->
+  MessageClass ->
+  SrcSpan ->
+  SDoc ->
+  IO SDoc
+decorateDiagnostic flags msg_class srcSpan msg = do
+  caretDiagnostic <-
+    if log_show_caret flags
+    then getCaretDiagnostic msg_class srcSpan
+    else pure empty
+  pure $ getPprStyle \ style ->
+    withPprStyle (setStyleColoured True style) (message $+$ caretDiagnostic $+$ blankLine)
+  where
+    message = mkLocMessageWarningGroups (log_show_warn_groups flags) msg_class srcSpan msg
+
+renderLogMessage :: LogFlags -> SDoc -> String
+renderLogMessage flags = renderWithContext (log_default_user_context flags)
+
+-- | This mostly resembles the native GHC action, but we write everything to the 'Log' state.
 logGhcAction :: MVar Log -> LogAction
-logGhcAction logVar logflags msg_class srcSpan msg = case msg_class of
+logGhcAction logVar flags msg_class srcSpan msg = case msg_class of
   MCOutput -> other msg
   MCDump -> other (msg $$ blankLine)
   MCInteractive -> other msg
   MCInfo -> diagnostic msg
   MCFatal -> diagnostic msg
   MCDiagnostic SevIgnore _ _ -> pure ()
-  MCDiagnostic _sev _rea _code -> printDiagnostics
+  MCDiagnostic _sev _rea _code -> diagnostic =<< decorateDiagnostic flags msg_class srcSpan msg
   where
-    message = mkLocMessageWarningGroups (log_show_warn_groups logflags) msg_class srcSpan msg
+    diagnostic = logDiagnostics logVar . renderLogMessage flags
 
-    printDiagnostics = do
-      caretDiagnostic <-
-        if log_show_caret logflags
-        then getCaretDiagnostic msg_class srcSpan
-        else pure empty
-      diagnostic $ getPprStyle $ \style ->
-        withPprStyle (setStyleColoured True style) (message $+$ caretDiagnostic $+$ blankLine)
-
-    diagnostic = logDiagnostics logVar . render
-
-    other = logOther logVar LogInfo . render
-
-    render d = renderWithContext (log_default_user_context logflags) d
+    other = logOther logVar LogInfo . renderLogMessage flags
 
 logDir :: FilePath
 logDir =
