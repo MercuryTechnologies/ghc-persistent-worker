@@ -11,7 +11,7 @@ import GHC.Driver.Monad (modifySession, modifySessionM, withSession, withTempSes
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit (UnitId)
 import Internal.Cache.Metadata (addHomeUnitTo, loadCachedUnits)
-import Internal.Log (logDebug, logTimed)
+import Internal.Log (logTimed)
 import Internal.MakeFile (doMkDependHS)
 import Internal.Session (runSession, withDynFlags)
 import Internal.State (updateMakeStateVar)
@@ -90,10 +90,11 @@ computeMetadata env = do
         let target = TargetUnit (UnitTarget unit)
         liftIO $ env.log.setTarget target
         module_graph <- writeMetadata (fst <$> srcs)
-        liftIO $ updateMakeStateVar env.state (storeModuleGraph module_graph)
-        for_ dflags.stubDir \ stubdir -> do
-          logDebug env.log ("Creating stubdir: " ++ stubdir)
-          liftIO $ createDirectoryIfMissing False stubdir
+        liftIO do
+          updateMakeStateVar env.state (storeModuleGraph module_graph)
+          for_ dflags.stubDir \ stubdir -> do
+            env.log.debug ("Creating stubdir: " ++ stubdir)
+            createDirectoryIfMissing False stubdir
         pure (Just target)
   logMemStats "after metadata" env.log
   pure (isJust res, res)

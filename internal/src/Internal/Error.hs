@@ -9,11 +9,10 @@ import GHC (Ghc, GhcException (..), printException)
 import GHC.Driver.Errors.Types (GhcMessage)
 import GHC.Types.Error (Messages)
 import GHC.Types.SourceError (SourceError, throwErrors)
-import GHC.Utils.Outputable (Outputable (..))
-import Internal.Log (logOther)
+import GHC.Utils.Outputable (Outputable (..), text)
 import System.Environment (getProgName)
 import System.Exit (ExitCode)
-import Types.Log (LogLevel (..), Logger)
+import Types.Log (Logger (..))
 
 handleExceptions :: Logger -> a -> Ghc a -> Ghc a
 handleExceptions logger errResult =
@@ -49,7 +48,7 @@ handleExceptions logger errResult =
       | otherwise
       = fm (show (Panic (show exception)))
 
-    fm = logOther logger LogInfo
+    fm = liftIO . logger.fatal . text
 
 eitherMessages ::
   MonadIO m =>

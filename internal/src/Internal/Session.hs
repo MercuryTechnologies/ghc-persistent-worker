@@ -38,7 +38,7 @@ import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Cache.Hpt (loadCachedDeps, loadHomeUnit)
 import Internal.DynFlags (buckLocation, initDynFlags, instrumentLocation, parseFlags, setupPath)
 import Internal.Error (handleExceptions)
-import Internal.Log (logDebugD, logToState)
+import Internal.Log (logDebugD)
 import Internal.State (withCacheMake, withCacheOneshot)
 import Prelude hiding (log)
 import Types.Args (Args (..))
@@ -126,7 +126,7 @@ runSession reuse Env {log, args, state} prog = do
       flip unGhc session $ withSignalHandlers do
         traverse_ (modifySession . setTempDir) args.tempDir
         handleExceptions log Nothing do
-          pushLogHookM (const (logToState log))
+          pushLogHookM (const log.ghcAction)
           prog (map buckLocation args.ghcOptions)
 
     cleanup session =

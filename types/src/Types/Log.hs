@@ -2,6 +2,7 @@ module Types.Log where
 
 import Control.Concurrent.MVar (MVar, newMVar)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import GHC.Utils.Logger (LogAction)
 import GHC.Utils.Outputable (SDoc)
 import Prelude hiding (log)
 import Types.Target (TargetSpec (..))
@@ -37,11 +38,16 @@ newLog ::
 newLog traceId =
   liftIO $ newMVar Log {diagnostics = [], other = [], traceId, target = Nothing}
 
--- | Convenience interface for logging.
+-- | Log abstraction that allows using a different implementation in tests that also serves to provide a more convenient
+-- interface with record syntax.
 data Logger =
   Logger {
-    withLog :: forall a . (Log -> IO (Log, a)) -> IO a,
     setTarget :: TargetSpec -> IO (),
     debug :: String -> IO (),
-    debugD :: SDoc -> IO ()
+    debugD :: SDoc -> IO (),
+    info :: String -> IO (),
+    infoD :: SDoc -> IO (),
+    fatal :: SDoc -> IO (),
+    ghcAction :: LogAction,
+    flush :: IO [String]
   }

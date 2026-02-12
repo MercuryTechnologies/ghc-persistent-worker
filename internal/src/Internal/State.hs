@@ -3,7 +3,7 @@
 module Internal.State where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar, withMVar)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
 import GHC (Ghc, ModIface, emptyMG, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Driver.Env (HscEnv (..))
@@ -11,14 +11,13 @@ import GHC.Driver.Monad (modifySessionM, withSession)
 import GHC.Linker.Types (Linkable)
 import GHC.Unit.Module.Graph (ModuleGraph)
 import Internal.Debug (showHugShort, showModGraph)
-import Internal.Log (logDebug, logDebugD)
 import qualified Internal.State.Make as Make
 import qualified Internal.State.Oneshot as Oneshot
 import qualified Internal.State.Stats as Stats
 import Internal.State.UnitIndex (newUnitIndex)
 import System.Environment (lookupEnv)
 import Types.Args (TargetId (..))
-import Types.Log (Logger)
+import Types.Log (Logger (..))
 import Types.State (BinPath (..), WorkerState (..), defaultOptions)
 import Types.State.Make (MakeState (..))
 import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..), newOneshotCacheFeatures, newOneshotStateWith)
@@ -94,14 +93,13 @@ withMakeState var f = do
 
 -- | Log a report for a completed compilation, using 'reportMessages' to assemble the content.
 report ::
-  MonadIO m =>
   Logger ->
   -- | A description of the current worker process.
   Maybe TargetId ->
   Target ->
   WorkerState ->
-  m ()
-report logger workerId target state = do
+  IO ()
+report logger workerId target state =
   Stats.report logger workerId target (if state.oneshot.features.enable then Just state.oneshot.stats else Nothing)
 
 -- | Merge the given module graph into the cached graph.
@@ -193,5 +191,5 @@ dumpState logger state exception =
     write "Home unit graph:"
     writeD =<< showHugShort hug
   where
-    write = logDebug logger
-    writeD = logDebugD logger
+    write = logger.debug
+    writeD = logger.debugD

@@ -1,6 +1,6 @@
 module Internal.State.Stats where
 
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (liftIO)
 import Data.Bifunctor (first)
 import Data.List (sortBy)
 import qualified Data.Map.Strict as Map
@@ -15,7 +15,6 @@ import GHC.Types.Unique.FM (minusUFM, nonDetEltsUFM, sizeUFM)
 import GHC.Unit.Module.Env (moduleEnvKeys)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (SDoc, comma, doublePrec, fsep, hang, nest, punctuate, text, vcat, ($$), (<+>))
-import Internal.Log (logd)
 import Types.Args (TargetId (..))
 import Types.Log (Logger (..))
 import Types.State.Oneshot (SymbolCache (..))
@@ -121,17 +120,16 @@ reportMessages target mb_stats memory =
 
 -- | Log a report for a completed compilation, using 'reportMessages' to assemble the content.
 report ::
-  MonadIO m =>
   Logger ->
   -- | A description of the current worker process.
   Maybe TargetId ->
   Target ->
   Maybe (Map Target CacheStats) ->
-  m ()
+  IO ()
 report logger workerId target stats = do
-  s <- liftIO getRTSStats
+  s <- getRTSStats
   let memory = fromIntegral (s.gc.gcdetails_mem_in_use_bytes) / 1000000
-  logd logger (hang header 2 (reportMessages target stats memory))
+  logger.infoD (hang header 2 (reportMessages target stats memory))
   where
     header = text target.path Outputable.<> maybe (text "") workerDesc workerId Outputable.<> text ":"
 

@@ -5,6 +5,7 @@ import Control.Monad (unless)
 import Control.Monad.Catch (MonadCatch, onException)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Fixed (Milli, Pico)
+import Data.Foldable (for_, traverse_)
 import Data.Time (diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
 import GHC (Ghc, Severity (SevIgnore), noSrcSpan)
 import GHC.Driver.Config.Diagnostic (initDiagOpts)
@@ -50,54 +51,60 @@ setLogTarget :: MVar Log -> TargetSpec -> IO ()
 setLogTarget logVar target =
   modifyMVar_ logVar \ log -> pure log {target = Just target}
 
-newLogger :: MVar Log -> Logger
-newLogger state =
-  logger
-  where
-    debug = logOther logger LogDebug
+mapLog :: MVar Log -> (Log -> Log) -> IO ()
+mapLog logVar f =
+  modifyMVar logVar \ l -> pure (f l, ())
 
-    logger =
-      Logger {
-        withLog = modifyMVar state,
-        setTarget = setLogTarget state,
-        debug,
-        debugD = debug . showPprUnsafe
-      }
-
-modifyLog :: Logger -> (Log -> IO Log) -> IO ()
-modifyLog Logger {withLog} f =
-  withLog \ l -> do
-    new <- f l
-    pure (new, ())
-
-mapLog :: Logger -> (Log -> Log) -> IO ()
-mapLog Logger {withLog} f =
-  withLog \ l -> pure (f l, ())
-
-withLog_ :: Logger -> (Log -> IO a) -> IO a
-withLog_ Logger {withLog} f =
-  withLog \ l -> do
+withLog_ :: MVar Log -> (Log -> IO a) -> IO a
+withLog_ logVar f =
+  modifyMVar logVar \ l -> do
     res <- f l
     pure (l, res)
 
 logDiagnostics ::
   MonadIO m =>
-  Logger ->
+  MVar Log ->
   String ->
   m ()
-logDiagnostics logger msg =
-  liftIO $ mapLog logger \ Log {diagnostics, ..} ->
+logDiagnostics logVar msg =
+  liftIO $ mapLog logVar \ Log {diagnostics, ..} ->
     Log {diagnostics = msg : diagnostics, ..}
 
 logOther ::
   MonadIO m =>
-  Logger ->
+  MVar Log ->
   LogLevel ->
   String ->
   m ()
-logOther logger level msg =
-  liftIO $ mapLog logger \ Log {other, ..} ->
+logOther logVar level msg =
+  liftIO $ mapLog logVar \ Log {other, ..} ->
     Log {other = (msg, level) : other, ..}
+
+logGhcAction :: MVar Log -> LogAction
+logGhcAction logVar logflags msg_class srcSpan msg = case msg_class of
+  MCOutput -> other msg
+  MCDump -> other (msg $$ blankLine)
+  MCInteractive -> other msg
+  MCInfo -> diagnostic msg
+  MCFatal -> diagnostic msg
+  MCDiagnostic SevIgnore _ _ -> pure ()
+  MCDiagnostic _sev _rea _code -> printDiagnostics
+  where
+    message = mkLocMessageWarningGroups (log_show_warn_groups logflags) msg_class srcSpan msg
+
+    printDiagnostics = do
+      caretDiagnostic <-
+        if log_show_caret logflags
+        then getCaretDiagnostic msg_class srcSpan
+        else pure empty
+      diagnostic $ getPprStyle $ \style ->
+        withPprStyle (setStyleColoured True style) (message $+$ caretDiagnostic $+$ blankLine)
+
+    diagnostic = logDiagnostics logVar . render
+
+    other = logOther logVar LogInfo . render
+
+    render d = renderWithContext (log_default_user_context logflags) d
 
 logDir :: FilePath
 logDir =
@@ -127,39 +134,44 @@ writeLogFile traceId target logLines =
 
     logName = maybe "global" renderTargetSpec target
 
--- | Write the current session's log to a file, clear the fields in the 'MVar' and return the log lines.
-logFlush :: Logger -> IO [String]
-logFlush logger = do
-  withLog logger \ Log {..} -> do
+logFlushWith :: (Log -> [(String, LogLevel)] -> IO a) -> MVar Log -> IO a
+logFlushWith use logVar =
+  modifyMVar logVar \ log@Log {other, diagnostics} -> do
     let logLines = reverse (other ++ [(msg, LogInfo) | msg <- diagnostics])
+    result <- use log logLines
+    pure (log {diagnostics = [], other = []}, result)
+
+-- | Write the current session's log to a file, clear the fields in the 'MVar' and return the log lines.
+logFlush :: MVar Log -> IO [String]
+logFlush =
+  logFlushWith \ Log {traceId, target} logLines -> do
     writeLogFile traceId target logLines
-    pure (Log {diagnostics = [], other = [], ..}, [msg | (msg, level) <- logLines, LogInfo == level])
+    pure [msg | (msg, level) <- logLines, LogInfo == level]
 
-logToState :: Logger -> LogAction
-logToState logger logflags msg_class srcSpan msg = case msg_class of
-  MCOutput -> other msg
-  MCDump -> other (msg $$ blankLine)
-  MCInteractive -> other msg
-  MCInfo -> diagnostic msg
-  MCFatal -> diagnostic msg
-  MCDiagnostic SevIgnore _ _ -> pure ()
-  MCDiagnostic _sev _rea _code -> printDiagnostics
+-- | Write the current session's log to stderr and clear the fields in the 'MVar'.
+logFlushDebug :: MVar Log -> IO ()
+logFlushDebug =
+  logFlushWith (const (traverse_ (dbg . fst)))
+
+newLogger :: MVar Log -> Logger
+newLogger state =
+  logger
   where
-    message = mkLocMessageWarningGroups (log_show_warn_groups logflags) msg_class srcSpan msg
+    debug = logOther state LogDebug
 
-    printDiagnostics = do
-      caretDiagnostic <-
-        if log_show_caret logflags
-        then getCaretDiagnostic msg_class srcSpan
-        else pure empty
-      diagnostic $ getPprStyle $ \style ->
-        withPprStyle (setStyleColoured True style) (message $+$ caretDiagnostic $+$ blankLine)
+    info = logOther state LogInfo
 
-    diagnostic = logDiagnostics logger . render
-
-    other = logOther logger LogInfo . render
-
-    render d = renderWithContext (log_default_user_context logflags) d
+    logger =
+      Logger {
+        setTarget = setLogTarget state,
+        debug,
+        debugD = debug . showPprUnsafe,
+        info,
+        infoD = info . showPprUnsafe,
+        fatal = info . showPprUnsafe,
+        ghcAction = logGhcAction state,
+        flush = logFlush state
+      }
 
 dbg :: MonadIO m => String -> m ()
 dbg = liftIO . hPutStrLn stderr
@@ -170,46 +182,13 @@ dbgs = dbg . show
 dbgp :: Outputable a => MonadIO m => a -> m ()
 dbgp = dbg . showPprUnsafe
 
-logp ::
-  Outputable a =>
-  MonadIO m =>
-  Logger ->
-  a ->
-  m ()
-logp logger =
-  liftIO . logOther logger LogInfo . showPprUnsafe
-
-logd ::
-  MonadIO m =>
-  Logger ->
-  SDoc ->
-  m ()
-logd = logp
-
-logDebug ::
-  MonadIO m =>
-  Logger ->
-  String ->
-  m ()
-logDebug logger =
-  liftIO . logger.debug
-
-logDebugP ::
-  Outputable a =>
-  MonadIO m =>
-  Logger ->
-  a ->
-  m ()
-logDebugP logger =
-  liftIO . logOther logger LogDebug . showPprUnsafe
-
 logDebugD ::
   MonadIO m =>
   Logger ->
   SDoc ->
   m ()
-logDebugD =
-  logDebugP
+logDebugD log =
+  liftIO . log.debugD
 
 ghcLogd :: SDoc -> Ghc ()
 ghcLogd doc = do

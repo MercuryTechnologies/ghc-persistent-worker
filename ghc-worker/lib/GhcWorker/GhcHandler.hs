@@ -20,7 +20,7 @@ import GhcWorker.Orchestration (FeatureInstrument (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Compile.Make (compileModuleWithDepsInHpt)
 import Internal.Debug (debugSocketPath)
-import Internal.Log (logFlush, newLogger)
+import Internal.Log (newLogger)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (withGhcMakeModule, withGhcMakeSource)
 import Internal.State (ModuleArtifacts (..), dumpState)
@@ -108,7 +108,7 @@ processResult ::
 processResult hooks logger stateVar result = do
   when (exitCode /= 0) do
     dumpState logger stateVar exception
-  output <- logFlush logger
+  output <- logger.flush
   hooks.compileFinish (hookPayload output)
   pure (output, exitCode)
   where
