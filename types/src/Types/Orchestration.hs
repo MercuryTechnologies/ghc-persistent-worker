@@ -51,14 +51,20 @@ spawnedSocketDirectory :: ServerSocketPath -> SocketDirectory
 spawnedSocketDirectory server =
   SocketDirectory (takeDirectory server.path)
 
+-- | The prefix of the socket directory name for the GHC server.
+-- Used for manual override on the CLI.
+newtype PrimarySocketName =
+  PrimarySocketName { path :: FilePath }
+  deriving stock (Eq, Show)
+
 -- | For project socket, use the trace id extracted from server socket path.
 projectSocketDirectory ::
   -- | base path
-  FilePath ->
+  PrimarySocketName ->
   -- | target id.
   TargetId ->
   SocketDirectory
-projectSocketDirectory base targetId = SocketDirectory (root </> workerBase)
+projectSocketDirectory (PrimarySocketName base) targetId = SocketDirectory (root </> workerBase)
   where
     root = "/tmp/ghc-persistent-worker"
     workerBase = base ++ "_" ++ targetId.string

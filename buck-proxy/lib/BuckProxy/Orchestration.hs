@@ -10,11 +10,13 @@ import BuckProxy.Util (dbg)
 import qualified BuckWorkerProto as Worker
 import BuckWorkerProto (ExecuteCommand, ExecuteResponse)
 import Common.Grpc (commandEnv, streamingNotImplemented)
+import Control.Applicative ((<|>))
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, modifyMVar)
 import Control.Exception (throwIO, try)
 import Control.Monad (void, when)
 import Data.Map.Strict (Map, (!?))
+import Data.Coerce (coerce)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text qualified as Text
@@ -39,6 +41,7 @@ import Types.Args (TargetId)
 import Types.BuckArgs (BuckArgs (workerTargetId), parseBuckArgs)
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
 import Types.Orchestration (
+  PrimarySocketName (..),
   PrimarySocketPath (..),
   ServerSocketPath (..),
   SocketDirectory (..),
@@ -84,15 +87,19 @@ forwardRequest connection req = withRPC connection def (Proxy @(Protobuf Worker 
 proxyHandler ::
   MVar (Map TargetId WorkerResource) ->
   GhcWorkerCommand ->
-  FilePath ->
+  -- | Worker socket path determined by proxy socket path
+  PrimarySocketName ->
+  -- | CLI override for the socket path
+  Maybe PrimarySocketName ->
   Proto ExecuteCommand ->
   IO (Proto ExecuteResponse)
-proxyHandler workerMap command basePath req = do
+proxyHandler workerMap command socketDefault socketOverride req = do
   let cmdEnv = commandEnv req.env
       argv = Text.unpack . decodeUtf8Lenient <$> req.argv
       -- Get the build ID for the primary socket path from the command environment, and fall back to the value extracted
       -- from the gRPC socket path if the key is absent from the env.
-      socketId = fromMaybe basePath (cmdEnv.values !? "BUCK_BUILD_ID")
+      -- If an override was specified on the command line with @--socket-name@, it has precedence over both.
+      socketId = fromMaybe socketDefault (socketOverride <|> coerce (cmdEnv.values !? "BUCK_BUILD_ID"))
   buckArgs <- either (throwIO . userError) pure (parseBuckArgs cmdEnv (RequestArgs argv))
   case buckArgs.workerTargetId of
     Nothing -> throwIO (userError "No --worker-target-id passed")
@@ -125,8 +132,9 @@ proxyServer ::
   MVar (Map TargetId WorkerResource) ->
   GhcWorkerCommand ->
   ServerSocketPath ->
+  Maybe PrimarySocketName ->
   IO ()
-proxyServer workerMap command socket = do
+proxyServer workerMap command socket workerSocketOverride = do
   try launch >>= \case
     Right () ->
       dbg ("Shutting down buck-proxy on " ++ socket.path)
@@ -135,11 +143,11 @@ proxyServer workerMap command socket = do
       exitFailure
   where
     (traceId, workerSpecId) = extractTraceIdAndWorkerSpecId socket.path
-    base = traceId ++ "-" ++ workerSpecId
+    workerSocketDefault = PrimarySocketName (traceId ++ "-" ++ workerSpecId)
     methods :: Methods IO (ProtobufMethodsOf Worker)
     methods =
       Method (mkClientStreaming streamingNotImplemented) $
-      Method (mkNonStreaming (proxyHandler workerMap command base)) $
+      Method (mkNonStreaming (proxyHandler workerMap command workerSocketDefault workerSocketOverride)) $
       NoMoreMethods
     launch = do
       dbg ("Starting buck-proxy on " ++ socket.path)

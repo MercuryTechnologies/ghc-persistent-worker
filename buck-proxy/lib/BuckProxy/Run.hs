@@ -8,7 +8,7 @@ import Data.Foldable (for_)
 import Data.Functor ((<&>))
 import Data.Map.Strict qualified as Map
 import System.Process (terminateProcess)
-import Types.Orchestration (ServerSocketPath (..))
+import Types.Orchestration (ServerSocketPath (..), PrimarySocketName (..))
 
 
 -- | Global options for the worker, passed when the process is started, in contrast to request options stored in
@@ -21,7 +21,11 @@ data CliOptions =
 
     -- | If 'True', don't kill the @ghc-worker@ process after the build has concluded (i.e. the @buck-proxy@ process is
     -- terminated by Buck).
-    remain :: Bool
+    remain :: Bool,
+
+    -- | Override the name of the worker socket instead of using @$BUCK_BUILD_ID@.
+    -- This can be used with 'remain' to reuse a worker across builds.
+    workerSocket :: Maybe PrimarySocketName
   }
   deriving stock (Eq, Show)
 
@@ -29,7 +33,8 @@ defaultCliOptions :: CliOptions
 defaultCliOptions =
   CliOptions {
     command = Nothing,
-    remain = False
+    remain = False,
+    workerSocket = Nothing
   }
 
 parseOptions :: [String] -> IO CliOptions
@@ -40,6 +45,7 @@ parseOptions =
       [] -> pure z
       "--exe" : exe : rest -> spin z {command = Just GhcWorkerCommand {exe = WorkerExe exe, args = []}} rest
       "--remain" : rest -> spin z {remain = True} rest
+      "--socket-name" : workerSocket : rest -> spin z {workerSocket = Just (PrimarySocketName workerSocket)} rest
       "--" : args -> pure z {command = z.command <&> \ c -> c {args}}
       arg -> throwIO (userError ("Invalid worker CLI args: " ++ unwords arg))
 
@@ -50,7 +56,7 @@ run ::
   CliOptions ->
   MVar (IO ()) ->
   IO ()
-run socket CliOptions {command, remain} refHandler
+run socket CliOptions {command, remain, workerSocket} refHandler
   | Nothing <- command
   = throwIO (userError "No ghc-worker executable specified on the command line")
   | Just cmd <- command
@@ -62,4 +68,4 @@ run socket CliOptions {command, remain} refHandler
         wmap <- readMVar refWorkerMap
         for_ wmap \resource ->
           terminateProcess resource.processHandle
-    proxyServer refWorkerMap cmd socket
+    proxyServer refWorkerMap cmd socket workerSocket
