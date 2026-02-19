@@ -73,6 +73,7 @@ test-suite worker-test
   hs-source-dirs: test
   other-modules:
     CompileHptTest,
+    Test.Build,
     Test.Data.BuildSystem,
     Test.Data.Env,
     Test.Data.Project,

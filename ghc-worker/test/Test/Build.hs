@@ -1,0 +1,213 @@
+-- | Description: Logic interfacing with the worker to start metadata and compile tasks.
+module Test.Build where
+
+import Data.IORef (readIORef)
+import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust, mapMaybe)
+import qualified Data.Set as Set
+import Data.Set (Set)
+import GHC (mkModule, mkModuleName)
+import GHC.Driver.Env (hscUpdateFlags)
+import GHC.Driver.Monad (modifySession)
+import GHC.Driver.Session (DynFlags (..), GhcMode (..))
+import GHC.Types.Error (diagnosticCodeNumber)
+import GHC.Unit (stringToUnit)
+import Internal.Compile.Make (compileModuleWithDepsInHpt)
+import Internal.Metadata (computeMetadata)
+import Internal.Session (withGhcMakeModule)
+import Numeric.Natural (Natural)
+import Prelude hiding (log)
+import System.Directory.OsPath (createDirectoryIfMissing)
+import System.OsPath (OsPath, (</>), osp)
+import Test.Data.BuildSystem (BuildResult (..))
+import Test.Data.Env (MaxJobs, SessionEnv (..), TestEnv (..))
+import Test.Data.Project (
+  BuildModule (..),
+  Component (..),
+  GenUnit (..),
+  ModuleCache (..),
+  ModuleKey (..),
+  TaskKey (..),
+  ResumeComponent (..),
+  UnitCache (..),
+  errorDiagnosticCode,
+  taskModuleKeys,
+  )
+import Test.Data.Scheduler (RequestFailure (..), RequestResult (..), Schedule (..), SchedulerState (..))
+import Test.Data.TestLog (DiagnosticEntry (..), TestLog (..))
+import Test.Log (withTestLog)
+import Test.Path (compileTmpDir, fp, moduleName, moduleSourcePath, unitName, unitOutputDir, unitTmpDir)
+import Test.Scheduler (initScheduler, runScheduler)
+import qualified Types.Args as Args
+import Types.Args (Args (..))
+import Types.Env (Env (..))
+import Types.Target (ModuleTarget (..), TargetSpec (..))
+
+-- | Decide whether a worker task was successful based on the emitted diagnostic codes.
+-- A failing build is 'ExpectedFailure' only if all emitted codes are in @expectedCodes@.
+--
+-- We don't require all expected codes to be emitted, since that may be difficult to decide in the face of concurrent
+-- builds.
+requestResult :: Set Natural -> Bool -> TestLog -> RequestResult
+requestResult expectedCodes success TestLog {diagnostics}
+  | success = RequestSuccess
+  | null unexpected = RequestFailure ExpectedFailure
+  | otherwise = RequestFailure (UnexpectedDiagnostics unexpected)
+  where
+    unexpected = Set.difference actualCodes expectedCodes
+    actualCodes = Set.fromList (mapMaybe (fmap diagnosticCodeNumber . (.code)) diagnostics)
+
+-- | Execute a worker task with a fresh logger and extract diagnostic data from the log afterwards.
+runBuildTask ::
+  SessionEnv ->
+  String ->
+  OsPath ->
+  Set Natural ->
+  (Env -> IO Bool) ->
+  IO RequestResult
+runBuildTask env label tempName expectedCodes action =
+  withTestLog False label \ (log, logVar) -> do
+    let taskEnv = env.env {log, args = env.env.args {Args.tempDir = Just (fp tempDir)}}
+    createDirectoryIfMissing True tempDir
+    success <- action taskEnv
+    testLog <- readIORef logVar
+    pure (requestResult expectedCodes success testLog)
+  where
+    tempDir = env.tempDir </> tempName
+
+-- | Execute a metadata task.
+-- We currently don't support expected errors during metadata steps, so no diagnostic codes are passed to
+-- 'runBuildTask'.
+runMetadata :: SessionEnv -> (GenUnit BuildModule -> Args) -> GenUnit BuildModule -> IO RequestResult
+runMetadata env mkArgs unit = do
+  runBuildTask env "metadata" (unitTmpDir unit.key) [] \ taskEnv -> do
+    fst <$> computeMetadata taskEnv {args = mkArgs unit}
+
+compileTarget :: ModuleKey -> ModuleTarget
+compileTarget key =
+  ModuleTarget {
+    mod = mkModule (stringToUnit (unitName key.unit)) (mkModuleName (moduleName key))
+  }
+
+-- | Execute a compile task.
+runCompile :: SessionEnv -> (ModuleKey -> (Args, Set Natural)) ->  ModuleKey -> IO RequestResult
+runCompile env mkArgs key = do
+  runBuildTask env "compile" (compileTmpDir key) codes \ taskEnv -> do
+    let compileEnv = taskEnv {args}
+        target = compileTarget key
+    result <- withGhcMakeModule target compileEnv \ _targetSpec -> do
+      modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
+      compileModuleWithDepsInHpt compileEnv.log (TargetModule target)
+    pure (isJust result)
+  where
+    (args, codes) = mkArgs key
+
+staticMetaArgs :: [String]
+staticMetaArgs = [
+  "-i",
+  "-hide-all-packages",
+  "-include-pkg-deps",
+  "-no-link",
+  "-dynamic",
+  "-fbyte-code-and-object-code",
+  "-fprefer-byte-code",
+  "-fPIC",
+  "-osuf", "dyn_o",
+  "-hisuf", "dyn_hi",
+  "-package", "base"
+  ]
+
+-- | Assemble the arguments passed to unit state initialization in a metadata step, resembling how the Buck rules
+-- provide them.
+metadataArgs :: SessionEnv -> GenUnit BuildModule -> Args
+metadataArgs env GenUnit {key, modules, depUnits} =
+  env.shared.baseArgs {
+    ghcOptions = staticMetaArgs ++ metaArgs ++ unitDepArgs ++ srcFiles
+  }
+  where
+    metaArgs = [
+      "-this-unit-id", unitName key,
+      "-dep-json=" ++ fp (sessionTmpDir </> [osp|dep.json|]),
+      "-dep-makefile=" ++ fp (sessionTmpDir </> [osp|dep.make|]),
+      "-odir", fp outDir,
+      "-hidir", fp outDir
+      ]
+
+    unitDepArgs = concatMap (\ d -> ["-package-id", unitName d]) depUnits
+
+    srcFiles = [fp (env.sourceDir </> moduleSourcePath gm.key) | gm <- modules]
+
+    sessionTmpDir = env.tempDir </> unitTmpDir key
+
+    outDir = env.tempDir </> unitOutputDir key
+
+-- | Add Buck cache paths for dependency build plans to 'metadataArgs' for a resume build metadata step.
+resumeMetadataArgs :: SessionEnv -> UnitCache -> GenUnit BuildModule -> Args
+resumeMetadataArgs env cache unit =
+  (metadataArgs env unit) {Args.cachedBuildPlans = cache.cachedBuildPlans}
+
+errorCodeSet :: ModuleKey -> Set Natural
+errorCodeSet key =
+  foldMap (Set.singleton . errorDiagnosticCode) key.errorVariant
+
+-- | The initial build always expects to encounter the diagnostics with which a module was generated.
+initialCompileArgs :: SessionEnv -> ModuleKey -> (Args, Set Natural)
+initialCompileArgs env key =
+  (env.shared.baseArgs, errorCodeSet key)
+
+-- | Add Buck cache paths for dependency build plans to the 'Args' passed to a resume build compile step.
+-- The resume build only expects diagnostics when @fixErrors@ is 'False'.
+resumeCompileArgs :: SessionEnv -> Bool -> ModuleCache -> ModuleKey -> (Args, Set Natural)
+resumeCompileArgs env fixErrors ModuleCache {cachedUnit, cachedDeps} key = do
+  (args, codes)
+  where
+    args = (env.shared.baseArgs) {homeUnit = Just cachedUnit, Args.cachedDeps = Just cachedDeps}
+
+    codes
+      | fixErrors = mempty
+      | otherwise = errorCodeSet key
+
+-- | Handlers for build steps specialized to the initial build's requirements.
+initialStrategy :: SessionEnv -> Component -> IO RequestResult
+initialStrategy env = \case
+  ComponentUnit unit -> runMetadata env (metadataArgs env) unit
+  ComponentModule key -> runCompile env (initialCompileArgs env) key
+
+-- | Handlers for build steps specialized to the resume build's requirements.
+resumeStrategy :: SessionEnv -> Bool -> ResumeComponent -> IO RequestResult
+resumeStrategy env fixErrors = \case
+  ResumeUnit unit cache -> runMetadata env (resumeMetadataArgs env cache) unit
+  ResumeModule key cache -> runCompile env (resumeCompileArgs env fixErrors cache) key
+
+-- | Extract the data required for properties and classifiers from the final state of the scheduler after a build.
+buildResult :: SchedulerState TaskKey component -> BuildResult
+buildResult state =
+  BuildResult {
+    failures = state.failures,
+    completed = state.completed,
+    succeeded,
+    failedModules = taskModuleKeys failedModules,
+    hasErrors = not (null failedModules)
+  }
+  where
+    succeeded = Set.difference state.completed failedModules
+
+    failedModules = Map.keysSet state.failures
+
+-- | Run a schedule of build tasks to completion.
+runSchedule ::
+  -- | Maximum number of jobs that should be executed concurrently.
+  MaxJobs ->
+  -- | Task dispatch function that calls the worker.
+  (component -> IO RequestResult) ->
+  -- | Initial set of tasks keys that are treated as completed, representing the unmodified modules in a resume build.
+  -- Only used to decide whether dependencies are available.
+  Set TaskKey ->
+  -- | All tasks that will be executed.
+  -- This does _not_ discard the completed tasks in the previous argument.
+  Schedule TaskKey component ->
+  IO BuildResult
+runSchedule maxJobs dispatch completed tasks =
+  buildResult <$> runScheduler schedulerEnv initialState
+  where
+    (schedulerEnv, initialState) = initScheduler maxJobs dispatch tasks completed
