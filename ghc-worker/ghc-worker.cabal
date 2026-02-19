@@ -73,6 +73,7 @@ test-suite worker-test
   hs-source-dirs: test
   other-modules:
     CompileHptTest,
+    ScheduleTest,
     Test.Build,
     Test.BuildSystem,
     Test.Cache,
