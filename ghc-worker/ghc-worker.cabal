@@ -74,9 +74,11 @@ test-suite worker-test
   other-modules:
     CompileHptTest,
     Test.Data.Env,
+    Test.Data.Project,
     Test.Data.Scheduler,
     Test.Data.TestLog,
     Test.Env,
+    Test.Gen.Project,
     Test.Log,
     Test.Run,
     Test.Scheduler,
