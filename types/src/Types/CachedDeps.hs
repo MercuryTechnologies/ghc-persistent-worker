@@ -2,15 +2,24 @@
 
 module Types.CachedDeps where
 
-import Data.Aeson (FromJSON (..), FromJSONKey (..), FromJSONKeyFunction (..), withArray, withText)
+import Data.Aeson (
+  FromJSON (..),
+  FromJSONKey (..),
+  FromJSONKeyFunction (..),
+  ToJSON (..),
+  ToJSONKey (..),
+  withArray,
+  withText,
+  )
 import Data.Coerce (Coercible, coerce)
 import Data.Foldable (toList)
+import Data.Functor.Contravariant (contramap)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
-import Data.Text.Encoding (encodeUtf8)
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import GHC (ModuleName (..))
-import GHC.Data.FastString (FastString, mkFastStringByteString)
+import GHC.Data.FastString (FastString, bytesFS, mkFastString, mkFastStringByteString)
 import GHC.Generics (Generic)
 import GHC.Unit (UnitId (..))
 import GHC.Utils.Outputable (showPprUnsafe)
@@ -29,8 +38,28 @@ jsonFsFromText ::
 jsonFsFromText =
   JsonFs . coerce . mkFastStringByteString . encodeUtf8
 
+jsonFsToText ::
+  Coercible a FastString =>
+  JsonFs a ->
+  Text
+jsonFsToText =
+  decodeUtf8 . bytesFS . coerce
+
+jsonFsFromString ::
+  Coercible a FastString =>
+  String ->
+  JsonFs a
+jsonFsFromString =
+  JsonFs . coerce . mkFastString
+
 instance Coercible a FastString => FromJSON (JsonFs a) where
   parseJSON = withText "JsonFs" (pure . jsonFsFromText)
+
+instance Coercible a FastString => ToJSON (JsonFs a) where
+  toJSON = toJSON . jsonFsToText
+
+instance Coercible a FastString => ToJSONKey (JsonFs a) where
+  toJSONKey = contramap jsonFsToText toJSONKey
 
 instance Coercible a FastString => FromJSONKey (JsonFs a) where
   fromJSONKey =
@@ -47,13 +76,13 @@ data CachedDep =
     interfaces :: NonEmpty FilePath
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON)
+  deriving anyclass (FromJSON, ToJSON)
 
 -- | The data Buck provides in order to restore the state when recompiling after restart.
 newtype CachedDeps =
   CachedDeps [CachedDep]
   deriving stock (Eq, Show, Generic)
-  deriving newtype (FromJSON)
+  deriving newtype (FromJSON, ToJSON)
 
 data CachedPackageDep =
   CachedPackageDep {
@@ -61,7 +90,7 @@ data CachedPackageDep =
      modules :: [JsonFs ModuleName]
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON)
+  deriving anyclass (FromJSON, ToJSON)
 
 data CachedModule =
   CachedModule {
@@ -70,7 +99,7 @@ data CachedModule =
     packages :: [CachedPackageDep]
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON)
+  deriving anyclass (FromJSON, ToJSON)
 
 data CachedUnit =
   CachedUnit {
@@ -80,7 +109,7 @@ data CachedUnit =
     dep_units :: Maybe FilePath
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON)
+  deriving anyclass (FromJSON, ToJSON)
 
 data CachedBuildPlan =
   CachedBuildPlan {
@@ -88,10 +117,10 @@ data CachedBuildPlan =
     build_plan :: FilePath
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON)
+  deriving anyclass (FromJSON, ToJSON)
 
 -- | Sorted in dependency order by Buck.
 newtype CachedBuildPlans =
   CachedBuildPlans [CachedBuildPlan]
   deriving stock (Eq, Show)
-  deriving newtype (FromJSON)
+  deriving newtype (FromJSON, ToJSON)
