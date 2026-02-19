@@ -81,6 +81,7 @@ test-suite worker-test
     Test.Data.TestLog,
     Test.Env,
     Test.Gen.Project,
+    Test.Gen.ProjectBuild,
     Test.Gen.Resume,
     Test.Log,
     Test.Path,
