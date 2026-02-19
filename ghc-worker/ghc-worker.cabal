@@ -74,6 +74,7 @@ test-suite worker-test
   other-modules:
     CompileHptTest,
     Test.Build,
+    Test.BuildSystem,
     Test.Cache,
     Test.Data.BuildSystem,
     Test.Data.Env,
