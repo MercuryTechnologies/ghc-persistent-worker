@@ -80,6 +80,7 @@ test-suite worker-test
     Test.Env,
     Test.Gen.Project,
     Test.Log,
+    Test.Path,
     Test.Run,
     Test.Scheduler,
     TestSetup
