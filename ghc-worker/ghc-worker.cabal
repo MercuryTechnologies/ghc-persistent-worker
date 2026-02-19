@@ -76,6 +76,7 @@ test-suite worker-test
     Test.Data.Env,
     Test.Data.Project,
     Test.Data.Scheduler,
+    Test.Data.SourceMode,
     Test.Data.TestLog,
     Test.Env,
     Test.Gen.Project,
@@ -83,6 +84,7 @@ test-suite worker-test
     Test.Path,
     Test.Run,
     Test.Scheduler,
+    Test.Source,
     TestSetup
   ghc-options: -threaded -rtsopts "-with-rtsopts=-N -T"
   build-depends:
