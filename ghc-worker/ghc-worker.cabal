@@ -75,6 +75,7 @@ test-suite worker-test
     CompileHptTest,
     Test.Data.Env,
     Test.Data.Project,
+    Test.Data.ProjectBuild,
     Test.Data.Scheduler,
     Test.Data.SourceMode,
     Test.Data.TestLog,
