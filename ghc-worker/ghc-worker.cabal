@@ -74,10 +74,12 @@ test-suite worker-test
   other-modules:
     CompileHptTest,
     Test.Data.Env,
+    Test.Data.Scheduler,
     Test.Data.TestLog,
     Test.Env,
     Test.Log,
     Test.Run,
+    Test.Scheduler,
     TestSetup
   ghc-options: -threaded -rtsopts "-with-rtsopts=-N -T"
   build-depends:
