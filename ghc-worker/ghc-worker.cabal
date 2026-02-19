@@ -89,6 +89,7 @@ test-suite worker-test
     Test.Gen.Resume,
     Test.Log,
     Test.Path,
+    Test.Resume,
     Test.Run,
     Test.Scheduler,
     Test.Source,
