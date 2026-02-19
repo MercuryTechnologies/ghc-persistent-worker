@@ -73,6 +73,7 @@ test-suite worker-test
   hs-source-dirs: test
   other-modules:
     CompileHptTest,
+    ProjectBuildTest,
     ScheduleTest,
     Test.Build,
     Test.BuildSystem,
@@ -90,6 +91,8 @@ test-suite worker-test
     Test.Gen.Resume,
     Test.Log,
     Test.Path,
+    Test.ProjectBuild.Classify,
+    Test.ProjectBuild.Property,
     Test.Resume,
     Test.Run,
     Test.Scheduler,
