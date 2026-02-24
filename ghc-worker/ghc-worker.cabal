@@ -40,7 +40,6 @@ library
     GhcWorker.Orchestration
     GhcWorker.Run
   build-depends:
-    aeson,
     async,
     binary,
     buck-worker-grpc,

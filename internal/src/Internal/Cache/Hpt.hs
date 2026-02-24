@@ -105,7 +105,7 @@ loadCachedByteCode hsc_env ifaceFile iface details =
 
     core_bindings =
       mi_extra_decls iface <&> \ wcb_bindings ->
-        WholeCoreBindings {wcb_mod_location, ..}
+        WholeCoreBindings {wcb_mod_location, wcb_module = mi_module iface, ..}
 
 #endif
 

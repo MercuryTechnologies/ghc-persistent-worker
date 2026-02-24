@@ -37,6 +37,7 @@ library
     ghc-options:      -Wall
     hs-source-dirs:   src
     exposed-modules:  Internal.AbiHash
+                      Internal.BuildPlan
                       Internal.Cache.Hpt
                       Internal.Cache.Metadata
                       Internal.Compile.Make
@@ -89,6 +90,7 @@ library
                       deepseq,
                       exceptions,
                       filepath,
+                      file-io,
                       ghc,
                       ghc-boot,
                       text,

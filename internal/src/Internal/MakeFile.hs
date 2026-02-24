@@ -1,6 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
-{-# language NoImplicitPrelude, FieldSelectors, CPP #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE FieldSelectors #-}
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 #define FIXED_NODES defined(MWB_2025_10)
 

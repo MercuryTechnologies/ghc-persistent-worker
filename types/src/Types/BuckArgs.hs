@@ -12,6 +12,7 @@ import Data.Maybe (fromMaybe, isJust)
 import GHC (mkModule, mkModuleName)
 import GHC.Unit (Definite (..), GenUnit (RealUnit), stringToUnitId)
 import System.FilePath (takeDirectory)
+import System.OsPath (encodeFS)
 import qualified Types.Args
 import Types.Args (Args (Args), TargetId (..), UnitName (..))
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
@@ -42,6 +43,7 @@ data BuckArgs =
     buck2PackageDb :: [String],
     buck2PackageDbDep :: Maybe String,
     unit :: Maybe String,
+    buildPlan :: Maybe String,
     moduleName :: Maybe String,
     depModules :: Maybe String,
     depUnits :: Maybe String,
@@ -72,6 +74,7 @@ emptyBuckArgs env =
     buck2PackageDb = [],
     buck2PackageDbDep = Nothing,
     unit = Nothing,
+    buildPlan = Nothing,
     moduleName = Nothing,
     depModules = Nothing,
     depUnits = Nothing,
@@ -109,6 +112,7 @@ options =
     withArg "--plugin-db" \ z a -> z {pluginDb = Just a},
     withArg "--ghc-dir" \ z a -> z {ghcDirFile = Just a},
     withArg "--unit" \ z a -> z {unit = Just a},
+    withArg "--build-plan" \ z a -> z {buildPlan = Just a},
     withArg "--module" \ z a -> z {moduleName = Just a, mode = Just ModeCompile},
     withArg "--ghc-args" \ z a -> z {ghcArgsFile = Just a},
     withArg "--extra-pkg-db" \ z a -> z {ghcDbFile = Just a},
@@ -189,13 +193,14 @@ toGhcArgs args = do
   cachedDeps <- traverse (decodeJsonArg "--dep-modules") args.depModules
   cachedBuildPlans <- traverse (decodeJsonArg "--dep-units") args.depUnits
   topdir <- (<|> args.topdir) <$> readPath args.ghcDirFile
+  buildPlan <- traverse encodeFS args.buildPlan
   packageDb <- readPath args.ghcDbFile
   -- When a module name was specified, we don't read any args because we can't use them when picking @ModSummary@ from
   -- the module graph.
   ghcArgs <-
     if isJust args.moduleName
-    then pure [] else
-    maybe args.ghcOptions lines <$> traverse readFile args.ghcArgsFile
+    then pure []
+    else maybe args.ghcOptions lines <$> traverse readFile args.ghcArgsFile
   moduleTarget <- checkModuleTarget args
   pure Args {
     topdir,
@@ -203,6 +208,7 @@ toGhcArgs args = do
     binPath = args.binPath,
     tempDir = args.tempDir,
     unit = UnitName . stringToUnitId <$> args.unit,
+    buildPlan,
     moduleTarget,
     ghcOptions = ghcArgs ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
     cachedBuildPlans,

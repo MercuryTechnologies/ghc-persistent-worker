@@ -6,6 +6,7 @@ import Data.Map (Map)
 import Data.Map.Strict ((!?))
 import GHC.Unit (UnitId)
 import GHC.Utils.Outputable (showPprUnsafe)
+import System.OsPath (OsPath)
 import Types.CachedDeps (CachedBuildPlans, CachedDeps)
 import Types.Target (ModuleTarget)
 
@@ -26,6 +27,7 @@ data Args =
     binPath :: [String],
     tempDir :: Maybe String,
     unit :: Maybe UnitName,
+    buildPlan :: Maybe OsPath,
     moduleTarget :: Maybe ModuleTarget,
     ghcOptions :: [String],
     cachedBuildPlans :: Maybe CachedBuildPlans,
@@ -42,6 +44,7 @@ emptyArgs env =
     binPath = [],
     tempDir = env !? "TMPDIR",
     unit = Nothing,
+    buildPlan = Nothing,
     moduleTarget = Nothing,
     ghcOptions = [],
     cachedBuildPlans = Nothing,

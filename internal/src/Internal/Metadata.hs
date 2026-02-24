@@ -1,15 +1,29 @@
+{-# LANGUAGE CPP #-}
+
 module Internal.Metadata where
 
 import Control.Concurrent (readMVar)
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT (..))
 import Data.Foldable (for_)
 import Data.Maybe (isJust)
-import GHC (DynFlags (..), Ghc, GhcMode (..), ModuleGraph, getSession, getSessionDynFlags, setSession)
+import GHC (
+  DynFlags (..),
+  Ghc,
+  GhcException (..),
+  GhcMode (..),
+  ModuleGraph,
+  getSession,
+  getSessionDynFlags,
+  setSession,
+  )
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateFlags, hscUpdateLoggerFlags)
 import GHC.Driver.Monad (modifySession, modifySessionM, withSession, withTempSession)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit (UnitId)
+import GHC.Utils.Panic (throwGhcExceptionIO)
+import Internal.BuildPlan (BuildPlan (..), buildPlanForSources, writeBuildPlan)
 import Internal.Cache.Metadata (addHomeUnitTo, loadCachedUnits)
 import Internal.Log (logTimed)
 import Internal.MakeFile (doMkDependHS)
@@ -18,11 +32,29 @@ import Internal.State (updateMakeStateVar)
 import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
 import Internal.State.Stats (logMemStats)
 import System.Directory (createDirectoryIfMissing)
+import System.OsPath (OsPath, unsafeEncodeUtf)
 import Types.Args (Args (..))
 import Types.Env (Env (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
 import Types.Target (TargetSpec (..), UnitTarget (..))
+import qualified System.File.OsPath as OsPath
+
+#if !defined(MWB) && !defined(MWB_2025_10)
+
+import GHC (ModSummary)
+
+depJSON :: DynFlags -> Maybe FilePath
+depJSON _ = Nothing
+
+ms_opts :: ModSummary -> [String]
+ms_opts _ = []
+
+#endif
+
+legacyMkDepend :: Bool
+legacyMkDepend =
+  False
 
 -- | 'doMkDependHS' needs this to be enabled.
 metadataTempSession :: HscEnv -> HscEnv
@@ -60,14 +92,49 @@ prepareMetadataSession env dflags = do
 
     storeNewUnit = withSession \ hsc_env -> liftIO $ updateMakeStateVar env.state (insertUnitEnv hsc_env)
 
--- | Run 'doMkDependHS' to write the metadata JSON file and exfiltrate the module graph.
+resolveDepJson :: HscEnv -> Maybe OsPath -> Ghc OsPath
+resolveDepJson hsc_env path =
+  case (path, unsafeEncodeUtf <$> depJSON hsc_env.hsc_dflags) of
+    (Just new, Just old)
+      | new == old -> pure new
+      | otherwise -> do
+        liftIO $ OsPath.writeFile old mempty
+        pure new
+    (Just new, Nothing) -> pure new
+    (Nothing, Just old) -> pure old
+    (Nothing, Nothing) -> missingDepJson
+  where
+    missingDepJson =
+      liftIO $ throwGhcExceptionIO (ProgramError "Metadata called without --build-plan or -dep-json")
+
+-- | Dispatch build plan computation and writing the metadata JSON based on the flag 'legacyMkDepend'.
+--
+-- If set, run 'doMkDependHS', otherwise use the new customized version that calls @downsweep@ and constructs the JSON
+-- without handling the Makefile argument.
+--
+-- If both the new and old CLI argument for the JSON path was specified, write an empty file to the old path if it
+-- differs to satisfy Buck.
+--
 -- We need to use a temporary session because 'doMkDependHS' uses some custom settings that we don't want to leak,
 -- though it's not been thoroughly tested what precisely the impact is.
-writeMetadata :: [String] -> Ghc ModuleGraph
-writeMetadata srcs = do
+writeMetadata :: Maybe OsPath -> [String] -> Ghc ModuleGraph
+writeMetadata path srcs = do
   initializeSessionPlugins
   withTempSession metadataTempSession do
-    doMkDependHS srcs
+    if legacyMkDepend
+    then doMkDependHS srcs
+    else do
+      hsc_env <- getSession
+      writeLegacyMakefile hsc_env
+      depJson <- resolveDepJson hsc_env path
+      plan <- buildPlanForSources srcs
+      liftIO $ writeBuildPlan depJson plan
+      pure plan.graph
+  where
+
+    writeLegacyMakefile hsc_env =
+      when (not (null hsc_env.hsc_dflags.depMakefile)) do
+        liftIO $ writeFile hsc_env.hsc_dflags.depMakefile ""
 
 -- | Run downsweep and merge the resulting module graph into the cached graph.
 -- This is executed for the metadata step, which natively only calls 'doMkDependHS'.
@@ -89,7 +156,7 @@ computeMetadata env = do
         unit <- prepareMetadataSession env dflags
         let target = TargetUnit (UnitTarget unit)
         liftIO $ env.log.setTarget target
-        module_graph <- writeMetadata (fst <$> srcs)
+        module_graph <- writeMetadata env.args.buildPlan (fst <$> srcs)
         liftIO do
           updateMakeStateVar env.state (storeModuleGraph module_graph)
           for_ dflags.stubDir \ stubdir -> do
