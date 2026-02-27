@@ -80,6 +80,7 @@ library
         cpp-options: -DUNIT_INDEX
 
     build-depends:    aeson,
+                      async,
                       binary,
                       buck-worker-types,
                       bytestring,

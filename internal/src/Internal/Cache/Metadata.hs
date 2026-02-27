@@ -5,6 +5,7 @@
 module Internal.Cache.Metadata where
 
 import Control.Concurrent (MVar, modifyMVar)
+import Control.Concurrent.Async (forConcurrently)
 import Control.Exception (throwIO)
 import Control.Monad (foldM, (>=>))
 import Control.Monad.IO.Class (liftIO)
@@ -178,6 +179,19 @@ loadCachedArgs path = do
     Right args -> modifyM (setupPath args.cachedBinPath)
     Left err -> liftIO $ throwIO (userError err)
 
+-- | Cached CLI args for a unit.
+--
+-- This function is separated so that we can parallelize CLI arg parsing part.
+readParseGHCArgs ::
+  HscEnv ->
+  DynFlags ->
+  FilePath ->
+  IO DynFlags
+readParseGHCArgs hsc_env0 dflags0 args_file = do
+  args <- readFile args_file
+  (dflags1, _, _, _) <- parseFlags dflags0 hsc_env0.hsc_logger (buckLocation <$> lines args)
+  pure dflags1
+
 -- | Restore the unit state and module graph from the external cache.
 --
 -- The cached data consists of a simple list of GHC command line arguments that can recreate the unit state, as well as
@@ -185,25 +199,19 @@ loadCachedArgs path = do
 loadCachedUnit ::
   Logger ->
   HscEnv ->
-  DynFlags ->
   UnitId ->
-  CachedUnit ->
+  (CachedUnit, DynFlags) ->
   StateT WorkerState IO HscEnv
-loadCachedUnit logger hsc_env0 dflags0 unit CachedUnit {build_plan, unit_args, unit_buck_args} = do
-  maybe (pure hsc_env0) (load build_plan) unit_args
-  where
-    load module_graph args_file =
-      logTimedD logger (text "Loading cached unit" <+> quotes (ppr unit)) do
-        traverse_ loadCachedArgs unit_buck_args
-        hsc_env2 <- liftIO do
-          args <- readFile args_file
-          (dflags1, _, _, _) <- parseFlags dflags0 hsc_env0.hsc_logger (buckLocation <$> lines args)
-          (hsc_env1, _) <- addHomeUnitTo hsc_env0 dflags1
-          pure (hscSetActiveUnitId unit hsc_env1)
-        modify (updateMakeState (insertUnitEnv hsc_env2))
-        nodes <- liftIO $ traverse (uncurry (loadCachedModule hsc_env2 unit)) (Map.toList module_graph)
-        modify (updateMakeState (storeModuleGraph (mkModuleGraph nodes)))
-        pure hsc_env2
+loadCachedUnit logger hsc_env0 unit (CachedUnit {build_plan, unit_buck_args}, dflags) =
+  logTimedD logger (text "Loading cached unit" <+> quotes (ppr unit)) do
+    traverse_ loadCachedArgs unit_buck_args
+    hsc_env2 <- liftIO do
+      (hsc_env1, _) <- addHomeUnitTo hsc_env0 dflags
+      pure (hscSetActiveUnitId unit hsc_env1)
+    modify (updateMakeState (insertUnitEnv hsc_env2))
+    nodes <- liftIO $ traverse (uncurry (loadCachedModule hsc_env2 unit)) (Map.toList build_plan)
+    modify (updateMakeState (storeModuleGraph (mkModuleGraph nodes)))
+    pure hsc_env2
 
 -- | Restore the unit state and module graph for each unit in cache that isn't present in the unit env.
 --
@@ -222,15 +230,26 @@ loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 =
   modifyMVar stateVar \ state -> do
     hsc_env1 <- Make.loadState logger hsc_env0 state.make
     logTimed logger "Loading cached units" $ fmap swap do
-      runStateT (foldM ensureBuildPlan hsc_env1 buildPlans) state
+      buildPlans_with_cunit_and_dflags <-
+        forConcurrently buildPlans \plan@CachedBuildPlan {name = JsonFs uid, build_plan = planFile} -> do
+          let present = isJust (unitEnv_lookup_maybe uid state.make.hug)
+          if present
+            then pure (plan, Nothing)
+            else do
+              cachedUnit@CachedUnit {unit_args} <- liftIO $ decodeJsonBuildPlan planFile
+              mdflags1 <- traverse (readParseGHCArgs hsc_env1 dflags0) unit_args
+              pure (plan, (cachedUnit,) <$> mdflags1)
+      runStateT (foldM ensureBuildPlan hsc_env1 buildPlans_with_cunit_and_dflags) state
   where
-    ensureBuildPlan hsc_env CachedBuildPlan {name = JsonFs uid, build_plan = planFile} = do
+    ensureBuildPlan hsc_env (CachedBuildPlan {name = JsonFs uid}, mb_cachedUnit_dflags) = do
       present <- gets \ s -> isJust (unitEnv_lookup_maybe uid s.make.hug)
       if present
       then skipPresent hsc_env uid
       else do
-        cachedUnit <- liftIO $ decodeJsonBuildPlan planFile
-        loadCachedUnit logger hsc_env dflags0 uid cachedUnit
+        case mb_cachedUnit_dflags of
+          Nothing -> pure hsc_env -- don't we yield error here?
+          Just (cachedUnit, dflags) -> do
+            loadCachedUnit logger hsc_env uid (cachedUnit, dflags)
 
     skipPresent hsc_env uid = do
       logDebugD logger (text "Present in the unit env:" <+> quotes (ppr uid))

@@ -30,7 +30,7 @@ import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
 import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO)
-import Internal.Cache.Metadata (loadCachedUnit, loadCachedUnits)
+import Internal.Cache.Metadata (loadCachedUnit, loadCachedUnits, readParseGHCArgs)
 import Internal.Log (logTimed)
 import Internal.UnitEnv (addHomeModInfoToHpt, lookupHpt, unitEnv_member)
 import Prelude hiding (log)
@@ -214,11 +214,13 @@ loadHomeUnit log stateVar dflags0 unit hsc_env0 path
   = pure hsc_env0
   | otherwise
   = do
-    cachedUnit <- decodeJsonArg "--home-unit" path
+    cachedUnit@CachedUnit {unit_args} <- decodeJsonArg "--home-unit" path
     hsc_env1 <- fmap (fromMaybe hsc_env0) $ for cachedUnit.dep_units \ file -> do
       deps <- decodeJsonArg "--home-unit" file
       loadCachedUnits log stateVar dflags0 deps hsc_env0
+    dflags <- maybe (pure dflags0) (readParseGHCArgs hsc_env1 dflags0) unit_args
+
     modifyMVar stateVar $
       logTimed log "Loading cached home unit" .
       fmap swap .
-      runStateT (loadCachedUnit log hsc_env1 dflags0 unit cachedUnit)
+      runStateT (loadCachedUnit log hsc_env1 unit (cachedUnit, dflags))
