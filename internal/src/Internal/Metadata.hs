@@ -30,7 +30,7 @@ import Internal.BuildPlan.Json (writeBuildPlan)
 import Internal.Cache.Metadata (addHomeUnitTo, loadCachedUnits)
 import Internal.Log (logTimed)
 import Internal.MakeFile (doMkDependHS)
-import Internal.Session (runSession, withDynFlags)
+import Internal.Session (runSession, withDynFlags, withGhcInSession)
 import Internal.State (updateMakeStateVar)
 import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
 import Internal.State.Stats (logMemStats)
@@ -174,3 +174,10 @@ computeMetadata env = do
         pure (Just target)
   logMemStats "after metadata" env.log
   pure (isJust res, res)
+
+-- | Simplified metadata computation for the proxy executable.
+-- Skips cache restoration and persistent worker state, directly computing and writing the build plan.
+proxyMetadata :: Env -> IO Bool
+proxyMetadata env =
+  fmap isJust $ runSession env $ withGhcInSession env \ srcs ->
+    Just () <$ writeMetadata env.args.buildPlan env.args.fields (fst <$> srcs)
