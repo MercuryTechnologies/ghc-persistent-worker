@@ -7,7 +7,9 @@ import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT (..))
 import Data.Foldable (for_)
-import Data.Maybe (isJust)
+import Data.List.NonEmpty (NonEmpty, toList)
+import Data.Maybe (fromMaybe, isJust)
+import qualified Data.Set as Set
 import GHC (
   DynFlags (..),
   Ghc,
@@ -23,7 +25,8 @@ import GHC.Driver.Monad (modifySession, withSession, withTempSession)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit (UnitId)
 import GHC.Utils.Panic (throwGhcExceptionIO)
-import Internal.BuildPlan (buildPlanForSources, writeBuildPlan)
+import Internal.BuildPlan (buildPlanForSources)
+import Internal.BuildPlan.Json (writeBuildPlan)
 import Internal.Cache.Metadata (addHomeUnitTo, loadCachedUnits)
 import Internal.Log (logTimed)
 import Internal.MakeFile (doMkDependHS)
@@ -32,14 +35,14 @@ import Internal.State (updateMakeStateVar)
 import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
 import Internal.State.Stats (logMemStats)
 import System.Directory (createDirectoryIfMissing)
+import qualified System.File.OsPath as OsPath
 import System.OsPath (OsPath, unsafeEncodeUtf)
-import Types.Args (Args (..))
+import Types.Args (Args (..), BuildPlanField, buildPlanAll)
 import Types.BuildPlan (BuildPlan (..))
 import Types.Env (Env (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
 import Types.Target (TargetSpec (..), UnitTarget (..))
-import qualified System.File.OsPath as OsPath
 
 #if !defined(MWB) && !defined(MWB_2025_10)
 
@@ -118,8 +121,12 @@ resolveDepJson hsc_env path =
 --
 -- We need to use a temporary session because 'doMkDependHS' uses some custom settings that we don't want to leak,
 -- though it's not been thoroughly tested what precisely the impact is.
-writeMetadata :: Maybe OsPath -> [String] -> Ghc ModuleGraph
-writeMetadata path srcs = do
+writeMetadata ::
+  Maybe OsPath ->
+  Maybe (NonEmpty BuildPlanField) ->
+  [String] ->
+  Ghc ModuleGraph
+writeMetadata path fieldSelection srcs = do
   initializeSessionPlugins
   withTempSession metadataTempSession do
     if legacyMkDepend
@@ -128,10 +135,11 @@ writeMetadata path srcs = do
       hsc_env <- getSession
       writeLegacyMakefile hsc_env
       depJson <- resolveDepJson hsc_env path
-      plan <- buildPlanForSources srcs
+      plan <- buildPlanForSources fields srcs
       liftIO $ writeBuildPlan depJson plan
       pure plan.graph
   where
+    fields = Set.fromList (toList (fromMaybe buildPlanAll fieldSelection))
 
     writeLegacyMakefile hsc_env =
       when (not (null hsc_env.hsc_dflags.depMakefile)) do
@@ -157,7 +165,7 @@ computeMetadata env = do
         unit <- prepareMetadataSession env dflags
         let target = TargetUnit (UnitTarget unit)
         liftIO $ env.log.setTarget target
-        module_graph <- writeMetadata env.args.buildPlan (fst <$> srcs)
+        module_graph <- writeMetadata env.args.buildPlan env.args.fields (fst <$> srcs)
         liftIO do
           updateMakeStateVar env.state (storeModuleGraph module_graph)
           for_ dflags.stubDir \ stubdir -> do

@@ -26,15 +26,14 @@ import Types.CachedDeps (CachedModule, JsonFs (..))
 data Dep =
   Dep {
     name :: ModuleName,
-    unit :: UnitId,
-    boot :: IsBootInterface
+    unit :: UnitId
   }
 
 data PackageDep =
   PackageDep {
     id :: JsonFs UnitId,
-    name :: String,
-    modules :: [String]
+    name :: PackageKey,
+    modules :: [JsonFs ModuleName]
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -63,45 +62,19 @@ packageKey unit =
 -- | All data required to compute the individual build plan fields for one home module.
 data BuildPlanModule =
   BuildPlanModule {
-    sources :: NonEmpty FilePath,
-    modules :: [JsonFs ModuleName],
-    modulesBoot :: [JsonFs ModuleName],
+    source :: FilePath,
+    -- Legacy field
+    sources :: [FilePath],
+    boot :: Bool,
+    modules :: [(ModuleKey, JsonFs ModuleName)],
+    modulesBoot :: [(ModuleKey, JsonFs ModuleName)],
     packages :: [PackageDep],
-    cpp :: [FilePath],
-    options :: [String],
+    options :: Set String,
+    thEnabled :: Bool,
     preprocessor :: Preprocessor
   }
-  deriving stock (Eq, Show)
-
-instance ToJSON BuildPlanModule where
-  toJSON BuildPlanModule {..} =
-    object [
-      "sources" .= toJSON sources,
-      "modules" .= toJSON modules,
-      "modules-boot" .= toJSON modulesBoot,
-      "packages" .= toJSON packages,
-      "cpp" .= toJSON cpp,
-      "options" .= toJSON options,
-      "preprocessor" .= toJSON preprocessor
-    ]
-
-data BuildPlanEntry =
-  BuildPlanEntry {
-    regular :: Maybe BuildPlanModule,
-    boot :: Maybe BuildPlanModule
-  }
-  deriving stock (Eq, Show)
-
-combineBuildPlanEntries :: BuildPlanEntry -> BuildPlanEntry -> BuildPlanEntry
-combineBuildPlanEntries BuildPlanEntry {regular, boot} BuildPlanEntry {regular = regular', boot = boot'} =
-  BuildPlanEntry {regular = regular <|> regular', boot = boot <|> boot'}
-
-instance ToJSON BuildPlanEntry where
-  toJSON BuildPlanEntry {..} =
-    case toJSON regular of
-      Object values | Just bootData <- boot ->
-        Object (KeyMap.insert "boot" (toJSON bootData) values)
-      value -> value
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToJSON)
 
 -- | The specific representation of a module name used by Buck.
 -- Boot modules are marked by a @-boot@ suffix, e.g. @Project.App-boot@.
@@ -182,8 +155,10 @@ instance ToJSON BuildPlanJson where
 -- | The final result of build plan generation.
 data BuildPlan =
   BuildPlan {
+    -- | The module graph is stored in the worker state.
     graph :: ModuleGraph,
-    modules :: Map (JsonFs ModuleName) BuildPlanEntry
+    -- | The payload is written to a JSON file for Buck.
+    json :: BuildPlanJson
   }
 
 -- | Precomputed data used by all module entries.

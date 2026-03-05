@@ -1,4 +1,5 @@
-{-# LANGUAGE CPP, DeriveAnyClass, StrictData, OverloadedStrings #-}
+{-# LANGUAGE CPP #-}
+
 #define FIXED_NODES defined(MWB_2025_10)
 
 module Internal.BuildPlan where
@@ -10,10 +11,8 @@ import GHC.Types.Error (mkUnknownDiagnostic)
 #endif
 
 import Control.Monad (unless)
-import qualified Data.Aeson as Aeson
 import Data.Either (partitionEithers)
 import Data.Foldable (toList)
-import Data.IORef (newIORef)
 import Data.List.NonEmpty (NonEmpty (..), groupAllWith)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
@@ -21,52 +20,41 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Traversable (for)
 import qualified GHC
-import GHC.Data.FastString (unpackFS)
-import GHC.Data.Maybe (fromMaybe, mapMaybe)
-import GHC.Driver.DynFlags (DynFlags (..))
+import GHC (Target)
+import GHC.Data.Maybe (mapMaybe)
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hsc_units)
-import GHC.Driver.Errors.Types (GhcMessage (GhcDriverMessage))
+import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
 import GHC.Driver.Make (downsweep)
-import GHC.Driver.Monad (GhcMonad (..), Session (..), liftIO, reflectGhc, withSession)
+import GHC.Driver.Monad (GhcMonad (..), liftIO, withSession)
 import GHC.Driver.Phases (Phase (Unlit), StopPhase (..), startPhase)
 import GHC.Driver.Pipeline (TPhase (..), mkPipeEnv, runPipeline, use)
 import GHC.Driver.Pipeline.Monad (PipelineOutput (..))
 import GHC.Driver.Session (pgm_F)
 import GHC.Types.Error (unionManyMessages)
 import GHC.Types.SourceError (throwErrors)
-import GHC.Types.Unique.Map (UniqMap, lookupUniqMap)
+import GHC.Types.Unique.Map (UniqMap)
 import GHC.Unit (UnitState (..))
-import GHC.Unit.Module (
-  IsBootInterface (..),
-  ModLocation (..),
-  ModuleName (..),
-  UnitId (..),
-  moduleNameString,
-  unitIdString,
-  )
-import GHC.Unit.Module.Graph (
-  ModuleGraph (..),
-  ModuleGraphNode (..),
-  NodeKey (..),
-  mgModSummaries,
-  mgModSummaries',
-  mkModuleGraph,
-  msKey,
-  )
+import GHC.Unit.Env (UnitEnv (..))
+import GHC.Unit.Module (IsBootInterface (..), ModLocation (..), ModuleName (..), UnitId (..))
+import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), NodeKey (..), mgModSummaries', msKey)
 import GHC.Unit.Module.ModSummary (ModSummary (..), isBootSummary, msHsFilePath, ms_mod_name, ms_unitid)
-import GHC.Unit.State (GenericUnitInfo (..), PackageName (..), UnitInfo)
 import GHC.Utils.Error (isEmptyMessages)
-import qualified System.File.OsPath as OsPath
+import Internal.BuildPlan.External (packageName)
+import Internal.BuildPlan.Json (assembleFields)
 import System.FilePath (splitExtension)
-import System.OsPath (OsPath)
+import Types.Args (BuildPlanField (..))
 import Types.BuildPlan (
   BuildPlan (..),
-  BuildPlanEntry (..),
+  BuildPlanEnv (..),
+  BuildPlanJson (..),
   BuildPlanModule (..),
   Dep (..),
+  ModuleKey,
   PackageDep (..),
+  PackageKey,
   Preprocessor (..),
-  combineBuildPlanEntries,
+  packageKey,
+  summaryModuleKey,
   )
 import Types.CachedDeps (JsonFs (..))
 
@@ -76,12 +64,51 @@ import GHC.Utils.Panic.Plain
 
 #endif
 
+#if defined(MWB) || defined(MWB_2025_10)
+
+import GHC.Unit.Home.Graph (unitEnv_keys)
+
+#else
+
+import GHC.Unit.Env (unitEnv_keys)
+
+#endif
+
+#if defined(MWB_2025_10)
+
+import GHC.Unit.Module.ModSummary (isTemplateHaskellOrQQNonBoot)
+
+#else
+
+import GHC.Unit.Module.Graph (isTemplateHaskellOrQQNonBoot)
+
+#endif
+
+#if FIXED_NODES
+
+import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
+
+#else
+
+import GHC.Unit.Module.Graph (mkModuleGraph)
+
+#if defined(MWB) || defined(MWB_2025_10)
+
+import GHC.Unit.Module.Graph (mgModSummaries)
+
+#endif
+
+#endif
+
 #if !defined(MWB) && !defined(MWB_2025_10)
 
 ms_opts :: ModSummary -> [String]
 ms_opts _ = []
 
 #endif
+
+isBoot :: ModSummary -> Bool
+isBoot summary = isBootSummary summary == IsBoot
 
 modulePreprocessor :: HscEnv -> Preprocessor -> ModSummary -> IO Preprocessor
 modulePreprocessor hsc_env globalPreprocessor summary
@@ -99,7 +126,7 @@ modulePreprocessor hsc_env globalPreprocessor summary
   = pure globalPreprocessor
 
 modulePackageDeps ::
-  UniqMap UnitId String ->
+  UniqMap UnitId PackageKey ->
   Map NodeKey Dep ->
   Set NodeKey ->
   [PackageDep]
@@ -112,79 +139,46 @@ modulePackageDeps unitNames deps keys =
     packageDep ds@(Dep {unit} :| _) =
       PackageDep {
         id = JsonFs unit,
-        name = fromMaybe (unitIdString unit) (lookupUniqMap unitNames unit),
-        modules = [moduleNameString name | Dep {name} <- toList ds]
+        name = packageName unitNames unit,
+        modules = [JsonFs name | Dep {name} <- toList ds]
       }
-
-buildPlanEntry :: ModSummary -> BuildPlanModule -> BuildPlanEntry
-buildPlanEntry summary entry
-  | IsBoot <- isBootSummary summary = BuildPlanEntry {regular = Nothing, boot = Just entry}
-  | otherwise = BuildPlanEntry {regular = Just entry, boot = Nothing}
-
--- | Precomputed data used by all module entries.
-data BuildPlanEnv =
-  BuildPlanEnv {
-    hsc_env :: HscEnv,
-
-    -- | Preprocessor specified as a CLI arg, rather than in a module header.
-    globalPreprocessor :: Preprocessor,
-
-    -- | Canonical unit names that include Cabal sublibrary suffixes.
-    unitNames :: UniqMap UnitId String,
-
-    -- |
-    localModules :: Map NodeKey (Either (JsonFs ModuleName) (JsonFs ModuleName)),
-    packageModules :: Map NodeKey Dep
-  }
 
 buildPlanModule ::
   BuildPlanEnv ->
   (ModSummary, Set NodeKey) ->
-  IO (JsonFs ModuleName, BuildPlanEntry)
+  IO (ModuleKey, BuildPlanModule)
 buildPlanModule env (summary, depKeys) = do
   preprocessor <- modulePreprocessor env.hsc_env env.globalPreprocessor summary
-  cpp <- cpp_deps
-  let module_ = BuildPlanModule {
-    sources = pure src_file,
+  let bpModule = BuildPlanModule {
+    source,
+    sources = [source],
+    boot = isBoot summary,
     modules,
     modulesBoot,
     packages = modulePackageDeps env.unitNames env.packageModules depKeys,
-    cpp,
-    options = ms_opts summary,
+    options = Set.fromList (ms_opts summary),
+    thEnabled = isTemplateHaskellOrQQNonBoot summary,
     preprocessor
   }
-  pure (JsonFs (ms_mod_name summary), buildPlanEntry summary module_)
+  pure (summaryModuleKey summary, bpModule)
   where
-    src_file = msHsFilePath summary
+    source = msHsFilePath summary
 
-    (modules, modulesBoot) = partitionEithers $ Map.elems $ Map.restrictKeys env.localModules depKeys
-
-    cpp_deps
-      | depIncludeCppDeps env.hsc_env.hsc_dflags
-      = do
-        session <- Session <$> newIORef env.hsc_env
-        parsedMod <- reflectGhc (GHC.parseModule summary) session
-        pure (GHC.pm_extra_src_files parsedMod)
-
-      | otherwise
-      = pure []
+    (modules, modulesBoot) = partitionEithers $ Map.elems $ Map.restrictKeys env.homeModules depKeys
 
 -- | Extract interesting nodes and tag them 'Left' if they're part of the home unit.
 --
--- We're only interested in module nodes and exclude those specified on the CLI.
+-- We're only interested in module nodes.
 buildPlanNode ::
   HscEnv ->
-  [ModuleName] ->
   ModuleGraphNode ->
   Maybe (Either (ModSummary, Set NodeKey) (ModSummary, Set NodeKey))
-buildPlanNode hsc_env exclude = \case
+buildPlanNode hsc_env = \case
 #if FIXED_NODES
   ModuleNode !node_deps (ModuleNodeCompile node)
 #else
   ModuleNode !node_deps node
 #endif
-    | elem (ms_mod_name node) exclude
-    -> Nothing
     | hscActiveUnitId hsc_env == ms_unitid node
     -> Just (Left (node, Set.fromList node_deps))
     | otherwise
@@ -196,45 +190,40 @@ indexWith f =
   Map.fromList . fmap \ summary -> (NodeKey_Module (msKey summary), f summary)
 
 -- | Separate boot modules from regular modules.
-localIndex :: [ModSummary] -> Map NodeKey (Either (JsonFs ModuleName) (JsonFs ModuleName))
+localIndex :: [ModSummary] -> Map NodeKey (Either (ModuleKey, JsonFs ModuleName) (ModuleKey, JsonFs ModuleName))
 localIndex =
-  indexWith \ summary -> isBoot summary (JsonFs (ms_mod_name summary))
+  indexWith \ summary -> decide summary (summaryModuleKey summary, JsonFs (ms_mod_name summary))
   where
-    isBoot summary
-      | IsBoot <- isBootSummary summary = Right
-      | otherwise = Left
+    decide summary = if isBoot summary then Right else Left
 
 packageIndex :: [ModSummary] -> Map NodeKey Dep
 packageIndex =
   indexWith \ summary ->
     Dep {
       name = ms_mod_name summary,
-      unit = ms_unitid summary,
-      boot = isBootSummary summary
+      unit = ms_unitid summary
     }
 
-unitName :: UnitInfo -> String
-unitName unit =
-  maybe name withLibName (unitComponentName unit)
-  where
-    PackageName nameFS = unitPackageName unit
-    name = unpackFS nameFS
-    withLibName (PackageName c) = name ++ ":" ++ unpackFS c
-
-buildPlanEnv :: HscEnv -> ModuleGraph -> (BuildPlanEnv, [(ModSummary, Set NodeKey)])
+buildPlanEnv ::
+  HscEnv ->
+  ModuleGraph ->
+  (BuildPlanEnv, [(ModSummary, Set NodeKey)])
 buildPlanEnv hsc_env graph =
   (env, local)
   where
     env = BuildPlanEnv {
-      unitNames = unitName <$> (hsc_units hsc_env).unitInfoMap,
-      localModules = localIndex (fst <$> local),
+      unitNames,
+      homeUnitIds,
+      homeModules = localIndex (fst <$> local),
       packageModules = packageIndex (fst <$> packages),
       ..
     }
 
-    (local, packages) = partitionEithers (mapMaybe (buildPlanNode hsc_env exclude) (mgModSummaries' graph))
+    unitNames = packageKey <$> (hsc_units hsc_env).unitInfoMap
 
-    exclude = depExcludeMods hsc_env.hsc_dflags
+    homeUnitIds = unitEnv_keys hsc_env.hsc_unit_env.ue_home_unit_graph
+
+    (local, packages) = partitionEithers (mapMaybe (buildPlanNode hsc_env) (mgModSummaries' graph))
 
     globalPreprocessor
       | let pp = pgm_F hsc_env.hsc_dflags
@@ -243,41 +232,74 @@ buildPlanEnv hsc_env graph =
       | otherwise
       = Preprocessor Nothing
 
-buildPlanModules :: HscEnv -> ModuleGraph -> IO (Map (JsonFs ModuleName) BuildPlanEntry)
-buildPlanModules hsc_env graph =
-  Map.fromListWith combineBuildPlanEntries
-  <$>
-  traverse (buildPlanModule env) modules
+buildPlanModules ::
+  Set BuildPlanField ->
+  HscEnv ->
+  ModuleGraph ->
+  IO BuildPlanJson
+buildPlanModules fields hsc_env graph = do
+  assembleFields fields . Map.fromList <$> traverse (buildPlanModule env) modules
   where
     (env, modules) = buildPlanEnv hsc_env graph
 
-buildPlanForSources :: GhcMonad m => [FilePath] -> m BuildPlan
-buildPlanForSources srcs = do
-  targets <- for srcs \ src -> GHC.guessTarget src Nothing Nothing
+downsweepCompat ::
+  HscEnv ->
+  [ModSummary] ->
+  Maybe ModuleGraph ->
+  [ModuleName] ->
+  Bool ->
+  IO ([DriverMessages], ModuleGraph)
+
+#if FIXED_NODES
+
+downsweepCompat hsc_env summaries _ =
+  downsweep hsc_env mkUnknownDiagnostic Nothing summaries
+
+#elif defined(MWB)
+
+downsweepCompat hsc_env summaries cache excl dup =
+  fmap mkModuleGraph <$> downsweep hsc_env summaries cache excl dup
+
+#else
+
+downsweepCompat hsc_env summaries _ excl dup =
+  fmap mkModuleGraph <$> downsweep hsc_env summaries excl dup
+
+#endif
+
+downsweepWithCache :: HscEnv -> IO ([DriverMessages], ModuleGraph)
+
+#if defined(DOWNSWEEP_CACHE)
+
+downsweepWithCache hsc_env = do
+  let cachedGraph = hsc_env.hsc_mod_graph
+  downsweepCompat hsc_env (mgModSummaries cachedGraph) (Just cachedGraph) [] True
+
+#else
+
+downsweepWithCache hsc_env = downsweepCompat hsc_env [] Nothing [] True
+
+#endif
+
+buildPlanForTargets ::
+  GhcMonad m =>
+  Set BuildPlanField ->
+  [Target] ->
+  m BuildPlan
+buildPlanForTargets fields targets = do
   GHC.setTargets targets
-  (errs, nodes) <- withSession (liftIO . downsweepWithCache)
+  (errs, graph) <- withSession (liftIO . downsweepWithCache)
   let msgs = unionManyMessages errs
   unless (isEmptyMessages msgs) $ throwErrors (fmap GhcDriverMessage msgs)
   hsc_env <- getSession
-  let graph = mkModuleGraph nodes
-  modules <- liftIO $ buildPlanModules hsc_env graph
-  pure BuildPlan {graph, modules}
-  where
+  json <- liftIO $ buildPlanModules fields hsc_env graph
+  pure BuildPlan {graph, json}
 
-#if defined(DOWNSWEEP_CACHE)
-    downsweepWithCache hsc_env = do
-      let cachedGraph = hsc_env.hsc_mod_graph
-      downsweepCompat hsc_env (mgModSummaries cachedGraph) (Just cachedGraph) [] True
-#else
-    downsweepWithCache hsc_env = downsweepCompat hsc_env [] [] True
-#endif
-
-#if FIXED_NODES
-    downsweepCompat hsc_env = downsweep hsc_env mkUnknownDiagnostic Nothing
-#else
-    downsweepCompat = downsweep
-#endif
-
-writeBuildPlan :: OsPath -> BuildPlan -> IO ()
-writeBuildPlan path BuildPlan {modules} =
-  OsPath.writeFile path (Aeson.encode modules)
+buildPlanForSources ::
+  GhcMonad m =>
+  Set BuildPlanField ->
+  [FilePath] ->
+  m BuildPlan
+buildPlanForSources fields srcs = do
+  targets <- for srcs \ src -> GHC.guessTarget src Nothing Nothing
+  buildPlanForTargets fields targets
