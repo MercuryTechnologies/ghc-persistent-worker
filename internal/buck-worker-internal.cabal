@@ -1,17 +1,13 @@
 cabal-version:      3.4
 name:               buck-worker-internal
 version:            0.1.0.0
--- synopsis:
--- description:
 license:            MIT
 license-file:       LICENSE
 author:             Ian-Woo Kim
 maintainer:         ianwookim@gmail.com
--- copyright:
 category:           Development
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
--- extra-source-files:
 
 flag mwb
     description: Use mwb-customized GHC from January 2026
@@ -59,15 +55,6 @@ library
                       Internal.State.UnitIndex.Update
                       Internal.UnitEnv
 
-    if (impl(ghc >= 9.11))
-        build-depends: base ^>=4.21
-
-    if (impl(ghc >= 9.9) && impl(ghc < 9.11))
-        build-depends: base ^>=4.20
-
-    if (impl(ghc >= 9.8) && impl(ghc < 9.9))
-        build-depends: base ^>=4.19
-
     if (flag(mwb))
         cpp-options: -DMWB -DDOWNSWEEP_CACHE -DUNIT_INDEX
 
@@ -82,6 +69,7 @@ library
 
     build-depends:    aeson,
                       async,
+                      base >= 4.20 && < 4.22,
                       binary,
                       buck-worker-types,
                       bytestring,
