@@ -43,8 +43,34 @@ import GHC.Unit.Module.Graph (mgTransDeps)
 
 #else
 
-import GHC (ms_mod)
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries')
+
+#endif
+
+#if defined(UNIT_INDEX)
+
+import Control.Monad.IO.Class (liftIO)
+import Data.Foldable (for_)
+import Data.List (intercalate)
+import GHC (
+  Ghc,
+  GhcMode (..),
+  ModSummary (..),
+  ModuleName,
+  PkgQual (..),
+  getSession,
+  mgModSummaries,
+  moduleNameString,
+  moduleUnit,
+  ms_mod_name,
+  )
+import GHC.Driver.Env (HscEnv (..), hscUnitIndexQuery, hsc_units)
+import GHC.Types.Unique.Map (nonDetUniqMapToList)
+import GHC.Unit (ModuleOrigin (..))
+import GHC.Unit.Finder (FindResult (..), findImportedModule)
+import GHC.Unit.State (UnitIndexQuery (..))
+import GHC.Utils.Outputable (showPprUnsafe)
+import Internal.Log (dbg)
 
 #endif
 
@@ -121,7 +147,7 @@ showUnitState UnitState {..} =
   else []
 
 showHomeUnitDflags :: DynFlags -> SDoc
-showHomeUnitDflags DynFlags {..} =
+showHomeUnitDflags DynFlags {homeUnitId_} =
   entries [
     ("homeUnitId", ppr homeUnitId_)
   ]
@@ -191,3 +217,65 @@ showUnitEnv UnitEnv {..} = do
 debugSocketPath :: TargetSpec -> FilePath
 debugSocketPath target =
   "/tmp/ghc-persistent-worker/debug-sockets" </> show (fingerprintString (renderTargetSpec target))
+
+#if defined(UNIT_INDEX)
+
+-- | Examine common reasons why an import may not be found by GHC during compilation.
+debugLookupModuleHsc :: HscEnv -> ModuleName -> IO ()
+debugLookupModuleHsc hsc_env name = do
+  dbg ""
+  dbg ("# Debugging module lookup for '" ++ moduleNameString name ++ "' in " ++ modeName ++ " mode")
+  dbg ""
+  case filter msMatch (mgModSummaries hsc_env.hsc_mod_graph) of
+    [] -> dbg "* Not in the module graph"
+    [summary] -> dbg ("* In module graph for unit " ++ summaryUnit summary)
+    mods -> dbg ("* Multiple module graph nodes in units: " ++ intercalate ", " (summaryUnit <$> mods))
+  query <- hscUnitIndexQuery hsc_env
+  case query.findOrigin (hsc_units hsc_env) name False of
+    Nothing -> do
+      dbg "* Not in unit index"
+      findImportedModule hsc_env name NoPkgQual >>= \case
+        Found _ _ ->
+          dbg "* Only present in the Finder, likely cached from a call to 'addHomeModuleToFinder' in downsweep"
+        NotFound {..}
+          | Just unit <- fr_pkg
+          -> do
+            dbg ("* Finder has it but rejects its unit " ++ showPprUnsafe unit ++ " due to missing interface")
+          | not (null fr_pkgs_hidden)
+          -> dbg ("* Finder has it in hidden units " ++ showPprUnsafe fr_pkgs_hidden)
+          | not (null fr_mods_hidden)
+          -> dbg ("* Finder has hidden modules " ++ showPprUnsafe fr_mods_hidden)
+        FoundMultiple {} ->
+          dbg "* Finder has multiple matching modules"
+        NoPackage unit ->
+          dbg ("* Finder doesn't know unit " ++ showPprUnsafe unit)
+        _ -> do
+          dbg "* Not in Finder cache"
+          dbg ("! If this happens in a metadata test with a home unit dependency,")
+          dbg ("  the Finder cache is likely not being preserved from the first run")
+    Just origins -> do
+      dbg "* Found"
+      for_ (nonDetUniqMapToList origins) \case
+        (unit, origin) -> do
+          dbg ("  * In unit " ++ showPprUnsafe unit)
+          case origin of
+            ModOrigin {..} ->
+              dbg ("  * " ++ (if fromPackageFlag then "F" else "Not f") ++ "rom package flag")
+            _ -> dbg "  * uhhh"
+  dbg "---"
+  where
+    msMatch summary = name == ms_mod_name summary
+
+    summaryUnit ModSummary {ms_mod} = showPprUnsafe (moduleUnit ms_mod)
+
+    modeName = case hsc_env.hsc_dflags.ghcMode of
+      CompManager -> "make"
+      OneShot -> "oneshot"
+      MkDepend -> "metadata"
+
+debugLookupModule :: ModuleName -> Ghc ()
+debugLookupModule name = do
+  hsc_env <- getSession
+  liftIO $ debugLookupModuleHsc hsc_env name
+
+#endif
