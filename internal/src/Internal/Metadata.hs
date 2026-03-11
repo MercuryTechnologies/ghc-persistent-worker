@@ -146,13 +146,13 @@ writeMetadata path srcs = do
 computeMetadata :: Env -> IO (Bool, Maybe TargetSpec)
 computeMetadata env = do
   res <- runMaybeT do
-    () <- MaybeT $ runSession True env \ _ -> do
+    () <- MaybeT $ runSession env \ _ -> do
       dflags <- getSessionDynFlags
       for_ env.args.cachedBuildPlans \ bp ->
         withSession (liftIO . loadCachedUnits env.log env.state dflags bp)
       pure (Just ())
     logTimed env.log "Computing module graph" do
-      MaybeT $ runSession True env $ withDynFlags env \ dflags srcs -> do
+      MaybeT $ runSession env $ withDynFlags env \ dflags srcs -> do
         unit <- prepareMetadataSession env dflags
         let target = TargetUnit (UnitTarget unit)
         liftIO $ env.log.setTarget target

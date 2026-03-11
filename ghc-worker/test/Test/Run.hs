@@ -90,7 +90,7 @@ testSession ::
 testSession checkLog prog = do
   (result, log) <- liftIO do
     (env, logVar) <- mkEnv
-    result <- runSession True env \ _ -> lowerGhc (prog env)
+    result <- runSession env \ _ -> lowerGhc (prog env)
     log <- readIORef logVar
     pure (result, log)
   withFrozenCallStack do

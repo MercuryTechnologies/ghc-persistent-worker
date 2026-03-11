@@ -46,7 +46,6 @@ import Types.Env (Env (..))
 import Types.Log (Logger (..))
 import Types.State (Options (..), WorkerState (..))
 import Types.State.Make (MakeState (..))
-import Types.State.Oneshot (OneshotCacheFeatures (..), OneshotState (..))
 import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
 
 setTempDir :: String -> HscEnv -> HscEnv
@@ -91,21 +90,14 @@ withGhcInSession env prog =
     prog srcs
 
 -- | Create a base session and store it in the cache.
--- On subsequent calls, return the cached session, unless the cache is disabled or @reuse@ is true.
--- This will at some point be replaced by more deliberate methods.
+-- On subsequent calls, return the session cached in the 'WorkerState'.
 --
--- When reusing the base session, create a new @TmpFs@ to avoid keeping old entries around after Buck deletes the
--- directories.
-ensureSession :: Bool -> MVar WorkerState -> Args -> IO HscEnv
-ensureSession reuse stateVar args =
+-- Create a new @TmpFs@ to avoid keeping old entries around after Buck deletes the directories.
+ensureSession :: MVar WorkerState -> Args -> IO HscEnv
+ensureSession stateVar args =
   modifyMVar stateVar \ state -> do
-    if state.oneshot.features.enable && reuse
-    then do
-      newEnv <- maybe (initHscEnv args.topdir) prepReused state.baseSession
-      pure (state {baseSession = Just newEnv}, newEnv)
-    else do
-      newEnv <- initHscEnv args.topdir
-      pure (state, newEnv)
+    newEnv <- maybe (initHscEnv args.topdir) prepReused state.baseSession
+    pure (state {baseSession = Just newEnv}, newEnv)
   where
     prepReused hsc_env = do
       hsc_tmpfs <- initTmpFs
@@ -115,10 +107,10 @@ ensureSession reuse stateVar args =
 -- See 'ensureSession' for @reuse@.
 --
 -- Delete all temporary files on completion.
-runSession :: Bool -> Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
-runSession reuse Env {log, args, state} prog = do
+runSession :: Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
+runSession Env {log, args, state} prog = do
   modifyMVar_ state (setupPath args.binPath)
-  hsc_env <- ensureSession reuse state args
+  hsc_env <- ensureSession state args
   session <- Session <$> newIORef hsc_env
   finally (run session) (cleanup session)
   where
@@ -160,7 +152,7 @@ withGhc ::
   (t -> Ghc a) ->
   IO (Maybe b)
 withGhc targetWrapper env prog =
-  runSession True env $ withGhcInSession env \ srcs ->
+  runSession env $ withGhcInSession env \ srcs ->
     targetWrapper env srcs \ target -> do
       initializeSessionPlugins
       prog target
