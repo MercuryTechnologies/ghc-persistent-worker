@@ -40,6 +40,7 @@ library
                       Internal.Compile.Oneshot
                       Internal.Debug
                       Internal.DynFlags
+                      Internal.Env
                       Internal.Error
                       Internal.Log
                       Internal.MakeFile

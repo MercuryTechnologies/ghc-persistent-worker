@@ -9,7 +9,6 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
 import Data.IORef (newIORef)
 import Data.Maybe (fromMaybe)
-import qualified GHC
 import GHC (
   DynFlags (..),
   GeneralFlag (Opt_KeepTmpFiles),
@@ -25,7 +24,6 @@ import GHC (
   withSignalHandlers,
   )
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateFlags)
-import GHC.Driver.Errors.Types (DriverMessages)
 import GHC.Driver.Main (initHscEnv)
 import GHC.Driver.Monad (Session (Session), modifySession, modifySessionM, unGhc)
 import GHC.Runtime.Loader (initializeSessionPlugins)
@@ -37,6 +35,7 @@ import GHC.Utils.Panic (panic, pprPanic)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Cache.Hpt (loadCachedDeps, loadHomeUnit)
 import Internal.DynFlags (buckLocation, initDynFlags, instrumentLocation, parseFlags, setupPath)
+import Internal.Env (withDebugLog)
 import Internal.Error (handleExceptions)
 import Internal.Log (logDebugD)
 import Internal.State (withCacheMake, withCacheOneshot)
@@ -50,19 +49,6 @@ import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
 
 setTempDir :: String -> HscEnv -> HscEnv
 setTempDir dir = hscUpdateFlags \ dflags -> dflags {tmpDir = TempDir dir}
-
--- | Parse CLI args and set up the GHC session.
--- Returns the subset of args that have not been recognized as options.
-initGhc ::
-  DynFlags ->
-  GHC.Logger ->
-  [Located String] ->
-  DriverMessages ->
-  Ghc [(String, Maybe Phase)]
-initGhc dflags0 logger fileish_args dynamicFlagWarnings = do
-  (dflags1, srcs) <- liftIO $ initDynFlags dflags0 logger fileish_args dynamicFlagWarnings
-  setSessionDynFlags dflags1
-  pure srcs
 
 -- | Run a program with fresh 'DynFlags' constructed from command line args.
 -- Passes the flags and the unprocessed args to the callback, which usually consist of the file or module names intended
@@ -129,6 +115,23 @@ runSession Env {log, args, state} prog = do
               logger = hsc_logger hsc_env
           cleanTempFiles logger tmpfs
           cleanTempDirs logger tmpfs
+
+-- | Parse the CLI arguments stored in the 'Env' and run a @Ghc@ program with the resulting 'DynFlags'.
+simpleSession :: Env -> Ghc a -> IO (Maybe a)
+simpleSession env ma =
+  runSession env (withGhcInSession env (const (Just <$> ma)))
+
+-- | Run a @Ghc@ program with a fresh log and print all messages to stderr afterwards.
+sessionWithDebugLog :: MVar WorkerState -> Args -> (Env -> [Located String] -> Ghc a) -> IO (Maybe a)
+sessionWithDebugLog state args use =
+  withDebugLog state args \ env ->
+    runSession env (fmap Just . use env)
+
+-- | Parse the CLI arguments stored in the 'Env', run a @Ghc@ program with the resulting 'DynFlags', and print all
+-- messages to stderr afterwards.
+simpleSessionWithDebugLog :: MVar WorkerState -> Args -> Ghc a -> IO (Maybe a)
+simpleSessionWithDebugLog state args ma =
+  sessionWithDebugLog state args \ env -> withGhcInSession env (const ma)
 
 -- | When compiling a source target, the leftover arguments from parsing @DynFlags@ should be a single source file path.
 -- Wrap it in 'Target' or terminate.
