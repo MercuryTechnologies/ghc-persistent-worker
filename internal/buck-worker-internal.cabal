@@ -29,8 +29,42 @@ flag unit-index
     manual: True
     default: False
 
+common all
+  ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages
+  default-language: GHC2021
+  default-extensions:
+    BlockArguments,
+    DataKinds,
+    DerivingStrategies,
+    DuplicateRecordFields,
+    LambdaCase,
+    NamedFieldPuns,
+    NoFieldSelectors,
+    OverloadedLabels,
+    OverloadedLists,
+    OverloadedRecordDot,
+    OverloadedStrings,
+    QuasiQuotes,
+    RecordWildCards,
+    StrictData,
+    TypeFamilies
+  build-depends:
+    base ==4.*
+
+  if (flag(mwb))
+      cpp-options: -DMWB -DDOWNSWEEP_CACHE -DUNIT_INDEX
+
+  if (flag(mwb-25-10))
+      cpp-options: -DMWB_2025_10
+
+  if (flag(downsweep-cache))
+      cpp-options: -DDOWNSWEEP_CACHE
+
+  if (flag(unit-index))
+      cpp-options: -DUNIT_INDEX
+
 library
-    ghc-options:      -Wall
+    import: all
     hs-source-dirs:   src
     exposed-modules:  Internal.AbiHash
                       Internal.BuildPlan
@@ -55,18 +89,6 @@ library
                       Internal.State.UnitIndex
                       Internal.State.UnitIndex.Update
                       Internal.UnitEnv
-
-    if (flag(mwb))
-        cpp-options: -DMWB -DDOWNSWEEP_CACHE -DUNIT_INDEX
-
-    if (flag(mwb-25-10))
-        cpp-options: -DMWB_2025_10
-
-    if (flag(downsweep-cache))
-        cpp-options: -DDOWNSWEEP_CACHE
-
-    if (flag(unit-index))
-        cpp-options: -DUNIT_INDEX
 
     build-depends:    aeson,
                       async,
@@ -96,3 +118,36 @@ library
       OverloadedRecordDot,
       RecordWildCards,
       StrictData
+
+test-suite internal-test
+  import: all
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: internal-test
+  other-modules:
+    BuildPlanTest
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-N -T"
+  build-depends:
+    aeson,
+    async,
+    buck-worker-internal,
+    buck-worker-types,
+    bytestring,
+    containers,
+    directory,
+    file-io,
+    filepath,
+    extra,
+    generic-lens,
+    ghc,
+    hedgehog ^>= 1.7,
+    lens,
+    mtl,
+    stm,
+    tasty,
+    tasty-hedgehog,
+    temporary,
+    text,
+    time,
+    transformers,
+    typed-process
