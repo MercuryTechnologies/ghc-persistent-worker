@@ -1,29 +1,13 @@
 module Test.Env where
 
-import Data.Functor ((<&>))
 import GHC.Data.OsPath (unsafeDecodeUtf)
-import System.Directory (listDirectory, removeDirectoryRecursive)
-import System.Environment (getEnv)
-import System.FilePath ((</>))
+import System.Directory (removeDirectoryRecursive)
 import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
-import System.OsPath (OsPath, unsafeEncodeUtf)
+import System.OsPath (unsafeEncodeUtf)
 import Test.Data.Env (SessionEnv (..), TestEnv (..))
 import Test.Run (mkEnv)
 import Test.Tasty (TestTree, withResource)
-import Types.Args (Args (..), emptyArgs)
-
--- | Grab the GHC directory from the environment and store it in the 'Args' of the returned 'TestEnv'.
--- This is the directory that contains the @settings@ file that provides the paths to various GHC components.
-mkTestEnv :: OsPath -> IO TestEnv
-mkTestEnv rootDir = do
-  ghcDir <- getEnv "ghc_dir"
-  libPath <- listDirectory (ghcDir </> "lib") <&> \case
-    [d] -> "lib" </> d </> "lib"
-    ds -> error ("weird GHC lib dir contains /= 1 entries: " ++ show ds)
-  pure TestEnv {
-    rootDir,
-    baseArgs = (emptyArgs []) {topdir = Just (ghcDir </> libPath)}
-  }
+import Types.Args (emptyArgs)
 
 -- | Create a new environment for a build test run consisting of two builds.
 --
@@ -55,7 +39,7 @@ acquireTestEnv :: IO TestEnv
 acquireTestEnv = do
   tmpBase <- getCanonicalTemporaryDirectory
   rootDir <- unsafeEncodeUtf <$> createTempDirectory tmpBase "project-build-test"
-  mkTestEnv rootDir
+  pure TestEnv {rootDir, baseArgs = emptyArgs []}
 
 releaseTestEnv :: TestEnv -> IO ()
 releaseTestEnv env =

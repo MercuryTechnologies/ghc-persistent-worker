@@ -4,6 +4,7 @@ module Types.Args where
 
 import Data.Map (Map)
 import Data.Map.Strict ((!?))
+import GHC.Paths (libdir)
 import GHC.Unit (UnitId)
 import GHC.Utils.Outputable (showPprUnsafe)
 import System.OsPath (OsPath)
@@ -39,7 +40,7 @@ data Args =
 emptyArgs :: Map String String -> Args
 emptyArgs env =
   Args {
-    topdir = Nothing,
+    topdir = Just libdir,
     workerTargetId = Nothing,
     binPath = [],
     tempDir = env !? "TMPDIR",

@@ -10,6 +10,7 @@ import qualified Data.Map.Strict as Map
 import Data.Map.Strict ((!?))
 import Data.Maybe (fromMaybe, isJust)
 import GHC (mkModule, mkModuleName)
+import GHC.Paths (libdir)
 import GHC.Unit (Definite (..), GenUnit (RealUnit), stringToUnitId)
 import System.FilePath (takeDirectory)
 import System.OsPath (encodeFS)
@@ -192,7 +193,11 @@ toGhcArgs :: BuckArgs -> IO Args
 toGhcArgs args = do
   cachedDeps <- traverse (decodeJsonArg "--dep-modules") args.depModules
   cachedBuildPlans <- traverse (decodeJsonArg "--dep-units") args.depUnits
-  topdir <- (<|> args.topdir) <$> readPath args.ghcDirFile
+  -- Buck specifies @-B@, which can be used to include more packages in the global package DB.
+  -- While this is done by @ghcWithPackages@ from nixpkgs, it is likely redundant, but doesn't hurt.
+  -- In any case, we default to @libdir@ from @ghc-paths@, which returns the directory in the distribution used by the
+  -- GHC that compiled this binary.
+  topdir <- (<|> (args.topdir <|> Just libdir)) <$> readPath args.ghcDirFile
   buildPlan <- traverse encodeFS args.buildPlan
   packageDb <- readPath args.ghcDbFile
   -- When a module name was specified, we don't read any args because we can't use them when picking @ModSummary@ from

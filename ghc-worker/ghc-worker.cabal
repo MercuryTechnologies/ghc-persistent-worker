@@ -111,6 +111,7 @@ test-suite worker-test
     extra,
     generic-lens,
     ghc,
+    ghc-paths,
     hedgehog ^>= 1.7,
     lens,
     mtl,
