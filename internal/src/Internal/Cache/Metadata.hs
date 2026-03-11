@@ -228,7 +228,7 @@ loadCachedUnits ::
   IO HscEnv
 loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 = do
   modifyMVar stateVar \ state -> do
-    hsc_env1 <- Make.loadState logger hsc_env0 state.make
+    let hsc_env1 = Make.loadState hsc_env0 state.make
     logTimed logger "Loading cached units" $ fmap swap do
       buildPlans_with_cunit_and_dflags <-
         forConcurrently buildPlans \plan@CachedBuildPlan {name = JsonFs uid, build_plan = planFile} -> do

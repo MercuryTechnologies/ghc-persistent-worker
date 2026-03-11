@@ -29,13 +29,11 @@ import GHC.Unit.Module.Graph (unionMG)
 -- | Restore the shared state used by both @computeMetadata@ and @compileHpt@ from the cache.
 -- See 'loadCacheMakeCompile' for details.
 loadState ::
-  Logger ->
   HscEnv ->
   MakeState ->
-  IO HscEnv
-loadState logger hsc_env state = do
-  logMemStats "load state" logger
-  pure (restoreUnitIndex state (restoreHug (restoreModuleGraph hsc_env)))
+  HscEnv
+loadState hsc_env state =
+  restoreUnitIndex state (restoreHug (restoreModuleGraph hsc_env))
   where
     restoreModuleGraph e = e {hsc_mod_graph = state.moduleGraph}
 
@@ -55,12 +53,11 @@ loadState logger hsc_env state = do
 -- sessions share the first one's 'Interp'.
 -- Both fields of 'Interp' are 'MVar's, so the state is shared immediately and concurrently.
 loadStateCompile ::
-  Logger ->
   HscEnv ->
   MakeState ->
-  IO (MakeState, HscEnv)
-loadStateCompile logger hsc_env0 state = do
-  ensureInterp <$> loadState logger hsc_env0 state
+  (MakeState, HscEnv)
+loadStateCompile hsc_env0 state =
+  ensureInterp (loadState hsc_env0 state)
   where
     ensureInterp = maybe storeInterp restoreInterp state.interp
 

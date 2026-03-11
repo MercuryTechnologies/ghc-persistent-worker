@@ -19,7 +19,7 @@ import GHC (
   setSession,
   )
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateFlags, hscUpdateLoggerFlags)
-import GHC.Driver.Monad (modifySession, modifySessionM, withSession, withTempSession)
+import GHC.Driver.Monad (modifySession, withSession, withTempSession)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit (UnitId)
 import GHC.Utils.Panic (throwGhcExceptionIO)
@@ -82,7 +82,7 @@ addHomeUnit dflags = do
 prepareMetadataSession :: Env -> DynFlags -> Ghc UnitId
 prepareMetadataSession env dflags = do
   state <- liftIO $ readMVar env.state
-  modifySessionM \ hsc_env -> liftIO (loadState env.log hsc_env state.make)
+  modifySession \ hsc_env -> loadState hsc_env state.make
   unit <- addHomeUnit dflags
   setActiveUnit unit
   storeNewUnit

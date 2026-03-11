@@ -166,7 +166,7 @@ withCacheMake logger stateVar prog = do
   where
     restore hsc_env =
       liftIO $ modifyMVar stateVar \ state -> do
-        (make, hsc_env1) <- Make.loadStateCompile logger hsc_env state.make
+        let (make, hsc_env1) = Make.loadStateCompile hsc_env state.make
         pure (state {make}, hsc_env1)
 
     store hsc_env =
