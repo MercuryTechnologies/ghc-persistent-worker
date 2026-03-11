@@ -2,9 +2,13 @@ module Types.BuckArgs where
 
 import Control.Applicative ((<|>))
 import Control.Exception (throwIO)
+import Control.Monad (join)
 import Data.Aeson (FromJSON, eitherDecodeFileStrict')
 import Data.Coerce (coerce)
-import Data.List (dropWhileEnd)
+import Data.Foldable (toList)
+import Data.List (dropWhileEnd, intercalate)
+import Data.List.NonEmpty (NonEmpty, nonEmpty)
+import Data.List.Split (splitOn)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict ((!?))
@@ -15,7 +19,15 @@ import GHC.Unit (Definite (..), GenUnit (RealUnit), stringToUnitId)
 import System.FilePath (takeDirectory)
 import System.OsPath (encodeFS)
 import qualified Types.Args
-import Types.Args (Args (Args), TargetId (..), UnitName (..))
+import Types.Args (
+  Args (Args),
+  BuildPlanField (..),
+  TargetId (..),
+  UnitName (..),
+  buildPlanAll,
+  buildPlanKey,
+  parseBuildPlanKey,
+  )
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
 import Types.Target (ModuleTarget (..))
 
@@ -45,6 +57,8 @@ data BuckArgs =
     buck2PackageDbDep :: Maybe String,
     unit :: Maybe String,
     buildPlan :: Maybe String,
+    -- | The build plan fields included in the JSON.
+    fields :: Maybe (NonEmpty String),
     moduleName :: Maybe String,
     depModules :: Maybe String,
     depUnits :: Maybe String,
@@ -76,6 +90,7 @@ emptyBuckArgs env =
     buck2PackageDbDep = Nothing,
     unit = Nothing,
     buildPlan = Nothing,
+    fields = Nothing,
     moduleName = Nothing,
     depModules = Nothing,
     depUnits = Nothing,
@@ -114,6 +129,7 @@ options =
     withArg "--ghc-dir" \ z a -> z {ghcDirFile = Just a},
     withArg "--unit" \ z a -> z {unit = Just a},
     withArg "--build-plan" \ z a -> z {buildPlan = Just a},
+    withArg "--fields" \ z a -> z {fields = nonEmpty (splitOn "," a)},
     withArg "--module" \ z a -> z {moduleName = Just a, mode = Just ModeCompile},
     withArg "--ghc-args" \ z a -> z {ghcArgsFile = Just a},
     withArg "--extra-pkg-db" \ z a -> z {ghcDbFile = Just a},
@@ -189,6 +205,16 @@ checkModuleTarget args =
     _ ->
       pure Nothing
 
+parseField :: String -> IO (NonEmpty BuildPlanField)
+parseField = \case
+  "all" -> pure buildPlanAll
+  key -> maybe (invalid key) (pure . pure) (parseBuildPlanKey key)
+  where
+    invalid key =
+      throwIO (userError ("Invalid value for --fields: " ++ key ++ ". Possible choices: " ++ keys))
+
+    keys = intercalate " | " ("all" : (buildPlanKey <$> toList buildPlanAll))
+
 toGhcArgs :: BuckArgs -> IO Args
 toGhcArgs args = do
   cachedDeps <- traverse (decodeJsonArg "--dep-modules") args.depModules
@@ -199,6 +225,7 @@ toGhcArgs args = do
   -- GHC that compiled this binary.
   topdir <- (<|> (args.topdir <|> Just libdir)) <$> readPath args.ghcDirFile
   buildPlan <- traverse encodeFS args.buildPlan
+  fields <- fmap join <$> traverse (traverse parseField) args.fields
   packageDb <- readPath args.ghcDbFile
   -- When a module name was specified, we don't read any args because we can't use them when picking @ModSummary@ from
   -- the module graph.
@@ -214,6 +241,7 @@ toGhcArgs args = do
     tempDir = args.tempDir,
     unit = UnitName . stringToUnitId <$> args.unit,
     buildPlan,
+    fields,
     moduleTarget,
     ghcOptions = ghcArgs ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
     cachedBuildPlans,
