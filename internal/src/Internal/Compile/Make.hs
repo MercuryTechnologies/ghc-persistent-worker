@@ -17,6 +17,7 @@ import GHC (
   Ghc,
   GhcException (..),
   GhcMonad (..),
+  IsBootInterface (..),
   ModLocation (..),
   pattern ModLocation,
   ModSummary (..),
@@ -84,7 +85,7 @@ lookupSummary _logger hsc_env target =
     notFound =
       "Could not find ModSummary in the module graph for "
       ++
-      showPprUnsafe (pprModuleFull target)
+      showPprUnsafe (pprModuleFull target NotBoot)
 
 #if RECENT
     check = \case

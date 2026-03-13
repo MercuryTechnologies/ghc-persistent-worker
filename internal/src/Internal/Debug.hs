@@ -4,7 +4,7 @@ module Internal.Debug where
 
 import qualified Data.Map.Strict as Map
 import Data.Traversable (for)
-import GHC (DynFlags (..), Module, mi_module, moduleName)
+import GHC (DynFlags (..), IsBootInterface (..), Module, mi_module, moduleName)
 import GHC.Fingerprint (fingerprintString)
 import GHC.Types.Unique.Map (nonDetEltsUniqMap)
 import GHC.Unit (UnitDatabase (..), UnitId, UnitState (..), homeUnitId, moduleEnvToList, moduleUnitId, unitPackageId)
@@ -21,6 +21,7 @@ import Types.Target (TargetSpec, renderTargetSpec)
 import GHC (ModSummary (..))
 import GHC.Unit.Home.Graph (UnitEnvGraph (..))
 import GHC.Unit.Home.PackageTable (HomePackageTable (..), pprHPT)
+import GHC.Unit.Module.ModSummary (isBootSummary)
 
 #else
 
@@ -91,9 +92,10 @@ showMap ::
 showMap pprB m =
   vcat [ppr from <+> text "->" <+> (pprB to) | (from, to) <- m]
 
-pprModuleFull :: Module -> SDoc
-pprModuleFull m =
-  ppr (moduleUnitId m) Outputable.<> ":" Outputable.<> ppr (moduleName m)
+pprModuleFull :: Module -> IsBootInterface -> SDoc
+pprModuleFull m boot =
+  ppr (moduleUnitId m) Outputable.<> ":" Outputable.<> ppr (moduleName m) Outputable.<>
+  (if boot == IsBoot then " {-# SOURCE #-}" else "")
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
 
@@ -102,7 +104,7 @@ showModGraph g =
   vcat (concatMap showOne (mgModSummaries' g))
   where
     showOne = \case
-      ModuleNode deps (ModuleNodeCompile ms) -> [hang (pprModuleFull (ms_mod ms) <+> "->") 2 (vcat (ppr <$> deps))]
+      ModuleNode deps (ModuleNodeCompile ms) -> [hang (pprModuleFull (ms_mod ms) (isBootSummary ms) <+> "->") 2 (vcat (ppr <$> deps))]
       ModuleNode deps (ModuleNodeFixed key _) -> [hang (ppr key <+> "->") 2 (vcat (ppr <$> deps))]
       LinkNode deps unit -> [hang (ppr unit <+> "->") 2 (vcat (ppr <$> deps))]
       -- UnitNode deps unit -> [hang (ppr unit <+> "->") 2 (vcat (ppr <$> deps))]
@@ -117,7 +119,7 @@ showModGraph g =
   vcat (showOne <$> mgModSummaries' g)
   where
     showOne = \case
-      ModuleNode deps ms -> hang (pprModuleFull (ms_mod ms) <+> "->") 2 (vcat (ppr <$> deps))
+      ModuleNode deps ms -> hang (pprModuleFull (ms_mod ms) (isBootSummary ms) <+> "->") 2 (vcat (ppr <$> deps))
       _ -> ""
 
 #else
