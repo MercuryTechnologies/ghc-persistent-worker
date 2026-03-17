@@ -18,6 +18,7 @@ import Types.Target (TargetSpec, renderTargetSpec)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
 
+import GHC (ModSummary (..))
 import GHC.Unit.Home.Graph (UnitEnvGraph (..))
 import GHC.Unit.Home.PackageTable (HomePackageTable (..), pprHPT)
 
@@ -55,7 +56,6 @@ import Data.List (intercalate)
 import GHC (
   Ghc,
   GhcMode (..),
-  ModSummary (..),
   ModuleName,
   PkgQual (..),
   getSession,
