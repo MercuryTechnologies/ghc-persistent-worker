@@ -36,7 +36,7 @@ type Scheduler key task = ReaderT (SchedulerEnv key task) (StateT (SchedulerStat
 -- @AsyncException@ is always critical, of course.
 executeRequest :: (task -> IO RequestResult) -> Task key task -> IO (RequestOutput key)
 executeRequest dispatch Task {key, value = request} = do
-  result <- try (timeout 1_000_000 (dispatch request)) >>= \case
+  result <- try (timeout 10_000_000 (dispatch request)) >>= \case
     Right (Just result) ->
       pure result
     Right Nothing ->
