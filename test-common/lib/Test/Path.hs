@@ -1,15 +1,18 @@
 module Test.Path where
 
 import Control.Monad.Extra (whenM)
-import GHC.Data.OsPath (doesFileExist, unsafeDecodeUtf)
-import System.Directory.OsPath (removeFile)
+import System.Directory.OsPath (doesFileExist, removeFile)
+import System.OsPath (OsPath, decodeUtf, osp, unsafeEncodeUtf, (<.>), (</>))
 import System.OsPath (OsPath, osp, unsafeEncodeUtf, (<.>), (</>))
 import Test.Data.Project (ModuleKey (..), UnitKey (..))
 
 -- * Path Converters
 
 fp :: OsPath -> FilePath
-fp = unsafeDecodeUtf
+fp p =
+  either (error . msg) id (decodeUtf p)
+  where
+    msg err = "Decoding path " <> show p <> " failed: " <> show err
 
 osPath :: String -> OsPath
 osPath = unsafeEncodeUtf
