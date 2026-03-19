@@ -13,6 +13,9 @@ packages: ./buck-proxy
 package ghc-worker
   executable-dynamic: true
 
+package buck-worker-internal
+  executable-dynamic: true
+
 allow-newer:
   proto-lens:*
   , *:containers

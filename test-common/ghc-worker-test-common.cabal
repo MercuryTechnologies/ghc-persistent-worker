@@ -54,6 +54,9 @@ library
     Test.Path
     Test.ProjectBuild.Classify
     Test.ProjectBuild.Property
+    Test.Resource.Build
+    Test.Resource.Project
+    Test.Resource.Stats
     Test.Resume
     Test.Run
     Test.Scheduler

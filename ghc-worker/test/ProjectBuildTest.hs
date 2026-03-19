@@ -12,7 +12,7 @@ import Test.Gen.ProjectBuild (genProjectBuild)
 import Test.ProjectBuild.Classify (classifyFirstBuild, classifyProject, classifyResume)
 import Test.ProjectBuild.Property (annotateRebuildPlan, assertBuildResult, showProjectBuild)
 import Test.Resume (executeResumeBuild, setupResumeBuild)
-import Test.Source (writeProjectSources)
+import Test.Source (writeProjectSources, toModuleSourceMap)
 import Test.Tasty (TestTree)
 import Test.Tasty.Hedgehog (testProperty)
 
@@ -27,7 +27,7 @@ setup conf env = do
 runInitialBuild :: ProjectBuild -> BuildSystem -> SessionEnv -> PropertyT IO BuildResult
 runInitialBuild project buildSys sessionEnv = do
   result <- liftIO do
-    writeProjectSources sessionEnv.sourceDir project.initial.modules
+    writeProjectSources sessionEnv.sourceDir (toModuleSourceMap project.initial.modules)
     buildSys.runInitialBuild project.schedule
   classifyProject project
   classifyFirstBuild result
