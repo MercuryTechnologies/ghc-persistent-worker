@@ -122,7 +122,7 @@ staticMetaArgs = [
 metadataArgs :: SessionEnv -> GenUnit BuildModule -> Args
 metadataArgs env GenUnit {key, modules, depUnits} =
   env.shared.baseArgs {
-    ghcOptions = staticMetaArgs ++ metaArgs ++ unitDepArgs ++ srcFiles
+    ghcOptions = staticMetaArgs ++ thArgs ++ metaArgs ++ unitDepArgs ++ srcFiles
   }
   where
     metaArgs = [
@@ -132,6 +132,10 @@ metadataArgs env GenUnit {key, modules, depUnits} =
       "-odir", fp outDir,
       "-hidir", fp outDir
       ]
+
+    thArgs
+      | any (.th) modules = ["-package", "template-haskell"]
+      | otherwise = []
 
     unitDepArgs = concatMap (\ d -> ["-package-id", unitName d]) depUnits
 

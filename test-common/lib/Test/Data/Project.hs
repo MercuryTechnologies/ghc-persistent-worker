@@ -71,7 +71,9 @@ data GenModule =
     -- | Deps for the initial build.
     deps :: Set ModuleKey,
     -- | Additional deps for the resume build.
-    resumeDeps :: Maybe (Set ModuleKey)
+    resumeDeps :: Maybe (Set ModuleKey),
+    -- | Whether this module uses Template Haskell splices.
+    th :: Bool
   }
   deriving stock (Eq, Show)
 
@@ -80,7 +82,9 @@ data GenModule =
 data BuildModule =
   BuildModule {
     key :: ModuleKey,
-    deps :: Set ModuleKey
+    deps :: Set ModuleKey,
+    -- | Whether this module uses Template Haskell splices.
+    th :: Bool
   }
   deriving stock (Eq, Show)
 

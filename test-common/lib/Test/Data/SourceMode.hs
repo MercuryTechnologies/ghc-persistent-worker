@@ -24,6 +24,17 @@ data SourceMode =
 data SourceRewrite =
   SourceRewrite {
     mode :: SourceMode,
-    deps :: [ModuleKey]
+    deps :: [ModuleKey],
+    -- | Whether to generate a Template Haskell splice expression.
+    th :: Bool
+  }
+  deriving stock (Eq, Show)
+
+-- | The data needed to write a module's source file.
+data ModuleSource =
+  ModuleSource {
+    deps :: [ModuleKey],
+    -- | Whether to generate a Template Haskell splice expression.
+    th :: Bool
   }
   deriving stock (Eq, Show)

@@ -60,7 +60,7 @@ genModule pool key = do
   extraDeps <- small $ Gen.subset pool
   let extra = extraDeps \\ deps
       resumeDeps = if null extra then Nothing else Just extra
-  pure (Set.insert key pool, GenModule {key, deps, resumeDeps})
+  pure (Set.insert key pool, GenModule {key, deps, resumeDeps, th = False})
 
 -- | Generate all home modules for a unit.
 genUnitModules ::
