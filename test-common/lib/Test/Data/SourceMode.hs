@@ -26,7 +26,9 @@ data SourceRewrite =
     mode :: SourceMode,
     deps :: [ModuleKey],
     -- | Whether to generate a Template Haskell splice expression.
-    th :: Bool
+    th :: Bool,
+    -- | Number of top-level value bindings to generate.
+    bindings :: Int
   }
   deriving stock (Eq, Show)
 
@@ -35,6 +37,8 @@ data ModuleSource =
   ModuleSource {
     deps :: [ModuleKey],
     -- | Whether to generate a Template Haskell splice expression.
-    th :: Bool
+    th :: Bool,
+    -- | Number of top-level value bindings to generate.
+    bindings :: Int
   }
   deriving stock (Eq, Show)

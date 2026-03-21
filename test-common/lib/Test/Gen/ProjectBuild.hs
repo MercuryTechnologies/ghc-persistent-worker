@@ -75,14 +75,15 @@ genSchedule =
 initialBuildUnit :: GenUnit GenModule -> GenUnit BuildModule
 initialBuildUnit unit =
   unit {
-    modules = [BuildModule {key, deps, th} | GenModule {key, deps, th} <- unit.modules]
+    modules = [BuildModule {key, deps, th, bindings} | GenModule {key, deps, th, bindings} <- unit.modules]
   }
 
 -- | Merge the 'resumeDeps' into the effective deps for the resume build.
 resumeBuildUnit :: GenUnit GenModule -> GenUnit BuildModule
 resumeBuildUnit unit =
   unit {
-    modules = [BuildModule {key, deps = deps <> fold resumeDeps, th} | GenModule {key, deps, resumeDeps, th} <- unit.modules]
+    modules = [BuildModule {key, deps = deps <> fold resumeDeps, th, bindings}
+              | GenModule {key, deps, resumeDeps, th, bindings} <- unit.modules]
   }
 
 -- | Generate the full dataset used by a single test run.

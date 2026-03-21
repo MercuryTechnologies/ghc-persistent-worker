@@ -3,7 +3,6 @@ module Test.Path where
 import Control.Monad.Extra (whenM)
 import System.Directory.OsPath (doesFileExist, removeFile)
 import System.OsPath (OsPath, decodeUtf, osp, unsafeEncodeUtf, (<.>), (</>))
-import System.OsPath (OsPath, osp, unsafeEncodeUtf, (<.>), (</>))
 import Test.Data.Project (ModuleKey (..), UnitKey (..))
 
 -- * Path Converters
@@ -46,6 +45,12 @@ moduleName ModuleKey {unit, number} =
 moduleValueName :: ModuleKey -> String
 moduleValueName ModuleKey {unit, number} =
   "value_" ++ showUnit unit ++ "_" ++ show number
+
+-- | Name for the nth additional value binding in a module, starting at index 1.
+-- The primary binding (index 0) uses 'moduleValueName'.
+indexedValueName :: ModuleKey -> Int -> String
+indexedValueName key i =
+  moduleValueName key ++ "_" ++ show i
 
 moduleOutputBase :: ModuleKey -> OsPath
 moduleOutputBase key =

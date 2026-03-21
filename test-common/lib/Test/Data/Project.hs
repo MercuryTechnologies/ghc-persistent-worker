@@ -73,7 +73,9 @@ data GenModule =
     -- | Additional deps for the resume build.
     resumeDeps :: Maybe (Set ModuleKey),
     -- | Whether this module uses Template Haskell splices.
-    th :: Bool
+    th :: Bool,
+    -- | Number of top-level value bindings to generate in the source file.
+    bindings :: Int
   }
   deriving stock (Eq, Show)
 
@@ -84,7 +86,9 @@ data BuildModule =
     key :: ModuleKey,
     deps :: Set ModuleKey,
     -- | Whether this module uses Template Haskell splices.
-    th :: Bool
+    th :: Bool,
+    -- | Number of top-level value bindings to generate in the source file.
+    bindings :: Int
   }
   deriving stock (Eq, Show)
 

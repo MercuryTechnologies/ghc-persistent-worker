@@ -24,13 +24,14 @@ sourceRewrites InitialProject {modulesError} plan fixErrors =
   fixedSources <> modifiedSources <> addedDepSources
   where
     fixedSources
-      | fixErrors = fmap (\ deps -> SourceRewrite {mode = SourceFixed, deps, th = False}) modulesError
+      | fixErrors = fmap (\ deps -> SourceRewrite {mode = SourceFixed, deps, th = False, bindings = 1}) modulesError
       | otherwise = []
 
-    modifiedSources = fmap (\ deps -> SourceRewrite {mode = SourceModified, deps, th = False}) plan.moduleMutations
+    modifiedSources =
+      fmap (\ deps -> SourceRewrite {mode = SourceModified, deps, th = False, bindings = 1}) plan.moduleMutations
 
     addedDepSources =
-      plan.depMutations <&> \ (_, total) -> SourceRewrite {mode = SourceNormal, deps = total, th = False}
+      plan.depMutations <&> \ (_, total) -> SourceRewrite {mode = SourceNormal, deps = total, th = False, bindings = 1}
 
 -- | Update all files for which a 'SourceRewrite' was constructed.
 rewriteResumeSources ::
@@ -39,7 +40,7 @@ rewriteResumeSources ::
   IO ()
 rewriteResumeSources sourceDir rewrites =
   for_ (Map.toList rewrites) \ (key, rewrite) ->
-    OsPath.writeFile (sourceDir </> moduleSourcePath key) (moduleSource rewrite.th rewrite.mode key rewrite.deps)
+    OsPath.writeFile (sourceDir </> moduleSourcePath key) (moduleSource rewrite.bindings rewrite.th rewrite.mode key rewrite.deps)
 
 -- | Remove all tasks from the resume schedule that don't require rebuild.
 --

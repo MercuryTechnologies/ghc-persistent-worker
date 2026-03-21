@@ -12,7 +12,7 @@ import qualified System.File.OsPath as OsPath
 import System.OsPath (OsPath, (</>))
 import Test.Data.Project (ErrorVariant (..), ModuleKey (..))
 import Test.Data.SourceMode (ModuleSource (..), SourceMode (..))
-import Test.Path (moduleName, moduleSourcePath, moduleValueName, unitDir)
+import Test.Path (indexedValueName, moduleName, moduleSourcePath, moduleValueName, unitDir)
 
 sumExpr :: String -> [String] -> String
 sumExpr base = \case
@@ -32,10 +32,11 @@ valueExpr useTh base depValues =
 
 -- | Write a source file for a module according to specifications.
 --
--- Each module exports a @value_X_Y :: Int@ binding whose expression sums the corresponding values imported from the
+-- Each module exports @bindings@ value bindings whose expressions sum the corresponding values imported from the
 -- dependencies, ensuring imports are actually used and type-checked by GHC.
-moduleSource :: Bool -> SourceMode -> ModuleKey -> [ModuleKey] -> ByteString
-moduleSource useTh mode key deps =
+-- The primary binding is @value_X_Y@; additional bindings are @value_X_Y_1@, @value_X_Y_2@, etc.
+moduleSource :: Int -> Bool -> SourceMode -> ModuleKey -> [ModuleKey] -> ByteString
+moduleSource numBindings useTh mode key deps =
   encodeUtf8 $
   Text.pack $
   unlines $
@@ -43,7 +44,7 @@ moduleSource useTh mode key deps =
     ++ ["module " ++ headerName ++ " where", ""]
     ++ thImport
     ++ ["import " ++ moduleName d | d <- deps]
-    ++ [valName ++ " :: Int", valName ++ " = " ++ valueExpr useTh base (moduleValueName <$> deps)]
+    ++ concatMap valueBinding (enumFromTo 0 (numBindings - 1))
   where
     (thPragma, thImport)
       | useTh = (["{-# LANGUAGE TemplateHaskell #-}"], ["import Language.Haskell.TH.Syntax (lift)"])
@@ -58,16 +59,20 @@ moduleSource useTh mode key deps =
       SourceFixed -> "1"
     errorBase UndefinedVariable = "x"
     errorBase TypeMismatch = "True"
-    valName = moduleValueName key
+    valName i
+      | i == 0 = moduleValueName key
+      | otherwise = indexedValueName key i
+    valueBinding i =
+      [valName i ++ " :: Int", valName i ++ " = " ++ valueExpr useTh base (moduleValueName <$> deps)]
 
 -- | Convert a plain dependency map to 'ModuleSource' values with TH disabled.
 toModuleSourceMap :: Map ModuleKey [ModuleKey] -> Map ModuleKey ModuleSource
 toModuleSourceMap =
-  fmap (\ deps -> ModuleSource {deps, th = False})
+  fmap (\ deps -> ModuleSource {deps, th = False, bindings = 1})
 
 -- | Write source files for all modules.
 writeProjectSources :: OsPath -> Map ModuleKey ModuleSource -> IO ()
 writeProjectSources srcDir modules =
   for_ (Map.toList modules) \ (key, ms) -> do
     createDirectoryIfMissing True (srcDir </> unitDir key.unit)
-    OsPath.writeFile (srcDir </> moduleSourcePath key) (moduleSource ms.th SourceNormal key ms.deps)
+    OsPath.writeFile (srcDir </> moduleSourcePath key) (moduleSource ms.bindings ms.th SourceNormal key ms.deps)
