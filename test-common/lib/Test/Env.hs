@@ -22,7 +22,7 @@ newSessionEnv shared@TestEnv {rootDir} = do
   sourceDir <- encodeFS =<< createTempDirectory rootDirFp "src"
   tempDir <- encodeFS =<< createTempDirectory rootDirFp "tmp"
   (env, _) <- mkEnv
-  pure SessionEnv {shared, sourceDir, tempDir, env}
+  pure SessionEnv {shared, sourceDir, tempDir, env, extDepDbs = [], extDeps = mempty}
 
 -- | Reuses the previous session's @srcDir@ and @tmpDir@ (preserving written sources and artifacts) but creates a fresh
 -- 'Env' with an empty 'WorkerState', simulating a worker restart.
@@ -31,7 +31,7 @@ newSessionEnv shared@TestEnv {rootDir} = do
 newResumeSessionEnv :: SessionEnv -> IO SessionEnv
 newResumeSessionEnv prev = do
   (env, _) <- mkEnv
-  pure prev {env}
+  pure prev {env, extDepDbs = [], extDeps = mempty}
 
 acquireTestEnv :: IO TestEnv
 acquireTestEnv = do

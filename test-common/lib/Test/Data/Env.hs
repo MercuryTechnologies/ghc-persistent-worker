@@ -1,5 +1,6 @@
 module Test.Data.Env where
 
+import Data.Set (Set)
 import Data.Proxy (Proxy (..))
 import Data.Typeable (Typeable)
 import System.OsPath (OsPath)
@@ -79,5 +80,10 @@ data SessionEnv =
     shared :: TestEnv,
     sourceDir :: OsPath,
     tempDir :: OsPath,
-    env :: Env
+    env :: Env,
+    -- | Per-package DB paths for external dependency packages, matching the Buck model where each
+    -- external dep has its own package DB and the transitive closure is passed as separate @-package-db@ flags.
+    extDepDbs :: [FilePath],
+    -- | All external dependency indexes used by any module in the project.
+    extDeps :: Set Int
   }

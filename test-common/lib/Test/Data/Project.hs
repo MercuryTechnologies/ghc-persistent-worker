@@ -75,7 +75,9 @@ data GenModule =
     -- | Whether this module uses Template Haskell splices.
     th :: Bool,
     -- | Number of top-level value bindings to generate in the source file.
-    bindings :: Int
+    bindings :: Int,
+    -- | Indexes of external dependency packages imported by this module.
+    extDeps :: Set Int
   }
   deriving stock (Eq, Show)
 
@@ -88,7 +90,9 @@ data BuildModule =
     -- | Whether this module uses Template Haskell splices.
     th :: Bool,
     -- | Number of top-level value bindings to generate in the source file.
-    bindings :: Int
+    bindings :: Int,
+    -- | Indexes of external dependency packages imported by this module.
+    extDeps :: Set Int
   }
   deriving stock (Eq, Show)
 

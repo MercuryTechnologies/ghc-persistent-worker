@@ -72,3 +72,17 @@ removeIfExists :: OsPath -> IO ()
 removeIfExists path = do
   whenM (doesFileExist path) do
     removeFile path
+
+-- * External Dependency Names
+
+-- | Package name for an external dependency, e.g. @"extdep0"@.
+extDepName :: Int -> String
+extDepName i = "extdep" ++ show i
+
+-- | Module name exported by an external dependency package, e.g. @"Extdep0"@.
+extDepModuleName :: Int -> String
+extDepModuleName i = "Extdep" ++ show i
+
+-- | Value name exported by an external dependency module, e.g. @"extdep_value_0"@.
+extDepValueName :: Int -> String
+extDepValueName i = "extdep_value_" ++ show i

@@ -45,6 +45,7 @@ library
     Test.Data.SourceMode
     Test.Data.TestLog
     Test.Env
+    Test.ExtDep
     Test.Gen.Project
     Test.Gen.ProjectBuild
     Test.Gen.Resume

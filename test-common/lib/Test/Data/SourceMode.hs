@@ -1,5 +1,6 @@
 module Test.Data.SourceMode where
 
+import Data.Set (Set)
 import Test.Data.Project (ModuleKey)
 
 -- | Flag that determines the content of a module's source file that's written to disk before each build.
@@ -28,7 +29,9 @@ data SourceRewrite =
     -- | Whether to generate a Template Haskell splice expression.
     th :: Bool,
     -- | Number of top-level value bindings to generate.
-    bindings :: Int
+    bindings :: Int,
+    -- | Indexes of external dependency packages imported by this module.
+    extDeps :: Set Int
   }
   deriving stock (Eq, Show)
 
@@ -39,6 +42,8 @@ data ModuleSource =
     -- | Whether to generate a Template Haskell splice expression.
     th :: Bool,
     -- | Number of top-level value bindings to generate.
-    bindings :: Int
+    bindings :: Int,
+    -- | Indexes of external dependency packages imported by this module.
+    extDeps :: Set Int
   }
   deriving stock (Eq, Show)

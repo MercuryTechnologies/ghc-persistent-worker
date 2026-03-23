@@ -1,6 +1,7 @@
 -- | Description: Logic interfacing with the worker to start metadata and compile tasks.
 module Test.Build where
 
+import Data.Foldable (fold)
 import Data.IORef (readIORef)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust, mapMaybe)
@@ -18,7 +19,7 @@ import Internal.Session (withGhcMakeModule)
 import Numeric.Natural (Natural)
 import Prelude hiding (log)
 import System.Directory.OsPath (createDirectoryIfMissing)
-import System.OsPath (OsPath, (</>), osp)
+import System.OsPath (OsPath, osp, (</>))
 import Test.Data.BuildSystem (BuildResult (..))
 import Test.Data.Env (MaxJobs, SessionEnv (..), TestEnv (..))
 import Test.Data.Project (
@@ -27,8 +28,8 @@ import Test.Data.Project (
   GenUnit (..),
   ModuleCache (..),
   ModuleKey (..),
-  TaskKey (..),
   ResumeComponent (..),
+  TaskKey (..),
   UnitCache (..),
   errorDiagnosticCode,
   taskModuleKeys,
@@ -36,7 +37,7 @@ import Test.Data.Project (
 import Test.Data.Scheduler (RequestFailure (..), RequestResult (..), Schedule (..), SchedulerState (..))
 import Test.Data.TestLog (DiagnosticEntry (..), TestLog (..))
 import Test.Log (withTestLog)
-import Test.Path (compileTmpDir, fp, moduleName, moduleSourcePath, unitName, unitOutputDir, unitTmpDir)
+import Test.Path (compileTmpDir, extDepName, fp, moduleName, moduleSourcePath, unitName, unitOutputDir, unitTmpDir)
 import Test.Scheduler (initScheduler, runScheduler)
 import qualified Types.Args as Args
 import Types.Args (Args (..))
@@ -122,7 +123,7 @@ staticMetaArgs = [
 metadataArgs :: SessionEnv -> GenUnit BuildModule -> Args
 metadataArgs env GenUnit {key, modules, depUnits} =
   env.shared.baseArgs {
-    ghcOptions = staticMetaArgs ++ thArgs ++ metaArgs ++ unitDepArgs ++ srcFiles
+    ghcOptions = staticMetaArgs ++ extDepDbArgs ++ thArgs ++ extDepPkgArgs ++ metaArgs ++ unitDepArgs ++ srcFiles
   }
   where
     metaArgs = [
@@ -136,6 +137,12 @@ metadataArgs env GenUnit {key, modules, depUnits} =
     thArgs
       | any (.th) modules = ["-package", "template-haskell"]
       | otherwise = []
+
+    allExtDeps = fold [m.extDeps | m <- modules]
+
+    extDepDbArgs = concatMap (\db -> ["-package-db", db]) env.extDepDbs
+
+    extDepPkgArgs = concatMap (\ i -> ["-package", extDepName i]) (Set.toList allExtDeps)
 
     unitDepArgs = concatMap (\ d -> ["-package-id", unitName d]) depUnits
 
@@ -165,7 +172,7 @@ resumeCompileArgs :: SessionEnv -> Bool -> ModuleCache -> ModuleKey -> (Args, Se
 resumeCompileArgs env fixErrors ModuleCache {cachedUnit, cachedDeps} key = do
   (args, codes)
   where
-    args = (env.shared.baseArgs) {homeUnit = Just cachedUnit, Args.cachedDeps = Just cachedDeps}
+    args = env.shared.baseArgs {homeUnit = Just cachedUnit, Args.cachedDeps = Just cachedDeps}
 
     codes
       | fixErrors = mempty
