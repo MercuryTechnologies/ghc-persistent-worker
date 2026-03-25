@@ -6,6 +6,7 @@ import BuildPlanTest (test_buildPlan)
 import ProjectBuildTest (test_projectBuild)
 import ResourceTest (test_resources)
 import ScheduleTest (test_sortScheduleOrder)
+import System.IO (hSetEncoding, stderr, stdout, utf8)
 import Test.Data.Env (testConfigOptions)
 import Test.Tasty (
   DependencyType (AllFinish),
@@ -50,5 +51,7 @@ tests =
     afterResources = after AllFinish "resources"
 
 main :: IO ()
-main =
+main = do
+  hSetEncoding stdout utf8
+  hSetEncoding stderr utf8
   defaultMainWithIngredients (includingOptions testConfigOptions : defaultIngredients) tests
