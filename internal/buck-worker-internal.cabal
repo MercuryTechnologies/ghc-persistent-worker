@@ -95,12 +95,9 @@ library
     build-depends:    aeson,
                       async,
                       base >= 4.20 && < 4.22,
-                      binary,
                       buck-worker-types,
-                      bytestring,
                       containers,
                       directory,
-                      deepseq,
                       exceptions,
                       filepath,
                       file-io,
@@ -109,8 +106,7 @@ library
                       hashable,
                       text,
                       time,
-                      transformers,
-                      unix
+                      transformers
     default-language: GHC2021
     default-extensions:
       BlockArguments,
