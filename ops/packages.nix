@@ -295,6 +295,83 @@
       };
     };
 
+    ghc-server = {
+      src = ../ghc-server;
+      cabal = {
+        meta.synopsis = "Standalone GHC build server and client";
+        default-extensions = ["DeriveAnyClass" "NoFieldSelectors"];
+      };
+      cabal.ghc-options-exe = [
+        "-O2"
+        "-threaded"
+        "-rtsopts"
+        ''"-with-rtsopts=-K512M -I5 -A128M -T -N"''
+      ];
+
+      library = {
+        enable = true;
+        dependencies = [
+          "Cabal"
+          "Cabal-syntax"
+          "aeson"
+          "async"
+          "buck-worker-grpc"
+          "buck-worker-internal"
+          "buck-worker-proto"
+          "buck-worker-types"
+          "bytestring"
+          "containers"
+          "directory"
+          "extra"
+          "file-io"
+          "filepath"
+          "ghc"
+          "grapesy"
+          "optparse-applicative"
+          "stm"
+          "text"
+          "transformers"
+        ];
+      };
+
+      executables.ghc-server = {
+        source-dirs = "app/ghc-server";
+      };
+
+      executables.ghc-client = {
+        source-dirs = "app/ghc-client";
+      };
+
+      tests.ghc-server-test = {
+        dependencies = [
+          "aeson"
+          "async"
+          "buck-worker-internal"
+          "buck-worker-types"
+          "bytestring"
+          "containers"
+          "directory"
+          "filepath"
+          "ghc"
+          "ghc-server"
+          "hedgehog"
+          "tasty"
+          "tasty-hedgehog"
+          "temporary"
+        ];
+        source-dirs = "test";
+        component = {
+          default-extensions = ["NoFieldSelectors"];
+          ghc-options = [
+            "-threaded"
+            "-rtsopts"
+            ''"-with-rtsopts=-K512M -I5 -A128M -T -N"''
+          ];
+        };
+      };
+
+    };
+
   };
 
   cabal = {

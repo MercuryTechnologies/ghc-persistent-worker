@@ -73,8 +73,6 @@ runCentralGhc mode discovery socket instrumentSocket =
     dbg ("Shutting down ghc server on " ++ fromOsPath socket.path)
     removeFile discovery.path
 
-
-
 -- | Bracket a computation with a gRPC worker client resource, connecting to the server listening on the provided
 -- socket.
 withProxy ::

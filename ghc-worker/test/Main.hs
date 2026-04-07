@@ -59,7 +59,7 @@ tests =
     afterResources (testGroup "general" testsGeneral)
   ]
   where
-    -- tasty 1.5 has @sequentialTestGroup@, but the current Nix env has 1.4, so we'll make do with this for now.
+    -- tasty 1.5 has @dependentTestGroup@, but the current Nix env has 1.4, so we'll make do with this for now.
     afterResources = after AllFinish "resources"
 
 main :: IO ()
