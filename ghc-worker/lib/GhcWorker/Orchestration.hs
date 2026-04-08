@@ -1,28 +1,22 @@
 {-# LANGUAGE RecursiveDo #-}
 module GhcWorker.Orchestration where
 
-import qualified BuckWorkerProto as Worker
-import BuckWorkerProto (ExecuteCommand, ExecuteResponse)
-import Common.Grpc (streamingNotImplemented)
-import Control.Concurrent (threadDelay)
+import Common.Grpc (forwardRequest, runGrpcServer, streamingNotImplemented, waitPoll)
 import Control.Concurrent.Async (async, cancel, wait)
 import Control.DeepSeq (force)
-import Control.Exception (bracket_, finally, onException, throwIO, try)
+import Control.Exception (bracket_, finally, onException, try)
 import Control.Monad (void, when)
 import Data.List (dropWhileEnd)
 import Data.Maybe (isJust)
 import Data.Traversable (for)
 import GHC.IO.Handle.Lock (LockMode (..), hLock, hUnlock)
 import Internal.Log (dbg)
-import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
-import Network.GRPC.Common (Proxy (..), def)
-import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&))
+import Network.GRPC.Client (Server (..), withConnection)
+import Network.GRPC.Common (def)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
-import Network.GRPC.Server.Run (InsecureConfig (..), ServerConfig (..), runServerWithHandlers)
-import Network.GRPC.Server.StreamType (Methods (..), fromMethods, mkClientStreaming, mkNonStreaming)
+import Network.GRPC.Server.StreamType (Methods (..), mkClientStreaming, mkNonStreaming)
 import Proto.Instrument (Instrument (..))
 import Proto.Worker (Worker (..))
-import Proto.Worker_Fields qualified as Fields
 import System.Directory (createDirectoryIfMissing, removeFile)
 import System.Exit (exitFailure)
 import System.FilePath (takeDirectory)
@@ -63,10 +57,10 @@ runLocalGhc CreateMethods {..} socket minstr = mdo
   instrResource <- for minstr \instrumentSocket -> do
     dbg ("Instrumentation info available on " ++ instrumentSocket.path)
     (resource, instrMethods) <- createInstrumentation (\ ce (RequestArgs args) -> recompile ce (RequestArgs (args ++ ["-fforce-recomp"])))
-    _instrThread <- async $ runServerWithHandlers def (grpcServerConfig instrumentSocket.path) (fromMethods instrMethods)
+    _instrThread <- async $ runGrpcServer instrumentSocket.path instrMethods
     pure resource
   (recompile, methods) <- createGhc instrResource
-  runServerWithHandlers def (grpcServerConfig socket.path) (fromMethods methods)
+  runGrpcServer socket.path methods
 
 -- | Start a gRPC server that runs GHC for client proxies, deleting the discovery file on shutdown.
 runCentralGhc ::
@@ -80,19 +74,7 @@ runCentralGhc mode discovery socket instrumentSocket =
     dbg ("Shutting down ghc server on " ++ socket.path)
     removeFile discovery.path
 
--- | Forward a request received from a client to another gRPC server and forward the response back,
--- prefixing the error messages so we know where the error originated.
-forwardRequest ::
-  Connection ->
-  Proto ExecuteCommand ->
-  IO (Proto ExecuteResponse)
-forwardRequest connection req = withRPC connection def (Proxy @(Protobuf Worker "execute")) \ call -> do
-  sendFinalInput call req
-  resp <- recvNextOutput call
-  pure $
-    resp
-      & Fields.stderr
-      %~ ("gRPC client error: " <>)
+
 
 -- | Bracket a computation with a gRPC worker client resource, connecting to the server listening on the provided
 -- socket.
@@ -109,12 +91,7 @@ withProxy socket use = do
   where
     server = ServerUnix socket.path
 
-grpcServerConfig :: FilePath -> ServerConfig
-grpcServerConfig socketPath =
-  ServerConfig
-    { serverInsecure = Just (InsecureUnix socketPath)
-    , serverSecure = Nothing
-    }
+
 
 -- | Start a worker gRPC server that forwards requests received from a client (here Buck) to another gRPC server (here
 -- our GHC primary).
@@ -130,39 +107,15 @@ proxyServer primary socket = do
     launch =
       withProxy primary \ methods -> do
         dbg ("Starting proxy for " ++ primary.path ++ " on " ++ socket.path)
-        runServerWithHandlers def (grpcServerConfig socket.path) $ fromMethods methods
+        runGrpcServer socket.path methods
 
-messageExecute :: Proto Worker.ExecuteCommand
-messageExecute = defMessage
 
--- | How often the process should wait for 100ms and retry connecting to the GHC server after spawning a process.
-maxRetries :: Int
-maxRetries = 30
-
--- | Attempt to connect and send a gRPC message to the server starting up at the given socket.
-waitPoll :: PrimarySocketPath -> IO ()
-waitPoll socket =
-  check maxRetries
-  where
-    check 0 = throwIO (userError "GHC server didn't respond within 3 seconds")
-    check n =
-      try connect >>= \case
-        Right () -> pure ()
-        Left (_ :: IOError) -> do
-          threadDelay 100_000
-          check (n - 1)
-
-    -- The part that throws is in @withConnection@, so this has to be executed every time.
-    connect =
-      withConnection def (ServerUnix socket.path) \ connection ->
-        withRPC connection def (Proxy @(Protobuf Worker "execute")) \ call ->
-          sendFinalInput call messageExecute <* recvNextOutput call
 
 -- | Wait for a GHC server process to respond and check its exit code.
 waitForCentralGhc :: ProcessHandle -> PrimarySocketPath -> IO ()
 waitForCentralGhc proc socket = do
   dbg "Waiting for server"
-  waitPoll socket
+  waitPoll socket.path
   dbg "Server is up"
   exitCode <- getProcessExitCode proc
   when (isJust exitCode) do
@@ -226,7 +179,7 @@ serveOrProxyCentralGhc methods socket = do
     run primaryFile = do
       let primary = PrimarySocketPath socket.path
       thread <- async (runCentralGhc methods primaryFile socket instrumentSocket)
-      waitPoll primary
+      waitPoll primary.path
       pure (primary, thread)
 
     instrumentSocket = Just (instrumentSocketIn socketDir)

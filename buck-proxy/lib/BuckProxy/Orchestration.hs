@@ -7,13 +7,14 @@ module BuckProxy.Orchestration (
 ) where
 
 import BuckProxy.Util (dbg)
-import qualified BuckWorkerProto as Worker
+
 import BuckWorkerProto (ExecuteCommand, ExecuteResponse)
-import Common.Grpc (commandEnv, streamingNotImplemented)
+import Common.Grpc (commandEnv, forwardRequest, runGrpcServer, streamingNotImplemented, waitPoll)
 import Control.Applicative ((<|>))
-import Control.Concurrent (threadDelay)
+
 import Control.Concurrent.MVar (MVar, modifyMVar)
 import Control.Exception (throwIO, try)
+
 import Control.Monad (void, when)
 import Data.Map.Strict (Map, (!?))
 import Data.Coerce (coerce)
@@ -21,19 +22,17 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8Lenient)
-import Network.GRPC.Client (Connection, Server (..), recvNextOutput, sendFinalInput, withConnection, withRPC)
-import Network.GRPC.Common (Proxy (..), def)
-import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (%~), (&))
+import Network.GRPC.Client (Server (..), withConnection)
+import Network.GRPC.Common (def)
+import Network.GRPC.Common.Protobuf (Proto)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
-import Network.GRPC.Server.Run (InsecureConfig (..), ServerConfig (..), runServerWithHandlers)
 import Network.GRPC.Server.StreamType (
   Methods (..),
-  fromMethods,
   mkClientStreaming,
   mkNonStreaming,
   )
 import Proto.Worker (Worker (..))
-import Proto.Worker_Fields qualified as Fields
+
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
 import System.Process (ProcessHandle, getProcessExitCode, spawnProcess)
@@ -70,19 +69,7 @@ data WorkerResource =
     processHandle :: ProcessHandle
   }
 
--- | Forward a request received from a client to another gRPC server and forward the response back,
--- prefixing the error messages so we know where the error originated.
-forwardRequest ::
-  Connection ->
-  Proto ExecuteCommand ->
-  IO (Proto ExecuteResponse)
-forwardRequest connection req = withRPC connection def (Proxy @(Protobuf Worker "execute")) \ call -> do
-  sendFinalInput call req
-  resp <- recvNextOutput call
-  pure $
-    resp
-      & Fields.stderr
-      %~ ("gRPC client error: " <>)
+
 
 proxyHandler ::
   MVar (Map TargetId WorkerResource) ->
@@ -119,12 +106,7 @@ proxyHandler workerMap command socketDefault socketOverride req = do
       withConnection def (ServerUnix resource.primarySocket.path) \connection ->
         forwardRequest connection req
 
-grpcServerConfig :: FilePath -> ServerConfig
-grpcServerConfig socketPath =
-  ServerConfig
-    { serverInsecure = Just (InsecureUnix socketPath)
-    , serverSecure = Nothing
-    }
+
 
 -- | Start a worker gRPC server that forwards requests received from a client (here Buck) to ghc-worker
 proxyServer ::
@@ -151,39 +133,15 @@ proxyServer workerMap command socket workerSocketOverride = do
       NoMoreMethods
     launch = do
       dbg ("Starting buck-proxy on " ++ socket.path)
-      runServerWithHandlers def (grpcServerConfig socket.path) $ fromMethods methods
+      runGrpcServer socket.path methods
 
-messageExecute :: Proto Worker.ExecuteCommand
-messageExecute = defMessage
 
--- | How often the process should wait for 100ms and retry connecting to the GHC server after spawning a process.
-maxRetries :: Int
-maxRetries = 30
-
--- | Attempt to connect and send a gRPC message to the server starting up at the given socket.
-waitPoll :: PrimarySocketPath -> IO ()
-waitPoll socket =
-  check maxRetries
-  where
-    check 0 = throwIO (userError "GHC server didn't respond within 3 seconds")
-    check n =
-      try connect >>= \case
-        Right () -> pure ()
-        Left (_ :: IOError) -> do
-          threadDelay 100_000
-          check (n - 1)
-
-    -- The part that throws is in @withConnection@, so this has to be executed every time.
-    connect =
-      withConnection def (ServerUnix socket.path) \ connection ->
-        withRPC connection def (Proxy @(Protobuf Worker "execute")) \ call ->
-          sendFinalInput call messageExecute <* recvNextOutput call
 
 -- | Wait for a GHC server process to respond and check its exit code.
 waitForGhcWorker :: ProcessHandle -> PrimarySocketPath -> IO ()
 waitForGhcWorker ph socket = do
   dbg "Waiting for server"
-  waitPoll socket
+  waitPoll socket.path
   dbg "Server is up"
   exitCode <- getProcessExitCode ph
   when (isJust exitCode) do
