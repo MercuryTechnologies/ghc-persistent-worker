@@ -1,5 +1,6 @@
 module Test.Run where
 
+import Control.Concurrent (MVar)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Foldable (for_, toList)
 import Data.IORef (IORef, readIORef)
@@ -10,18 +11,21 @@ import GHC (Ghc)
 import GHC.Driver.Monad (reflectGhc, reifyGhc)
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import GHC.Types.Error (diagnosticCodeNumber)
-import Hedgehog (TestT, property, test, withTests)
+import Hedgehog (TestT, evalMaybe, property, test, withTests)
 import Hedgehog.Internal.Property (failWith)
-import Internal.Session (runSession)
-import Internal.State (newStateWith)
+import Internal.Session (runSession, simpleSessionWithDebugLog)
+import Internal.State (newState, newStateWith)
 import Numeric.Natural (Natural)
 import Prelude hiding (log)
+import System.Directory (removeDirectoryRecursive)
+import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
 import Test.Data.TestLog (DiagnosticEntry (..), TestLog (..))
 import Test.Log (newTestLog)
-import Test.Tasty (TestName, TestTree)
+import Test.Tasty (TestName, TestTree, withResource)
 import Test.Tasty.Hedgehog (testProperty)
-import Types.Args (emptyArgs)
+import Types.Args (Args (..), emptyArgs)
 import Types.Env (Env (..))
+import Types.State (WorkerState)
 import Types.State.Oneshot (OneshotCacheFeatures (..))
 
 unitTest ::
@@ -32,6 +36,28 @@ unitTest ::
 unitTest desc t =
   withFrozenCallStack do
     testProperty desc (withTests 1 (property (test t)))
+
+acquireTemp :: FilePath -> IO FilePath
+acquireTemp name = do
+  tmpBase <- getCanonicalTemporaryDirectory
+  createTempDirectory tmpBase name
+
+-- | Use a temp dir for a Tasty test.
+-- We use this instead of @withSystemTempDirectory@ because 'TestT' doesn't have @MonadMask@.
+withTemp :: FilePath -> (IO FilePath -> TestTree) -> TestTree
+withTemp name =
+  withResource (acquireTemp name) removeDirectoryRecursive
+
+-- | Convenience session runner that prints all log messages to stderr afterwards.
+persistentSession :: MVar WorkerState -> [String] -> Ghc a -> TestT IO a
+persistentSession state ghcOptions ma =
+  evalMaybe =<< liftIO (simpleSessionWithDebugLog state (emptyArgs []) {ghcOptions} ma)
+
+-- | Convenience session runner that creates a one-time use @WorkerState@ prints all log messages to stderr afterwards.
+transientSession :: [String] -> Ghc a -> TestT IO a
+transientSession ghcOptions ma = do
+  state <- liftIO $ newState False
+  persistentSession state ghcOptions ma
 
 mkEnv :: IO (Env, IORef TestLog)
 mkEnv = do
