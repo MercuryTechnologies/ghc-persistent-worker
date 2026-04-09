@@ -104,6 +104,7 @@ library
                       file-io,
                       ghc,
                       ghc-boot,
+                      hashable,
                       text,
                       time,
                       transformers,

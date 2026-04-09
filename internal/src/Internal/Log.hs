@@ -6,6 +6,7 @@ import Control.Monad.Catch (MonadCatch, onException)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Fixed (Milli, Pico)
 import Data.Foldable (traverse_)
+import Data.Hashable (hash)
 import Data.Time (diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
 import GHC (Ghc, Severity (SevIgnore), SrcSpan, noSrcSpan)
 import GHC.Driver.Config.Diagnostic (initDiagOpts)
@@ -42,6 +43,7 @@ import System.Directory (createDirectoryIfMissing, doesPathExist)
 import System.FilePath (addExtension, takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
 import System.IO.Error (tryIOError)
+import Text.Printf (printf)
 import Types.Log (Log (..), LogLevel (..), Logger (..), TraceId (..))
 import Types.Target (TargetSpec (..), renderTargetSpec)
 
@@ -133,7 +135,7 @@ writeLogFile traceId target logLines =
       writeFile path ""
     appendFile path (unlines (fst <$> logLines))
   where
-    path = targetIdDir </> addExtension logName "log"
+    path = targetIdDir </> addExtension logName' "log"
 
     targetIdDir | Just (TraceId wtId) <- traceId = logDir </> wtId
                 | otherwise = logDir
@@ -141,6 +143,9 @@ writeLogFile traceId target logLines =
     warn err = dbg ("Failed to write log file for " ++ logName ++ ": " ++ show err)
 
     logName = maybe "global" renderTargetSpec target
+    logName'
+      | length logName > 250 = take 220 logName ++ "_" ++ printf "%.16x" (hash logName)
+      | otherwise = logName
 
 logFlushWith :: (Log -> [(String, LogLevel)] -> IO a) -> MVar Log -> IO a
 logFlushWith use logVar =
