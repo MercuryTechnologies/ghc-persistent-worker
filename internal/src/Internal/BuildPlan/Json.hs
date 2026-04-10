@@ -3,9 +3,12 @@ module Internal.BuildPlan.Json where
 import qualified Data.Aeson as Aeson
 import Data.Coerce (coerce)
 import Data.Map (Map)
+import qualified Data.Map.Merge.Strict as Map
+import Data.Map.Merge.Strict (dropMissing, preserveMissing, zipWithMatched)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Set (Set)
+import GHC.Unit.Module (ModuleName (..), UnitId)
 import qualified System.File.OsPath as OsPath
 import System.OsPath (OsPath)
 import Types.Args (BuildPlanField (..))
@@ -17,8 +20,9 @@ import Types.BuildPlan (
   ModuleKey (..),
   PackageDep (..),
   PackageDeps (..),
+  PackageKey (..),
   )
-import Types.CachedDeps (CachedModule (..), CachedPackageDep (..))
+import Types.CachedDeps (CachedModule (..), CachedPackageDep (..), JsonFs (..))
 
 --- | Modules available for import downstream.
 fieldExposedModules :: Map ModuleKey BuildPlanModule -> [ModuleKey]
@@ -64,27 +68,45 @@ fieldCache =
         packages = [CachedPackageDep {id = dep.id, modules = dep.modules} | dep <- packages]
       }
 
+fieldLegacy ::
+  Map ModuleKey (Map UnitId (PackageKey, [ModuleName])) ->
+  Map ModuleKey BuildPlanModule ->
+  Map ModuleKey BuildPlanModule
+fieldLegacy =
+  Map.merge dropMissing preserveMissing (zipWithMatched combine)
+  where
+    combine _ deps BuildPlanModule {..} = BuildPlanModule {packages = packages ++ toolchainDeps deps, ..}
+
+    toolchainDeps deps =
+      [
+        PackageDep {id = JsonFs unit, name, modules = coerce modules}
+        | (unit, (name, modules)) <- Map.toList deps
+      ]
+
 -- | Create the final payload of the build plan JSON.
 -- Include only the fields selected on the command line by the option @--fields@.
 assembleFields ::
   Set BuildPlanField ->
+  Map ModuleKey (Map UnitId (PackageKey, [ModuleName])) ->
   Map ModuleKey BuildPlanModule ->
   BuildPlanJson
-assembleFields fields modules =
+assembleFields fields toolchainDeps modules =
   BuildPlanJson {
-    legacy = fieldIf FieldLegacy modules,
+    legacy = fieldIf FieldLegacy (fieldLegacy toolchainDeps modules),
     schema = BuildPlanSchema {
       exposed_modules = fieldIf FieldExposedModules (fieldExposedModules modules),
       module_graph = fieldIf FieldModuleGraph (fieldModuleGraph modules),
-      package_deps = fieldIf FieldPackageDeps projectDeps,
+      package_deps = fieldIf FieldPackageDeps (toolchainDepsPayload <> projectDeps),
       project_deps = fieldIf FieldProjectDeps projectDeps,
-      toolchain_deps = Nothing,
+      toolchain_deps = fieldIf FieldToolchainDeps toolchainDepsPayload,
       th_modules = fieldIf FieldThModules (fieldThModules modules),
       cache = fieldIf FieldCache (fieldCache modules)
     }
   }
   where
     projectDeps = fieldPackageDeps modules
+
+    toolchainDepsPayload = coerce (fmap (Map.fromList . Map.elems) toolchainDeps)
 
     fieldIf :: forall a . BuildPlanField -> a -> Maybe a
     fieldIf key value = if Set.member key fields then Just value else Nothing

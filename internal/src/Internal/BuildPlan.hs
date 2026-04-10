@@ -39,15 +39,15 @@ import GHC.Unit.Module (IsBootInterface (..), ModLocation (..), ModuleName (..),
 import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), NodeKey (..), mgModSummaries', msKey)
 import GHC.Unit.Module.ModSummary (ModSummary (..), isBootSummary, msHsFilePath, ms_mod_name, ms_unitid)
 import GHC.Utils.Error (isEmptyMessages)
-import Internal.BuildPlan.External (packageName)
+import Internal.BuildPlan.External (packageName, unitImports)
 import Internal.BuildPlan.Json (assembleFields)
 import System.FilePath (splitExtension)
 import Types.Args (BuildPlanField (..))
 import Types.BuildPlan (
   BuildPlan (..),
   BuildPlanEnv (..),
-  BuildPlanJson (..),
   BuildPlanModule (..),
+  BuildPlanJson (..),
   Dep (..),
   ModuleKey,
   PackageDep (..),
@@ -238,9 +238,15 @@ buildPlanModules ::
   ModuleGraph ->
   IO BuildPlanJson
 buildPlanModules fields hsc_env graph = do
-  assembleFields fields . Map.fromList <$> traverse (buildPlanModule env) modules
+  toolchainDeps <-
+    if includeToolchainDeps
+    then unitImports env (fst <$> modules)
+    else mempty
+  assembleFields fields toolchainDeps . Map.fromList <$> traverse (buildPlanModule env) modules
   where
     (env, modules) = buildPlanEnv hsc_env graph
+
+    includeToolchainDeps = FieldToolchainDeps `elem` fields || FieldPackageDeps `elem` fields
 
 downsweepCompat ::
   HscEnv ->
