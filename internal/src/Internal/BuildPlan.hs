@@ -9,11 +9,8 @@ import GHC.Types.Error (mkUnknownDiagnostic)
 
 #endif
 
-import Control.Applicative ((<|>))
 import Control.Monad (unless)
 import qualified Data.Aeson as Aeson
-import Data.Aeson (ToJSON (..), Value (..), object, (.=))
-import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Either (partitionEithers)
 import Data.Foldable (toList)
 import Data.IORef (newIORef)
@@ -35,7 +32,6 @@ import GHC.Driver.Phases (Phase (Unlit), StopPhase (..), startPhase)
 import GHC.Driver.Pipeline (TPhase (..), mkPipeEnv, runPipeline, use)
 import GHC.Driver.Pipeline.Monad (PipelineOutput (..))
 import GHC.Driver.Session (pgm_F)
-import GHC.Generics (Generic)
 import GHC.Types.Error (unionManyMessages)
 import GHC.Types.SourceError (throwErrors)
 import GHC.Types.Unique.Map (UniqMap, lookupUniqMap)
