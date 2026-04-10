@@ -36,6 +36,7 @@ library
   exposed-modules:
     Types.Args
     Types.BuckArgs
+    Types.BuildPlan
     Types.CachedDeps
     Types.Env
     Types.GhcHandler
