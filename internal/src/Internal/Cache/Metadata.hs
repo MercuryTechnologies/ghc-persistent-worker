@@ -4,6 +4,7 @@
 
 module Internal.Cache.Metadata where
 
+import Control.Applicative ((<|>))
 import Control.Concurrent (MVar, modifyMVar)
 import Control.Concurrent.Async (forConcurrently)
 import Control.Exception (throwIO)
@@ -11,12 +12,12 @@ import Control.Monad (foldM, (>=>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State.Strict (StateT (..), gets, modify, modifyM)
 import Data.Aeson (eitherDecodeFileStrict')
-import Data.Foldable (traverse_)
+import Data.Foldable (fold, traverse_)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust, listToMaybe)
+import Data.Maybe (isJust)
 import Data.Tuple (swap)
 import qualified GHC
-import GHC (DynFlags (..), IsBootInterface (..), ModuleName (..), mkModuleGraph)
+import GHC (DynFlags (..), IsBootInterface (..), mkModuleGraph, ModuleName)
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
 import GHC.Driver.Make (ModNodeKeyWithUid (..))
 import GHC.Driver.Session (updatePlatformConstants)
@@ -26,7 +27,6 @@ import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
 import GHC.Utils.Outputable (ppr, quotes, text, (<+>))
 import Internal.DynFlags (buckLocation, parseFlags, setupPath)
-import Internal.Error (notePpr)
 import Internal.Log (logDebugD, logTimed, logTimedD)
 import Internal.State (updateMakeState)
 import qualified Internal.State.Make as Make
@@ -130,9 +130,8 @@ decodeJsonBuildPlan =
 -- If GHC has fixed module graph nodes, those are constructed; otherwise we have to call 'summariseFile' to create a
 -- full node, which parses the module.
 loadCachedModule :: HscEnv -> UnitId -> JsonFs ModuleName -> CachedModule -> IO ModuleGraphNode
-loadCachedModule hsc_env unit (JsonFs name) CachedModule {sources, modules, packages} = do
-  src <- notePpr "Number of sources /= 1 for module:" name (listToMaybe sources)
-  node <- createNode src
+loadCachedModule hsc_env unit (JsonFs modName) CachedModule {source, modules, packages} = do
+  node <- createNode source modName
   pure (ModuleNode (homeDeps ++ packageDeps) node)
   where
     homeDeps =
@@ -151,17 +150,21 @@ loadCachedModule hsc_env unit (JsonFs name) CachedModule {sources, modules, pack
       ]
 
 #if FIXED_NODES
-    createNode src = do
+
+    createNode src name = do
       _ <- addHomeModuleToFinder hsc_env.hsc_FC (DefiniteHomeUnit unit Nothing) name location HsSrcFile
       pure $ ModuleNodeFixed (ModNodeKeyWithUid (GWIB name NotBoot) unit) location
       where
         fopts = initFinderOpts (hsc_dflags hsc_env)
         (basename, extension) = splitExtension src
         location = mkHomeModLocation fopts name (unsafeEncodeUtf basename) (unsafeEncodeUtf extension) HsSrcFile
+
 #else
-    createNode src = do
+
+    createNode src _ = do
       summResult <- summariseFile hsc_env (DefiniteHomeUnit unit Nothing) mempty src Nothing Nothing
       eitherMessages GhcDriverMessage summResult
+
 #endif
 
 -- | Restore non-GHC state from the Buck cache.
@@ -202,14 +205,14 @@ loadCachedUnit ::
   UnitId ->
   (CachedUnit, DynFlags) ->
   StateT WorkerState IO HscEnv
-loadCachedUnit logger hsc_env0 unit (CachedUnit {build_plan, unit_buck_args}, dflags) =
+loadCachedUnit logger hsc_env0 unit (CachedUnit {build_plan, cache, unit_buck_args}, dflags) =
   logTimedD logger (text "Loading cached unit" <+> quotes (ppr unit)) do
     traverse_ loadCachedArgs unit_buck_args
     hsc_env2 <- liftIO do
       (hsc_env1, _) <- addHomeUnitTo hsc_env0 dflags
       pure (hscSetActiveUnitId unit hsc_env1)
     modify (updateMakeState (insertUnitEnv hsc_env2))
-    nodes <- liftIO $ traverse (uncurry (loadCachedModule hsc_env2 unit)) (Map.toList build_plan)
+    nodes <- liftIO $ traverse (uncurry (loadCachedModule hsc_env2 unit)) (Map.toList (fold (cache <|> build_plan)))
     modify (updateMakeState (storeModuleGraph (mkModuleGraph nodes)))
     pure hsc_env2
 

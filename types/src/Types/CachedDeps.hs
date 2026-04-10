@@ -9,7 +9,10 @@ import Data.Aeson (
   ToJSON (..),
   ToJSONKey (..),
   withArray,
+  withObject,
   withText,
+  (.:),
+  (.:?),
   )
 import Data.Coerce (Coercible, coerce)
 import Data.Foldable (toList)
@@ -90,20 +93,47 @@ data CachedPackageDep =
      modules :: [JsonFs ModuleName]
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON, ToJSON)
+  deriving anyclass (ToJSON)
+
+-- Compat instance for the legacy schema that uses @name@.
+instance FromJSON CachedPackageDep where
+  parseJSON =
+    withObject "CachedPackageDep" \ o -> do
+      mb_id <- o .:? "id"
+      mb_name <- o .:? "name"
+      modules <- o .: "modules"
+      case (mb_id, mb_name) of
+        (Just uid, _) -> pure CachedPackageDep {id = uid, modules}
+        (Nothing, Just name) -> pure CachedPackageDep {id = name, modules}
+        (Nothing, Nothing) -> fail "Neither 'id' nor 'name'"
 
 data CachedModule =
   CachedModule {
-    sources :: [FilePath],
+    source :: FilePath,
     modules :: [JsonFs ModuleName],
     packages :: [CachedPackageDep]
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON, ToJSON)
+  deriving anyclass (ToJSON)
+
+-- Compat instance for the legacy schema that uses @sources@.
+instance FromJSON CachedModule where
+  parseJSON =
+    withObject "CachedModule" \ o -> do
+      mb_source <- o .:? "source"
+      mb_sources <- o .:? "sources"
+      modules <- o .: "modules"
+      packages <- o .: "packages"
+      case (mb_source, mb_sources) of
+        (Just source, _) -> pure CachedModule {..}
+        (Nothing, Just (source : _)) -> pure CachedModule {..}
+        (Nothing, Just _) -> fail "No 'source' and 'sources' does not contain exactly one element"
+        (Nothing, Nothing) -> fail "Neither 'source' nor 'sources'"
 
 data CachedUnit =
   CachedUnit {
-    build_plan :: Map (JsonFs ModuleName) CachedModule,
+    build_plan :: Maybe (Map (JsonFs ModuleName) CachedModule),
+    cache :: Maybe (Map (JsonFs ModuleName) CachedModule),
     unit_args :: Maybe FilePath,
     unit_buck_args :: Maybe FilePath,
     dep_units :: Maybe FilePath

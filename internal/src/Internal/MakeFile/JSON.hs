@@ -142,6 +142,7 @@ instance Semigroup PackageDeps where
 
 data Deps =
   Deps {
+    source :: FilePath,
     sources :: Set.Set FilePath,
     modules :: (Set.Set ModuleName, Set.Set ModuleName),
     packages :: PackageDeps,
@@ -154,7 +155,7 @@ data Deps =
 
 data ModuleDeps =
   ModuleDeps {
-    source :: Deps,
+    basic :: Deps,
     boot :: Maybe Deps
   }
   deriving stock (Generic)
@@ -169,11 +170,12 @@ instance ToJson DepJSON where
       | (target, md) <- Map.toList m
     ]
     where
-      module_deps ModuleDeps {source, boot} =
-        JSObject (("boot", maybe JSNull (JSObject . deps) boot) : deps source)
+      module_deps ModuleDeps {basic, boot} =
+        JSObject (("boot", maybe JSNull (JSObject . deps) boot) : deps basic)
 
       deps Deps {packages = PackageDeps packages, ..} =
         [
+          ("source", JSString source),
           ("sources", array sources normalise),
           ("modules", array (fst modules) moduleNameString),
           ("modules-boot", array (snd modules) moduleNameString),
@@ -207,7 +209,7 @@ insertDepJSON target is_boot dep (DepJSON m0) =
   where
     new
       | IsBoot <- is_boot = mempty {boot = Just dep}
-      | otherwise = mempty {source = dep}
+      | otherwise = mempty {basic = dep}
 
 updateDepJSON :: Bool -> Maybe FilePath -> DepNode -> [Dep] -> DepJSON -> DepJSON
 updateDepJSON include_pkgs preprocessor DepNode {..} deps =
@@ -217,6 +219,7 @@ updateDepJSON include_pkgs preprocessor DepNode {..} deps =
 
     node_data =
       mempty {
+        source = dn_src,
         sources = Set.singleton dn_src,
         preprocessor,
         options = dn_options

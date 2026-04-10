@@ -77,10 +77,11 @@ cachedUnit ::
   CachedUnit
 cachedUnit build_plan args depUnits =
   CachedUnit {
-    build_plan,
+    build_plan = Just build_plan,
     unit_args = Just args,
     unit_buck_args = Nothing,
-    dep_units = Just depUnits
+    dep_units = Just depUnits,
+    cache = Nothing
   }
 
 -- | A non-home-unit dependency entry for a module in a unit's build plan cache file.
@@ -95,7 +96,7 @@ cachedPackageDep depMods@(ModuleKey {unit} :| _) =
 cachedModule :: SessionEnv -> UnitKey -> BuildModule -> CachedModule
 cachedModule env unit BuildModule {key, deps} =
   CachedModule {
-    sources = [fp (env.sourceDir </> moduleSourcePath key)],
+    source = fp (env.sourceDir </> moduleSourcePath key),
     modules = jsonFsFromString . moduleName <$> foldMap toList home,
     packages = cachedPackageDep <$> packages
   }
