@@ -6,6 +6,11 @@ license: MIT
 license-file: LICENSE
 build-type: Simple
 
+flag debug
+    description: Compiled with debug mode. Dump all on failure
+    manual: True
+    default: False
+            
 common all
   ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages
   default-language: GHC2021
@@ -56,6 +61,9 @@ library
     grapesy ^>=1.0.1,
     process,
     text
+
+  if (flag(debug))
+      cpp-options: -D__DEBUG__
 
 executable ghc-worker
   import: all

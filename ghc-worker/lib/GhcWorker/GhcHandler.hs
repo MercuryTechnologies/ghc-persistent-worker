@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module GhcWorker.GhcHandler where
 
 import Common.Grpc (GrpcHandler (..))
@@ -23,7 +25,7 @@ import Internal.Debug (debugSocketPath)
 import Internal.Log (newLogger)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (withGhcMakeModule, withGhcMakeSource)
-import Internal.State (ModuleArtifacts (..), dumpState)
+import Internal.State (ModuleArtifacts (..))
 import Prelude hiding (log)
 import Types.Args (Args (..))
 import qualified Types.BuckArgs
@@ -34,6 +36,12 @@ import Types.Grpc (RequestArgs (..))
 import Types.Log (Logger (..), TraceId, newLog)
 import Types.State (WorkerState (..))
 import Types.Target (TargetSpec (..))
+
+#if __DEBUG__
+import Internal.State (dumpState)
+  
+#endif
+
 
 -- | Compile a single module.
 -- Depending on @mode@ this will either use the old EPS-based oneshot-style compilation logic or the HPT-based
@@ -105,9 +113,11 @@ processResult ::
   MVar WorkerState ->
   Either IOError (Int32, Maybe TargetSpec) ->
   IO ([String], Int32)
-processResult hooks logger stateVar result = do
+processResult hooks logger _stateVar result = do
+#if __DEBUG__
   when (exitCode /= 0) do
-    dumpState logger stateVar exception
+    dumpState logger _stateVar _exception
+#endif
   output <- logger.flush
   hooks.compileFinish (hookPayload output)
   pure (output, exitCode)
@@ -117,7 +127,7 @@ processResult hooks logger stateVar result = do
       then Just (target, output, exitCode)
       else Nothing
 
-    ((exitCode, target), exception) = case result of
+    ((exitCode, target), _exception) = case result of
       Right out -> (out, Nothing)
       Left err -> ((1, Nothing), Just ("Exception: " ++ show err))
 
