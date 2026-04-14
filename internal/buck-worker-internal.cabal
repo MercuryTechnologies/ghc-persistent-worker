@@ -69,7 +69,7 @@ library
     exposed-modules:  Internal.AbiHash
                       Internal.BuildPlan
                       Internal.BuildPlan.External
-                      Internal.BuildPlan.Json                      
+                      Internal.BuildPlan.Json
                       Internal.Cache.Hpt
                       Internal.Cache.Metadata
                       Internal.Compile.Make

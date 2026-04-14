@@ -95,7 +95,7 @@ runCompile env mkArgs key = do
   runBuildTask env "compile" (compileTmpDir key) codes \ taskEnv -> do
     let compileEnv = taskEnv {args}
         target = compileTarget key
-    result <- withGhcMakeModule target compileEnv \ _targetSpec -> do
+    result <- withGhcMakeModule False {- not-interpreted -} target compileEnv \ _targetSpec -> do
       modifySession $ hscUpdateFlags \ d -> d {ghcMode = CompManager}
       compileModuleWithDepsInHpt compileEnv.log (TargetModule target)
     pure (isJust result)

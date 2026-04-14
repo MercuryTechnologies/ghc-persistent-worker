@@ -47,7 +47,7 @@ lookupHpt :: HomePackageTable -> ModuleName -> IO (Maybe HomeModInfo)
 lookupHpt = GHC.lookupHpt
 
 addHomeModInfoToHpt :: HscEnv -> ModuleName -> HomeModInfo -> HomePackageTable -> IO HscEnv
-addHomeModInfoToHpt hsc_env _ hmi hpt  = hsc_env <$ GHC.addHomeModInfoToHpt hmi hpt
+addHomeModInfoToHpt hsc_env _modname hmi hpt  = hsc_env <$ GHC.addHomeModInfoToHpt hmi hpt
 
 emptyHomePackageTable :: IO HomePackageTable
 emptyHomePackageTable = GHC.emptyHomePackageTable

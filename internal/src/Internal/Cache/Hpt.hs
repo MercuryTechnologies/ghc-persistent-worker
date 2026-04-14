@@ -11,11 +11,12 @@ import Data.Foldable (toList)
 import Data.Function (on)
 import Data.Functor ((<&>))
 import Data.List.NonEmpty (NonEmpty ((:|)), groupBy)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Time (getCurrentTime)
 import Data.Traversable (for)
 import Data.Tuple (swap)
 import GHC (DynFlags, GhcException (..), ModIface, ModIface_ (..), ModLocation (..), ModuleName, mkModule)
+import GHC.Data.Bag (emptyBag)
 import GHC.Data.Maybe (MaybeErr (..))
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hsc_HPT)
 import GHC.Driver.Main (initModDetails, initWholeCoreBindings)
@@ -24,10 +25,15 @@ import GHC.Iface.Binary (CheckHiWay (..), TraceBinIFace(QuietBinIFace), readBinI
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
 import GHC.Iface.Errors.Types (ReadInterfaceError(..))
 import GHC.Linker.Types (Linkable (..))
+import GHC.Types.Avail (AvailInfo (..))
+import GHC.Types.Name (nameOccName)
+import GHC.Types.Name.Reader (GlobalRdrEltX (..), Parent (NoParent))
+import GHC.Types.Name.Occurrence (mkOccEnv)
 import GHC.Unit (Definite (..), GenUnit (..), UnitId)
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Unit.Module.ModDetails (ModDetails (..))
+import GHC.Unit.Module.ModIface (IfaceTopEnv (..), set_mi_top_env)
 import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
 import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
@@ -129,11 +135,12 @@ loadCachedByteCode hsc_env ifaceFile iface details =
 -- Maybe this could reuse some stuff in @hscRecompStatus@?
 loadCachedDep ::
   Logger ->
+  Bool ->
   ModuleName ->
   HscEnv ->
   FilePath ->
   IO HscEnv
-loadCachedDep log name hsc_env ifaceFile = do
+loadCachedDep log interp name hsc_env ifaceFile = do
   existing <- lookupHpt hpt name
   if isJust existing
   then pure hsc_env
@@ -164,8 +171,16 @@ loadCachedDep log name hsc_env ifaceFile = do
           -- NB: This check is NOT just a sanity check, it is
           -- critical for correctness of recompilation checking
           -- (it lets us tell when -this-unit-id has changed.)
-          | wanted_mod == actual_mod
-                          -> return (Succeeded iface)
+          | wanted_mod == actual_mod && interp ->
+              let es = mi_exports iface
+                  convert (Avail n) = Just (nameOccName n, [GRE {gre_name = n, gre_par = NoParent, gre_lcl = True, gre_imp = emptyBag, gre_info = ()}])
+                  convert (AvailTC _ _) = Nothing
+
+                  exports = mkOccEnv (mapMaybe convert es)
+                  imports = []
+                  rdrs = IfaceTopEnv exports imports
+               in return (Succeeded (set_mi_top_env (Just rdrs) iface))
+          | wanted_mod == actual_mod && not interp -> return (Succeeded iface)
           | otherwise     -> return (Failed err)
           where
             actual_mod = mi_module iface
@@ -198,10 +213,11 @@ hasUnit uid hsc_env =
 -- restore into the HPT here.
 loadCachedDeps ::
   Logger ->
+  Bool ->
   HscEnv ->
   CachedDeps ->
   IO HscEnv
-loadCachedDeps log hsc_env0 (CachedDeps deps) =
+loadCachedDeps log interp hsc_env0 (CachedDeps deps) =
   logTimed log "Loading cached deps" do
     hsc_env1 <- foldM loadDepUnit hsc_env0 byUnit
     pure (hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1)
@@ -216,7 +232,7 @@ loadCachedDeps log hsc_env0 (CachedDeps deps) =
     loadActiveUnit = foldM loadDep
 
     loadDep hsc_env CachedDep {name = JsonFs name, interfaces = iface :| _} =
-      liftIO (loadCachedDep log name hsc_env iface)
+      liftIO (loadCachedDep log interp name hsc_env iface)
 
     byUnit = groupBy (on (==) (.package)) deps
 

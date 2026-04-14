@@ -76,7 +76,8 @@ data BuckArgs =
     mode :: Maybe Mode,
     envKey :: Maybe String,
     closeInput :: Maybe String,
-    closeOutput :: Maybe String
+    closeOutput :: Maybe String,
+    interp :: Bool
   }
   deriving stock (Eq, Show)
 
@@ -108,7 +109,8 @@ emptyBuckArgs env =
     mode = Nothing,
     envKey = Nothing,
     closeInput = Nothing,
-    closeOutput = Nothing
+    closeOutput = Nothing,
+    interp = False
   }
 
 options :: Map String ([String] -> BuckArgs -> Either String ([String], BuckArgs))
@@ -130,7 +132,7 @@ options =
     withArg "--unit" \ z a -> z {unit = Just a},
     withArg "--build-plan" \ z a -> z {buildPlan = Just a},
     withArg "--fields" \ z a -> z {fields = nonEmpty (splitOn "," a)},
-    withArg "--module" \ z a -> z {moduleName = Just a, mode = Just ModeCompile},
+    withArg "--module" \ z a -> z {moduleName = Just a},
     withArg "--ghc-args" \ z a -> z {ghcArgsFile = Just a},
     withArg "--extra-pkg-db" \ z a -> z {ghcDbFile = Just a},
     withArg "--bin-path" \ z a -> z {binPath = a : z.binPath},
@@ -139,6 +141,7 @@ options =
     flag "--worker-multiplexer-custom" \ z -> z {multiplexerCustom = True},
     withArg "--close-input" \z a -> z {closeInput = Just a},
     withArg "--close-output" \z a -> z {closeOutput = Just a},
+    flag "--interp" \ z -> z {interp = True},
     ("-c", \ rest z -> Right (rest, z {mode = Just ModeCompile})),
     ("-M", \ rest z -> Right (rest, z {mode = Just ModeMetadata}))
   ]

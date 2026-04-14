@@ -39,7 +39,7 @@ import Types.Target (TargetSpec (..))
 
 #if __DEBUG__
 import Internal.State (dumpState)
-  
+
 #endif
 
 
@@ -92,8 +92,12 @@ dispatch workerMode hooks env args targetCallback =
     compile = case workerMode of
       WorkerMakeMode
         | Just target <- env.args.moduleTarget -> do
-          env.log.setTarget (TargetModule target)
-          withGhcMakeModule target env (withTarget compileHpt)
+          if args.interp
+          then
+            env.log.setTarget (TargetModuleInterp target)
+          else
+            env.log.setTarget (TargetModule target)
+          withGhcMakeModule args.interp target env (withTarget compileHpt)
         | otherwise ->
           withGhcMakeSource env (withTarget compileHpt . TargetSource)
 

@@ -34,7 +34,14 @@ import GHC.Utils.Outputable (ppr, text, (<+>))
 import GHC.Utils.Panic (panic, pprPanic)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Cache.Hpt (loadCachedDeps, loadHomeUnit)
-import Internal.DynFlags (buckLocation, initDynFlags, instrumentLocation, parseFlags, setupPath)
+import Internal.DynFlags (
+  buckLocation,
+  initDynFlags,
+  instrumentLocation,
+  mkTargetAsInterpreted,
+  parseFlags,
+  setupPath,
+  )
 import Internal.Env (withDebugLog)
 import Internal.Error (handleExceptions)
 import Internal.Log (logDebugD)
@@ -191,23 +198,32 @@ withGhcMakeSource =
 -- from cache if necessary.
 -- Since this mode does not process any new command line arguments, we set the active home unit manually.
 withGhcMakeModule ::
+  Bool ->
   ModuleTarget ->
   Env ->
   (TargetSpec -> Ghc (Maybe a)) ->
   IO (Maybe a)
-withGhcMakeModule target = do
+withGhcMakeModule interp target = do
   withGhc \ env srcs run -> do
     dflags0 <- getSessionDynFlags
     ensureNoArgs srcs
     logDebugD env.log (text "Compiling module target" <+> ppr target)
     withCacheMake env.log env.state do
+
       modifySessionM \ hsc_env0 -> do
-        hsc_env1 <- processArg hsc_env0 (loadHomeUnit env.log env.state dflags0 (moduleUnitId target.mod)) env.args.homeUnit
+        let hsc_env
+              | interp = mkTargetAsInterpreted hsc_env0 target.mod
+              | otherwise = hsc_env0
+
+        hsc_env1 <- processArg hsc_env (loadHomeUnit env.log env.state dflags0 (moduleUnitId target.mod)) env.args.homeUnit
         hsc_env2 <- liftIO $ withMVar env.state \ state -> pure hsc_env1 {hsc_mod_graph = state.make.moduleGraph}
         let hsc_env3 = hscSetActiveUnitId (moduleUnitId target.mod) (hsc_env2)
-        processArg hsc_env3 (loadCachedDeps env.log) env.args.cachedDeps
+        processArg hsc_env3 (loadCachedDeps env.log interp) env.args.cachedDeps
       initializeSessionPlugins
-      run (TargetModule target)
+      let targetSpec
+            | interp = TargetModuleInterp target
+            | otherwise = TargetModule target
+      run targetSpec
   where
     processArg :: HscEnv -> (HscEnv -> a -> IO HscEnv) -> Maybe a -> Ghc HscEnv
     processArg hsc_env f arg = fromMaybe hsc_env <$> traverse (liftIO . f hsc_env) arg
