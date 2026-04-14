@@ -100,6 +100,8 @@ compileModuleWithDepsInEps = \case
     liftIO $ compileFile hsc_env src
   TargetModule _ ->
     liftIO $ throwGhcExceptionIO (CmdLineError "EPS worker does not support target specification as module")
+  TargetModuleInterp _ ->
+    liftIO $ throwGhcExceptionIO (CmdLineError "EPS worker does not support target specification as module")
   TargetUnit unit ->
     liftIO $ throwGhcExceptionIO (PprProgramError "Specified target unit for compile request" (ppr unit))
   TargetUnknown spec ->
