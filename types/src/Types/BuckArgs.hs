@@ -38,6 +38,8 @@ data Mode =
   |
   ModeMetadata
   |
+  ModeEval
+  |
   ModeUnknown String
   deriving stock (Eq, Show)
 
@@ -46,6 +48,7 @@ parseMode = \case
   "compile" -> ModeCompile
   "link" -> ModeLink
   "metadata" -> ModeMetadata
+  "eval" -> ModeEval
   mode -> ModeUnknown mode
 
 data BuckArgs =
@@ -77,7 +80,9 @@ data BuckArgs =
     envKey :: Maybe String,
     closeInput :: Maybe String,
     closeOutput :: Maybe String,
-    interp :: Bool
+    interp :: Bool,
+    expr :: Maybe String,
+    evalTargetName :: Maybe String
   }
   deriving stock (Eq, Show)
 
@@ -110,7 +115,9 @@ emptyBuckArgs env =
     envKey = Nothing,
     closeInput = Nothing,
     closeOutput = Nothing,
-    interp = False
+    interp = False,
+    expr = Nothing,
+    evalTargetName = Nothing
   }
 
 options :: Map String ([String] -> BuckArgs -> Either String ([String], BuckArgs))
@@ -142,6 +149,8 @@ options =
     withArg "--close-input" \z a -> z {closeInput = Just a},
     withArg "--close-output" \z a -> z {closeOutput = Just a},
     flag "--interp" \ z -> z {interp = True},
+    withArg "--expr" \ z a -> z {expr = Just a},
+    withArg "--eval-target-name" \ z a -> z {evalTargetName = Just a},
     ("-c", \ rest z -> Right (rest, z {mode = Just ModeCompile})),
     ("-M", \ rest z -> Right (rest, z {mode = Just ModeMetadata}))
   ]

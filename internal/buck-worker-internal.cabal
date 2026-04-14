@@ -78,6 +78,7 @@ library
                       Internal.DynFlags
                       Internal.Env
                       Internal.Error
+                      Internal.Evaluate
                       Internal.Log
                       Internal.MakeFile
                       Internal.MakeFile.JSON
