@@ -101,7 +101,7 @@ loadCachedByteCode hsc_env ifaceFile iface details =
 
     core_bindings =
       mi_simplified_core iface <&> \ sc ->
-        WholeCoreBindings {wcb_mod_location, wcb_bindings = mi_sc_extra_decls sc, wcb_foreign = mi_sc_foreign sc, ..}
+        WholeCoreBindings {wcb_mod_location, wcb_bindings = mi_sc_extra_decls sc, wcb_foreign = mi_sc_foreign sc, wcb_module = mi_module iface, ..}
 
 #elif defined(MWB)
 
