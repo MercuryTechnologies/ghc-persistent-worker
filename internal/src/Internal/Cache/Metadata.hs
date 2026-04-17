@@ -1,7 +1,5 @@
 {-# LANGUAGE CPP #-}
 
-#define FIXED_NODES (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10))
-
 module Internal.Cache.Metadata where
 
 import Control.Applicative ((<|>))
@@ -45,7 +43,7 @@ import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
 import Types.State.Make (MakeState (..))
 
-#if FIXED_NODES || defined(MWB)
+#if defined(FIXED_NODES) || defined(MWB)
 
 import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
 
@@ -55,7 +53,7 @@ import GHC.Unit.Env (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
 
 #endif
 
-#if FIXED_NODES
+#if defined(FIXED_NODES)
 
 import GHC.Data.OsPath (unsafeEncodeUtf)
 import GHC.Driver.Config.Finder (initFinderOpts)
@@ -149,7 +147,7 @@ loadCachedModule hsc_env unit (JsonFs modName) CachedModule {source, modules, pa
         JsonFs depName <- depModules
       ]
 
-#if FIXED_NODES
+#if defined(FIXED_NODES)
 
     createNode src name = do
       _ <- addHomeModuleToFinder hsc_env.hsc_FC (DefiniteHomeUnit unit Nothing) name location HsSrcFile

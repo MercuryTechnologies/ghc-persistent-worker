@@ -1,10 +1,8 @@
 {-# LANGUAGE CPP #-}
 
-#define FIXED_NODES defined(MWB_2025_10)
-
 module Internal.BuildPlan where
 
-#if FIXED_NODES
+#if defined(FIXED_NODES)
 
 import GHC.Types.Error (mkUnknownDiagnostic)
 
@@ -86,7 +84,7 @@ import GHC.Unit.Module.Graph (isTemplateHaskellOrQQNonBoot)
 
 #endif
 
-#if FIXED_NODES
+#if defined(FIXED_NODES)
 
 import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 
@@ -176,7 +174,7 @@ buildPlanNode ::
   ModuleGraphNode ->
   Maybe (Either (ModSummary, Set NodeKey) (ModSummary, Set NodeKey))
 buildPlanNode hsc_env = \case
-#if FIXED_NODES
+#if defined(FIXED_NODES)
   ModuleNode !node_deps (ModuleNodeCompile node)
 #else
   ModuleNode !node_deps node
@@ -263,7 +261,7 @@ downsweepCompat ::
   Bool ->
   IO ([DriverMessages], ModuleGraph)
 
-#if FIXED_NODES
+#if defined(FIXED_NODES)
 
 downsweepCompat hsc_env summaries _ =
   downsweep hsc_env mkUnknownDiagnostic Nothing summaries

@@ -1,5 +1,5 @@
 {-# LANGUAGE ViewPatterns, CPP, OverloadedStrings, PatternSynonyms #-}
-#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10))
+#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10) || FIXED_NODES)
 
 module Internal.Compile.Make where
 

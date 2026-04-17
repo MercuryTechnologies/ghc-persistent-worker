@@ -4,7 +4,6 @@
 {-# LANGUAGE FieldSelectors #-}
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
-#define FIXED_NODES defined(MWB_2025_10)
 
 -----------------------------------------------------------------------------
 --
@@ -16,7 +15,7 @@
 
 module Internal.MakeFile where
 
-#if FIXED_NODES
+#if defined(FIXED_NODES)
 
 import Data.Either (partitionEithers)
 import GHC.Types.Error (mkUnknownDiagnostic)
@@ -27,7 +26,7 @@ import GHC.Driver.Ppr
 
 #endif
 
-#if FIXED_NODES || defined(MWB)
+#if defined(FIXED_NODES) || defined(MWB)
 
 import GHC.Data.OsPath (unsafeDecodeUtf, unsafeEncodeUtf)
 
@@ -112,7 +111,7 @@ doMkDependHS srcs = do
     doMkDependModuleGraph dflags module_graph
     pure module_graph
     where
-#if FIXED_NODES
+#if defined(FIXED_NODES)
       downsweepCompat hsc_env = downsweep hsc_env mkUnknownDiagnostic Nothing
 #elif defined(DOWNSWEEP_CACHE)
       downsweepCompat hsc_env old_summaries old_graph excl_mods allow_dup_roots =
@@ -238,7 +237,7 @@ buildNodeDepMap hsc_env =
 
     insertNode acc node =
       case node of
-#if FIXED_NODES
+#if defined(FIXED_NODES)
         ModuleNode _ (ModuleNodeCompile info) ->
           Map.insert (mkNodeKey node) (mkDep info) acc
 #else
@@ -288,7 +287,7 @@ processDeps :: DynFlags
 
 processDeps _dflags_ _ _ _ _ _ _ (AcyclicSCC (LinkNode {})) = return ()
 
-#if FIXED_NODES
+#if defined(FIXED_NODES)
 
 processDeps _ _ _ _ _ _ _ (CyclicSCC nodes)
   =     -- There shouldn't be any cycles; report them
@@ -436,7 +435,7 @@ writeDependencies include_pkgs root hdl suffixes node deps =
 
     DepNode {dn_src, dn_obj, dn_hi, dn_boot} = node
 
-#if FIXED_NODES || defined(MWB)
+#if defined(FIXED_NODES) || defined(MWB)
 
     viaOsPath f a = unsafeDecodeUtf (f (unsafeEncodeUtf a))
 
@@ -541,7 +540,7 @@ dumpModCycles logger module_graph
                         $$ pprCycle c $$ blankLine
                      | (n,c) <- [1..] `zip` cycles ]
 
-#if FIXED_NODES
+#if defined(FIXED_NODES)
 
 pprCycle :: [ModuleGraphNode] -> SDoc
 -- Print a cycle, but show only the imports within the cycle

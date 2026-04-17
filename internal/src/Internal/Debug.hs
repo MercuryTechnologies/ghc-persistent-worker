@@ -32,7 +32,7 @@ import GHC.Utils.Outputable (comma, punctuate)
 
 #endif
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+#if defined(FIXED_NODES)
 
 import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 
@@ -97,7 +97,7 @@ pprModuleFull m boot =
   ppr (moduleUnitId m) Outputable.<> ":" Outputable.<> ppr (moduleName m) Outputable.<>
   (if boot == IsBoot then " {-# SOURCE #-}" else "")
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0)
+#if defined(FIXED_NODES)
 
 showModGraph :: ModuleGraph -> SDoc
 showModGraph g =

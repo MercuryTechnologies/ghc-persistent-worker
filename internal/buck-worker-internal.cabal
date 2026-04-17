@@ -29,6 +29,11 @@ flag unit-index
     manual: True
     default: False
 
+flag fixed-nodes
+    description: GHC contains the patch for fixed module graph ndoes
+    manual: True
+    default: False
+
 common all
   ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages
   default-language: GHC2021
@@ -62,6 +67,9 @@ common all
 
   if (flag(unit-index))
       cpp-options: -DUNIT_INDEX
+
+  if (flag(fixed-nodes))
+      cpp-options: -DFIXED_NODES
 
 library
     import: all
