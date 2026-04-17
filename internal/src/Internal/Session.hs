@@ -218,7 +218,7 @@ withGhcMakeModule interp target = do
               | interp == Interpreted = mkTargetAsInterpreted hsc_env0 target.mod
               | otherwise = hsc_env0
 
-        hsc_env2 <- processArg hsc_env1 (loadHomeUnit env.log env.state dflags0 (moduleUnitId target.mod)) env.args.homeUnit
+        hsc_env2 <- processArg hsc_env1 (loadHomeUnit env.log env.state dflags0 env.args.features (moduleUnitId target.mod)) env.args.homeUnit
         hsc_env3 <- liftIO $ withMVar env.state \ state -> pure (hscSetModuleGraph state.make.moduleGraph hsc_env2)
         let hsc_env4 = hscSetActiveUnitId (moduleUnitId target.mod) (hsc_env3)
         processArg hsc_env4 (loadCachedDeps env.log interp) env.args.cachedDeps

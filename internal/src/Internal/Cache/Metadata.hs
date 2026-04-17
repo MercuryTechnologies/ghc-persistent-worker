@@ -39,6 +39,7 @@ import Types.CachedDeps (
   CachedUnit (..),
   JsonFs (..),
   )
+import Types.FeatureFlags (FeatureFlags (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
 import Types.State.Make (MakeState (..))
@@ -62,14 +63,11 @@ import GHC.Unit.Finder (addHomeModuleToFinder, mkHomeModLocation)
 import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 import System.OsPath.Extra (splitExtension, toOsPath)
 
-#else
+#endif
 
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
 import Internal.Error (eitherMessages)
-
-#endif
-
 import System.OsPath.Extra (OsPath, fromOsPath)
 
 -- | Add a fresh 'HomeUnitEnv' to the home unit graph using the supplied unit state and dependencies.
@@ -129,8 +127,8 @@ decodeJsonBuildPlan =
 --
 -- If GHC has fixed module graph nodes, those are constructed; otherwise we have to call 'summariseFile' to create a
 -- full node, which parses the module.
-loadCachedModule :: HscEnv -> UnitId -> JsonFs ModuleName -> CachedModule -> IO ModuleGraphNode
-loadCachedModule hsc_env unit (JsonFs modName) CachedModule {source, modules, packages} = do
+loadCachedModule :: Bool -> HscEnv -> UnitId -> JsonFs ModuleName -> CachedModule -> IO ModuleGraphNode
+loadCachedModule useFixedNodes hsc_env unit (JsonFs modName) CachedModule {source, modules, packages} = do
   node <- createNode source modName
   pure (ModuleNode (moduleNodeEdge <$> (homeDeps ++ packageDeps)) node)
   where
@@ -149,9 +147,15 @@ loadCachedModule hsc_env unit (JsonFs modName) CachedModule {source, modules, pa
         JsonFs depName <- depModules
       ]
 
+    createNode src name
+      | useFixedNodes
+      = createNodeFixed src name
+      | otherwise
+      = createNodeCompile src
+
 #if defined(FIXED_NODES)
 
-    createNode src name = do
+    createNodeFixed src name = do
       _ <- addHomeModuleToFinder hsc_env.hsc_FC (DefiniteHomeUnit unit Nothing) name location HsSrcFile
       pure $ ModuleNodeFixed (ModNodeKeyWithUid (GWIB name NotBoot) unit) location
       where
@@ -159,13 +163,19 @@ loadCachedModule hsc_env unit (JsonFs modName) CachedModule {source, modules, pa
         (basename, extension) = splitExtension src
         location = mkHomeModLocation fopts name (toOsPath basename) (toOsPath extension) HsSrcFile
 
+    createNodeCompile src = ModuleNodeCompile <$> createNodeLegacy src
+
 #else
 
-    createNode src _ = do
-      summResult <- summariseFile hsc_env (DefiniteHomeUnit unit Nothing) mempty (fromOsPath src) Nothing Nothing
-      eitherMessages GhcDriverMessage summResult
+    createNodeFixed src _ = createNodeLegacy src
+
+    createNodeCompile = createNodeLegacy
 
 #endif
+
+    createNodeLegacy src = do
+      summResult <- summariseFile hsc_env (DefiniteHomeUnit unit Nothing) mempty (fromOsPath src) Nothing Nothing
+      eitherMessages GhcDriverMessage summResult
 
 -- | Restore non-GHC state from the Buck cache.
 -- Command line arguments interpreted directly by the worker aren't part of the unit args, but they can yet influence
@@ -201,18 +211,19 @@ readParseGHCArgs hsc_env0 dflags0 args_file = do
 -- the module graph produced by a previous metadata request.
 loadCachedUnit ::
   Logger ->
+  Bool ->
   HscEnv ->
   UnitId ->
   (CachedUnit, DynFlags) ->
   StateT WorkerState IO HscEnv
-loadCachedUnit logger hsc_env0 unit (CachedUnit {build_plan, cache, unit_buck_args}, dflags) =
+loadCachedUnit logger useFixedNodes hsc_env0 unit (CachedUnit {build_plan, cache, unit_buck_args}, dflags) =
   logTimedD logger (text "Loading cached unit" <+> quotes (ppr unit)) do
     traverse_ loadCachedArgs unit_buck_args
     hsc_env2 <- liftIO do
       (hsc_env1, _) <- addHomeUnitTo hsc_env0 dflags
       pure (hscSetActiveUnitId unit hsc_env1)
     modify (updateMakeState (insertUnitEnv hsc_env2))
-    nodes <- liftIO $ traverse (uncurry (loadCachedModule hsc_env2 unit)) (Map.toList (fold (cache <|> build_plan)))
+    nodes <- liftIO $ traverse (uncurry (loadCachedModule useFixedNodes hsc_env2 unit)) (Map.toList (fold (cache <|> build_plan)))
     modify (updateMakeState (storeModuleGraph (mkModuleGraph nodes)))
     pure hsc_env2
 
@@ -227,9 +238,10 @@ loadCachedUnits ::
   MVar WorkerState ->
   DynFlags ->
   CachedBuildPlans ->
+  FeatureFlags ->
   HscEnv ->
   IO HscEnv
-loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 = do
+loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) features hsc_env0 = do
   modifyMVar stateVar \ state -> do
     let hsc_env1 = Make.loadState hsc_env0 state.make
     logTimed logger "Loading cached units" $ fmap swap do
@@ -252,4 +264,4 @@ loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 =
         case mb_cachedUnit_dflags of
           Nothing -> pure hsc_env -- don't we yield error here?
           Just (cachedUnit, dflags) -> do
-            loadCachedUnit logger hsc_env uid (cachedUnit, dflags)
+            loadCachedUnit logger features.fixedNodesCache hsc_env uid (cachedUnit, dflags)

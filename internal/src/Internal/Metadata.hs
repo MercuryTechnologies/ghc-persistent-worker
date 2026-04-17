@@ -150,7 +150,7 @@ computeMetadata env = do
     () <- MaybeT $ runSession env \ _ -> do
       dflags <- getSessionDynFlags
       for_ env.args.cachedBuildPlans \ bp ->
-        withSession (liftIO . loadCachedUnits env.log env.state dflags bp)
+        withSession (liftIO . loadCachedUnits env.log env.state dflags bp env.args.features)
       pure (Just ())
     logTimed env.log "Computing module graph" do
       MaybeT $ runSession env $ withDynFlags env \ dflags srcs -> do

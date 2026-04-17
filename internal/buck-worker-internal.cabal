@@ -72,6 +72,7 @@ library
                       Internal.BuildPlan.Json
                       Internal.Cache.Hpt
                       Internal.Cache.Metadata
+                      Internal.Compat.FixedNodes
                       Internal.Compat.GHC914
                       Internal.Compile.Make
                       Internal.Compile.Oneshot

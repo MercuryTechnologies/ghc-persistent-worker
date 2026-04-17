@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, PatternSynonyms, FieldSelectors #-}
 
 module Internal.BuildPlan where
 
@@ -17,8 +17,7 @@ import GHC.Data.Maybe (mapMaybe)
 import GHC.Driver.Backend (noBackend)
 import GHC.Driver.DynFlags (backend)
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hsc_units)
-import GHC.Driver.Errors.Types (GhcMessage (..), DriverMessages)
-import GHC.Driver.Make (downsweep)
+import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (..))
 import GHC.Driver.Monad (GhcMonad (..), liftIO, withSession)
 import GHC.Driver.Phases (Phase (Unlit), StopPhase (..), startPhase)
 import GHC.Driver.Pipeline (TPhase (..), mkPipeEnv, runPipeline, use)
@@ -27,14 +26,22 @@ import GHC.Driver.Session (pgm_F)
 import GHC.Types.Error (unionManyMessages)
 import GHC.Types.SourceError (throwErrors)
 import GHC.Types.Unique.Map (UniqMap)
-import GHC.Unit (UnitState (..))
+import GHC.Unit (GenWithIsBoot (..), UnitState (..))
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Module (IsBootInterface (..), ModLocation (..), ModuleName (..), UnitId (..))
-import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), NodeKey (..), mgModSummaries', msKey)
+import GHC.Unit.Module.Graph (
+  ModNodeKeyWithUid (..),
+  ModuleGraph,
+  ModuleGraphNode (..),
+  NodeKey (..),
+  mgModSummaries',
+  msKey,
+  )
 import GHC.Unit.Module.ModSummary (ModSummary (..), isBootSummary, msHsFilePath, ms_mod_name, ms_unitid)
 import GHC.Utils.Error (isEmptyMessages)
 import Internal.BuildPlan.External (packageName, unitImports)
 import Internal.BuildPlan.Json (assembleFields)
+import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, deps, downsweepCompat, key, summary)
 import Internal.Compat.GHC914 (edgeTarget)
 import System.FilePath (splitExtension)
 import System.OsPath.Extra (toOsPath)
@@ -42,27 +49,18 @@ import Types.Args (BuildPlanField (..))
 import Types.BuildPlan (
   BuildPlan (..),
   BuildPlanEnv (..),
-  BuildPlanModule (..),
   BuildPlanJson (..),
+  BuildPlanModule (..),
   Dep (..),
   ModuleKey,
   PackageDep (..),
   PackageKey,
   Preprocessor (..),
+  moduleKey,
   packageKey,
   summaryModuleKey,
   )
 import Types.CachedDeps (JsonFs (..))
-
-#if defined(MWB) || MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
-
-import GHC.Unit.Home.Graph (unitEnv_keys)
-
-#else
-
-import GHC.Unit.Env (unitEnv_keys)
-
-#endif
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
@@ -74,20 +72,19 @@ import GHC.Unit.Module.Graph (isTemplateHaskellOrQQNonBoot)
 
 #endif
 
-#if defined(FIXED_NODES)
+#if defined(MWB) || MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
-import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
-import GHC.Types.Error (mkUnknownDiagnostic)
+import GHC.Unit.Home.Graph (unitEnv_keys)
 
 #else
 
-import GHC.Unit.Module.Graph (mkModuleGraph)
-
-#if defined(MWB) || defined(MWB_2025_10)
-
-import GHC.Unit.Module.Graph (mgModSummaries)
+import GHC.Unit.Env (unitEnv_keys)
 
 #endif
+
+#if defined(DOWNSWEEP_CACHE)
+
+import GHC.Unit.Module.Graph (mgModSummaries)
 
 #endif
 
@@ -157,44 +154,107 @@ buildPlanModule env (summary, depKeys) = do
 
     (modules, modulesBoot) = partitionEithers $ Map.elems $ Map.restrictKeys env.homeModules depKeys
 
--- | Extract interesting nodes and tag them 'Left' if they're part of the home unit.
+-- | Classify a module graph node for the build plan.
 --
--- We're only interested in module nodes.
+-- Module graphs contain several different node types.
+-- The build plan's purpose is to provide dependency information between the project's modules to the external build
+-- tool, so we're only interested in nodes that represent modules.
+--
+-- There are two subtypes of module node:
+-- - Compile nodes, which represent modules that are intended to be compiled in a later action.
+--   These contain a 'ModSummary' with the parsed AST and other data required for compilation.
+-- - Fixed nodes, representing modules that are already built.
+--   These only contain a 'ModLocation', through which their interface files may be located while compiling dependents.
+--
+-- Both need to be included in the build plan, since the build tool processes the dependencies of the entire unit even
+-- when only parts of it have changed, and we don't want any inconsistencies between the two builds.
+--
+-- The results of this function are used to construct memory-efficient lookup indexes, which is why the return avoids
+-- new, more expressive types:
+--
+-- - 'Nothing' is a node that's of no use to Buck.
+--   Aside from Backpack and link nodes, these include fixed nodes in the unit for which we're constructing the build
+--   plan, which isn't supported yet.
+-- - 'Left' is a module belonging to the build plan (home) unit, containing the full 'ModSummary'.
+-- - 'Right' is a module from a different unit, which is only required to resolve dependencies from the home unit.
+--   If this module was present as a compile node (i.e. it was built earlier in the same process), it will be in the
+--   shape of a 'ModSummary' as well.
+--   If it was restored from cache as a fixed node, it will only provide its unit ID and module name.
+--   That information is sufficient for the build plan.
+--
+-- In both cases, the return value also comprises the dependencies as a 'Set' of 'NodeKey'.
+--
+-- The data is shaped like it is because it allows 'buildPlanEnv' to partition the entirety of the modules.
 buildPlanNode ::
   HscEnv ->
   ModuleGraphNode ->
-  Maybe (Either (ModSummary, Set NodeKey) (ModSummary, Set NodeKey))
+  Maybe (Either (ModSummary, Set NodeKey) ((ModNodeKeyWithUid, Maybe ModSummary), Set NodeKey))
 buildPlanNode hsc_env = \case
-#if defined(FIXED_NODES)
-  ModuleNode !node_deps (ModuleNodeCompile node)
-#else
-  ModuleNode !node_deps node
-#endif
-    | hscActiveUnitId hsc_env == ms_unitid node
-    -> Just (Left (node, Set.fromList (edgeTarget <$> node_deps)))
+  CompileNode {deps, summary}
+    | hscActiveUnitId hsc_env == ms_unitid summary
+    -> Just (Left (summary, construct deps))
     | otherwise
-    -> Just (Right (node, Set.fromList (edgeTarget <$> node_deps)))
+    -> Just (Right ((msKey summary, Just summary), construct deps))
+  -- TODO check if the later commit handles home unit modules here as well, or determine how it should be done
+  FixedNode {deps, key = key@(ModNodeKeyWithUid _ unit)}
+    | hscActiveUnitId hsc_env /= unit
+    -> Just (Right ((key, Nothing), construct deps))
   _ -> Nothing
+  where
+    construct deps = Set.fromList (edgeTarget <$> deps)
 
-indexWith :: (ModSummary -> a) -> [ModSummary] -> Map NodeKey a
+-- | Convert a list of module metadata to a 'Map' using a value constructor function.
+indexWith ::
+  (ModNodeKeyWithUid -> Maybe ModSummary -> a) ->
+  [(ModNodeKeyWithUid, Maybe ModSummary)] ->
+  Map NodeKey a
 indexWith f =
-  Map.fromList . fmap \ summary -> (NodeKey_Module (msKey summary), f summary)
+  Map.fromList . fmap \ (key, summary) -> (NodeKey_Module key, f key summary)
 
--- | Separate boot modules from regular modules.
+-- | Create a lookup index for all modules in the build plan home unit that allow sharing constructor closures for
+-- memory efficiency.
+-- This is indexed later with the 'NodeKey's from each module's dependency set.
+--
+-- For easier partioning, boot modules are wrapped in 'Right' and regular modules in 'Left'.
+-- If 'indexWith' passes 'Nothing' for the 'ModSummary' argument to the callback, we're dealing with a fixed node.
 localIndex :: [ModSummary] -> Map NodeKey (Either (ModuleKey, JsonFs ModuleName) (ModuleKey, JsonFs ModuleName))
 localIndex =
-  indexWith \ summary -> decide summary (summaryModuleKey summary, JsonFs (ms_mod_name summary))
+  indexWith classifyFixedAndBoot
+  .
+  fmap \ summary -> (msKey summary, Just summary)
   where
-    decide summary = if isBoot summary then Right else Left
+    classifyFixedAndBoot ::
+      ModNodeKeyWithUid ->
+      Maybe ModSummary ->
+      Either (ModuleKey, JsonFs ModuleName) (ModuleKey, JsonFs ModuleName)
+    classifyFixedAndBoot (ModNodeKeyWithUid GWIB {gwib_mod} _) = \case
+      Just summary -> classify summary (summaryModuleKey summary, JsonFs (ms_mod_name summary))
+      Nothing -> Left (moduleKey gwib_mod, JsonFs gwib_mod)
 
-packageIndex :: [ModSummary] -> Map NodeKey Dep
+    classify summary = if isBoot summary then Right else Left
+
+-- | Create a lookup index for all units in the module graph that allow sharing constructor closures for memory
+-- efficiency.
+packageIndex :: [(ModNodeKeyWithUid, Maybe ModSummary)] -> Map NodeKey Dep
 packageIndex =
-  indexWith \ summary ->
-    Dep {
-      name = ms_mod_name summary,
-      unit = ms_unitid summary
-    }
+  indexWith \ (ModNodeKeyWithUid (GWIB {gwib_mod = name}) unit) _ -> Dep {name, unit}
 
+-- | Precompute lookup indexes and module metadata for the build plan.
+--
+-- JSON data structures for a module graph with thousands of modules and tens of thousands of dependencies can cause
+-- significant memory overhead when each dependency allocates a fresh constructor closure, or even a string, if that
+-- dependency is present in many modules.
+--
+-- To mitigate this, we create indexes of the data structures that are most commonly shared, like 'ModuleKey' and
+-- 'PackageKey', so that they can be looked up and reused rather than recreated from the GHC types in 'ModuleGraph'.
+--
+-- The data for each module is constructed in 'buildPlanNode', which is then fed into 'localIndex' and 'packageIndex' to
+-- create the lookup indexes.
+-- In 'buildPlanModule', these indexes are then queried to replace the 'NodeKey' values from the 'ModuleGraph' with
+-- those shared closures.
+--
+-- Aside from the 'BuildPlanEnv', this also returns the full set of nodes belonging to the home unit, as 'ModSummary'
+-- and set of dependency 'NodeKey's.
 buildPlanEnv ::
   HscEnv ->
   ModuleGraph ->
@@ -223,6 +283,9 @@ buildPlanEnv hsc_env graph =
       | otherwise
       = Preprocessor Nothing
 
+-- | Compute lookup indexes for a module graph and construct a JSON build plan payload for an external build tool for
+-- all modules in the active home unit.
+-- Look up all imports of modules that aren't present in the graph in the external package databases.
 buildPlanModules ::
   (GhcMonad m) =>
   Set BuildPlanField ->
@@ -243,31 +306,6 @@ buildPlanModules fields hsc_env graph = do
     (env, modules) = buildPlanEnv hsc_env graph
 
     includeToolchainDeps = FieldToolchainDeps `elem` fields || FieldPackageDeps `elem` fields
-
-downsweepCompat ::
-  HscEnv ->
-  [ModSummary] ->
-  Maybe ModuleGraph ->
-  [ModuleName] ->
-  Bool ->
-  IO ([DriverMessages], ModuleGraph)
-
-#if defined(FIXED_NODES)
-
-downsweepCompat hsc_env summaries _ =
-  downsweep hsc_env mkUnknownDiagnostic Nothing summaries
-
-#elif defined(MWB)
-
-downsweepCompat hsc_env summaries cache excl dup =
-  fmap mkModuleGraph <$> downsweep hsc_env summaries cache excl dup
-
-#else
-
-downsweepCompat hsc_env summaries _ excl dup =
-  fmap mkModuleGraph <$> downsweep hsc_env summaries excl dup
-
-#endif
 
 downsweepWithCache :: HscEnv -> IO ([DriverMessages], ModuleGraph)
 

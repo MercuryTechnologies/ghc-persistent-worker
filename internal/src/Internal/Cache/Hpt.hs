@@ -44,6 +44,7 @@ import Internal.UnitEnv (addHomeModInfoToHpt, lookupHpt, unitEnv_member)
 import Prelude hiding (log)
 import Types.BuckArgs (IsInterpreted (Compiled, Interpreted), decodeJsonArg)
 import Types.CachedDeps (CachedDep (..), CachedDeps (..), CachedUnit (..), JsonFs (..))
+import Types.FeatureFlags (FeatureFlags (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState)
 import System.OsPath.Extra (OsPath, fromOsPath)
@@ -253,11 +254,12 @@ loadHomeUnit ::
   Logger ->
   MVar WorkerState ->
   DynFlags ->
+  FeatureFlags ->
   UnitId ->
   HscEnv ->
   OsPath ->
   IO HscEnv
-loadHomeUnit log stateVar dflags0 unit hsc_env0 path
+loadHomeUnit log stateVar dflags0 features unit hsc_env0 path
   | hasUnit unit hsc_env0
   = pure hsc_env0
   | otherwise
@@ -265,10 +267,10 @@ loadHomeUnit log stateVar dflags0 unit hsc_env0 path
     cachedUnit@CachedUnit {unit_args} <- decodeJsonArg "--home-unit" path
     hsc_env1 <- fmap (fromMaybe hsc_env0) $ for cachedUnit.dep_units \ file -> do
       deps <- decodeJsonArg "--home-unit" file
-      loadCachedUnits log stateVar dflags0 deps hsc_env0
+      loadCachedUnits log stateVar dflags0 deps features hsc_env0
     dflags <- maybe (pure dflags0) (readParseGHCArgs hsc_env1 dflags0) unit_args
 
     modifyMVar stateVar $
       logTimed log "Loading cached home unit" .
       fmap swap .
-      runStateT (loadCachedUnit log hsc_env1 unit (cachedUnit, dflags))
+      runStateT (loadCachedUnit log features.fixedNodesCache hsc_env1 unit (cachedUnit, dflags))

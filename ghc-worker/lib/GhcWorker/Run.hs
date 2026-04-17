@@ -69,12 +69,13 @@ featureFlagsParser =
     (option (flagOption False) (long "disable" <> metavar "FEATURE" <> help "Disable an optional feature"))
     )
   where
-    -- Placeholder for features introduced in following changes
     applyFlags =
       flip foldl' defaultFeatureFlags \ flags -> \case
+        (fixedNodesCache, FeatureFixedNodesCache) -> flags {fixedNodesCache}
 
     flagOption value = do
       flag <- eitherReader \case
+        "fixed-nodes-cache" -> Right FeatureFixedNodesCache
         flag -> Left ("Invalid feature flag: " ++ flag)
       pure (value, flag)
 
