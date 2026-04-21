@@ -19,8 +19,10 @@ import GHC (DynFlags, GhcException (..), ModIface, ModIface_ (..), ModLocation (
 import GHC.Data.Maybe (MaybeErr (..))
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hsc_HPT)
 import GHC.Driver.Main (initModDetails, initWholeCoreBindings)
+import GHC.Driver.Session (targetProfile)
+import GHC.Iface.Binary (CheckHiWay (..), TraceBinIFace(QuietBinIFace), readBinIface)
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
-import GHC.Iface.Load (readIface)
+import GHC.Iface.Errors.Types (ReadInterfaceError(..))
 import GHC.Linker.Types (Linkable (..))
 import GHC.Unit (Definite (..), GenUnit (..), UnitId)
 import GHC.Unit.Env (UnitEnv (..))
@@ -29,7 +31,7 @@ import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
 import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
-import GHC.Utils.Panic (throwGhcExceptionIO)
+import GHC.Utils.Panic (throwGhcExceptionIO, tryMost)
 import Internal.Cache.Metadata (loadCachedUnit, loadCachedUnits, readParseGHCArgs)
 import Internal.Log (logTimed)
 import Internal.UnitEnv (addHomeModInfoToHpt, lookupHpt, unitEnv_member)
@@ -151,7 +153,24 @@ loadCachedDep log name hsc_env ifaceFile = do
 
     -- @readIface@ needs the dflags only for platform/ways, so we don't need the unit dflags
     loadIface =
-      ifaceResult =<< readIface (hsc_dflags hsc_env) (hsc_NC hsc_env) (toModule name) ifaceFile
+      ifaceResult =<< readIface' (hsc_dflags hsc_env) (hsc_NC hsc_env) (toModule name) ifaceFile
+
+    -- NOTE: We use this custom version of readIface to ignore the hi way (i.e. CheckHiWay -> IgnoreHiWay)
+    readIface' dflags name_cache wanted_mod file_path = do
+      let profile = targetProfile dflags
+      res <- tryMost $ readBinIface profile name_cache IgnoreHiWay QuietBinIFace file_path
+      case res of
+        Right iface
+          -- NB: This check is NOT just a sanity check, it is
+          -- critical for correctness of recompilation checking
+          -- (it lets us tell when -this-unit-id has changed.)
+          | wanted_mod == actual_mod
+                          -> return (Succeeded iface)
+          | otherwise     -> return (Failed err)
+          where
+            actual_mod = mi_module iface
+            err = HiModuleNameMismatchWarn file_path wanted_mod actual_mod
+        Left exn -> return (Failed (ExceptionOccurred file_path exn))
 
     ifaceResult = \case
       Succeeded i ->
