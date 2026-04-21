@@ -3,10 +3,7 @@
 
 module Types.BuildPlan where
 
-import Control.Applicative ((<|>))
-import Data.Aeson (ToJSON (..), ToJSONKey, Value (..), object, (.=))
-import qualified Data.Aeson.KeyMap as KeyMap
-import Data.List.NonEmpty (NonEmpty (..))
+import Data.Aeson (ToJSON (..), ToJSONKey, Value (..))
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
