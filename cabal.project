@@ -4,6 +4,7 @@ packages: ./buck-proxy
           ./instrument
           ./internal
           ./proto
+          ./test-common
           ./types
 
 -- For MWB-customized GHC, turn this on.
