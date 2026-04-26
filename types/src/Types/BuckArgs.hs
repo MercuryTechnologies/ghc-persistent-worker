@@ -82,7 +82,8 @@ data BuckArgs =
     closeOutput :: Maybe String,
     interp :: Bool,
     expr :: Maybe String,
-    evalTargetName :: Maybe String
+    evalTargetName :: Maybe String,
+    imports :: [String]
   }
   deriving stock (Eq, Show)
 
@@ -117,7 +118,8 @@ emptyBuckArgs env =
     closeOutput = Nothing,
     interp = False,
     expr = Nothing,
-    evalTargetName = Nothing
+    evalTargetName = Nothing,
+    imports = []
   }
 
 options :: Map String ([String] -> BuckArgs -> Either String ([String], BuckArgs))
@@ -151,6 +153,7 @@ options =
     flag "--interp" \ z -> z {interp = True},
     withArg "--expr" \ z a -> z {expr = Just a},
     withArg "--eval-target-name" \ z a -> z {evalTargetName = Just a},
+    withArg "--import" \ z a -> z {imports = a : z.imports},
     ("-c", \ rest z -> Right (rest, z {mode = Just ModeCompile})),
     ("-M", \ rest z -> Right (rest, z {mode = Just ModeMetadata}))
   ]

@@ -27,13 +27,23 @@ import GHC.Iface.Errors.Types (ReadInterfaceError(..))
 import GHC.Linker.Types (Linkable (..))
 import GHC.Types.Avail (AvailInfo (..))
 import GHC.Types.Name (nameOccName)
-import GHC.Types.Name.Reader (GlobalRdrEltX (..), Parent (NoParent))
+import GHC.Types.Name.Reader (
+  GlobalRdrEltX (..),
+  ImpDeclSpec (..),
+  Parent (NoParent),
+  )
 import GHC.Types.Name.Occurrence (mkOccEnv)
+import GHC.Types.PkgQual (PkgQual (..))
+import GHC.Types.SrcLoc (noSrcSpan)
 import GHC.Unit (Definite (..), GenUnit (..), UnitId)
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Unit.Module.ModDetails (ModDetails (..))
-import GHC.Unit.Module.ModIface (IfaceTopEnv (..), set_mi_top_env)
+import GHC.Unit.Module.ModIface (
+  IfaceImport (..),
+  IfaceTopEnv (..),
+  set_mi_top_env,
+  )
 import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
 import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
