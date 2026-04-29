@@ -78,6 +78,9 @@ library
                       Internal.Compile.Oneshot
                       Internal.Debug
                       Internal.DynFlags
+                      Internal.DynFlags.Options
+                      Internal.DynFlags.Parse
+                      Internal.DynFlags.Update
                       Internal.Env
                       Internal.Error
                       Internal.Log
@@ -99,6 +102,8 @@ library
                       containers,
                       directory,
                       exceptions,
+                      bytestring,
+                      flatparse,
                       filepath,
                       file-io,
                       ghc,
