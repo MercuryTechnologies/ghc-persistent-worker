@@ -28,6 +28,7 @@ import GHC.Unit (Definite (..), GenUnit (..), UnitId)
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Unit.Module.ModDetails (ModDetails (..))
+import GHC.Unit.Module.ModIface (set_mi_extra_decls)
 import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
 import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
@@ -141,9 +142,10 @@ loadCachedDep log name hsc_env ifaceFile = do
   where
     loadHmi = do
       logTimed log ("Loading HPT module from cache: " ++ ifaceFile) do
-        hm_iface <- loadIface
-        hm_details <- initModDetails hsc_env hm_iface
-        homeMod_bytecode <- loadCachedByteCode hsc_env ifaceFile hm_iface hm_details
+        hm_iface0 <- loadIface
+        hm_details <- initModDetails hsc_env hm_iface0
+        homeMod_bytecode <- loadCachedByteCode hsc_env ifaceFile hm_iface0 hm_details
+        let hm_iface = set_mi_extra_decls Nothing hm_iface0
         let new = HomeModInfo {
           hm_iface,
           hm_linkable = HomeModLinkable {homeMod_object = Nothing, homeMod_bytecode},
