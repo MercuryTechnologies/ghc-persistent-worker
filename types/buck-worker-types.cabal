@@ -38,6 +38,7 @@ library
     Types.BuckArgs
     Types.BuildPlan
     Types.CachedDeps
+    Types.Compat.GHC914
     Types.Env
     Types.GhcHandler
     Types.Grpc

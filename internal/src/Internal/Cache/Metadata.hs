@@ -42,6 +42,7 @@ import Types.CachedDeps (
 import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
 import Types.State.Make (MakeState (..))
+import Internal.Compat.GHC914 (moduleNodeEdge)
 
 #if defined(FIXED_NODES) || defined(MWB)
 
@@ -130,7 +131,7 @@ decodeJsonBuildPlan =
 loadCachedModule :: HscEnv -> UnitId -> JsonFs ModuleName -> CachedModule -> IO ModuleGraphNode
 loadCachedModule hsc_env unit (JsonFs modName) CachedModule {source, modules, packages} = do
   node <- createNode source modName
-  pure (ModuleNode (homeDeps ++ packageDeps) node)
+  pure (ModuleNode (moduleNodeEdge <$> (homeDeps ++ packageDeps)) node)
   where
     homeDeps =
       [

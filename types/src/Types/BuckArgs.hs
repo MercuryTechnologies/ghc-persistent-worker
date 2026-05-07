@@ -28,6 +28,7 @@ import Types.Args (
   buildPlanKey,
   parseBuildPlanKey,
   )
+import Types.Compat.GHC914 (sanitizeGhcArgs)
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
 import Types.Target (ModuleTarget (..))
 
@@ -255,7 +256,7 @@ toGhcArgs args = do
     buildPlan,
     fields,
     moduleTarget,
-    ghcOptions = ghcArgs ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
+    ghcOptions = sanitizeGhcArgs ghcArgs ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
     cachedBuildPlans,
     cachedDeps,
     homeUnit = args.homeUnit,

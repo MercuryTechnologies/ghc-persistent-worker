@@ -6,7 +6,6 @@ module Internal.Compile.Make where
 #if RECENT
 
 import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
-import GHC.Unit.Module.Location (pattern ModLocation)
 
 #endif
 
@@ -38,6 +37,7 @@ import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
+import Internal.Compat.GHC914 (hscModuleGraph)
 import Internal.Debug (pprModuleFull)
 import Internal.DynFlags (mkTargetAsInterpreted)
 import Internal.Error (eitherMessages, noteGhc)
@@ -81,7 +81,7 @@ lookupSummary ::
   Module ->
   IO ModSummary
 lookupSummary _logger hsc_env target =
-  check =<< noteGhc notFound (mgLookupModule hsc_env.hsc_mod_graph target)
+  check =<< noteGhc notFound (mgLookupModule (hscModuleGraph hsc_env) target)
   where
     notFound =
       "Could not find ModSummary in the module graph for "

@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB) || defined(MWB_2025_10))
+#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,14,0,0) || defined(MWB) || defined(MWB_2025_10))
 
 module Internal.State.Make where
 
@@ -12,12 +12,13 @@ import Internal.UnitEnv (mergeHugs)
 import Types.Log (Logger)
 import Types.State.Make (MakeState (..))
 
-#if defined(MWB) || defined(MWB_2025_10)
+#if RECENT
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_lookup)
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries', mkModuleGraph, mkNodeKey)
+import Internal.Compat.GHC914 (edgeTarget, moduleNodeEdge)
 
 #else
 
@@ -35,7 +36,11 @@ loadState ::
 loadState hsc_env state =
   restoreUnitIndex state (restoreHug (restoreModuleGraph hsc_env))
   where
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+    restoreModuleGraph e = e {hsc_unit_env = e.hsc_unit_env {ue_module_graph = state.moduleGraph}}
+#else
     restoreModuleGraph e = e {hsc_mod_graph = state.moduleGraph}
+#endif
 
     restoreHug e = e {hsc_unit_env = e.hsc_unit_env {ue_home_unit_graph = state.hug}}
 
@@ -70,7 +75,7 @@ loadStateCompile hsc_env0 state =
 -- There was also some issue with node duplication, which is why this function is so convoluted.
 storeModuleGraph :: ModuleGraph -> MakeState -> MakeState
 storeModuleGraph new state =
-#if defined(MWB) || defined(MWB_2025_10)
+#if RECENT
   state {moduleGraph = merged}
   where
     !merged = merge state.moduleGraph
@@ -79,7 +84,7 @@ storeModuleGraph new state =
       mkModuleGraph (Map.elems (Map.unionWith mergeNodes oldMap newMap))
       where
         mergeNodes = \cases
-          (ModuleNode oldDeps _) (ModuleNode newDeps summ) -> ModuleNode (mergeDeps oldDeps newDeps) summ
+          (ModuleNode oldDeps _) (ModuleNode newDeps summ) -> ModuleNode (moduleNodeEdge <$> (mergeDeps (edgeTarget <$> oldDeps) (edgeTarget <$> newDeps))) summ
           _ newNode -> newNode
 
         mergeDeps oldDeps newDeps = Set.toList (Set.fromList oldDeps <> Set.fromList newDeps)

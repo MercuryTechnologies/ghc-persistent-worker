@@ -34,6 +34,7 @@ import GHC.Utils.Outputable (ppr, text, (<+>))
 import GHC.Utils.Panic (panic, pprPanic)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Cache.Hpt (loadCachedDeps, loadHomeUnit)
+import Internal.Compat.GHC914 (hscSetModuleGraph)
 import Internal.DynFlags (
   buckLocation,
   initDynFlags,
@@ -210,16 +211,16 @@ withGhcMakeModule interp target = do
     ensureNoArgs srcs
     logDebugD env.log (text "Compiling module target" <+> ppr target)
     withCacheMake env.log env.state do
-
+      -- TODO use foldM or something instead
       modifySessionM \ hsc_env0 -> do
-        let hsc_env
+        let hsc_env1
               | interp == Interpreted = mkTargetAsInterpreted hsc_env0 target.mod
               | otherwise = hsc_env0
 
-        hsc_env1 <- processArg hsc_env (loadHomeUnit env.log env.state dflags0 (moduleUnitId target.mod)) env.args.homeUnit
-        hsc_env2 <- liftIO $ withMVar env.state \ state -> pure hsc_env1 {hsc_mod_graph = state.make.moduleGraph}
-        let hsc_env3 = hscSetActiveUnitId (moduleUnitId target.mod) (hsc_env2)
-        processArg hsc_env3 (loadCachedDeps env.log interp) env.args.cachedDeps
+        hsc_env2 <- processArg hsc_env1 (loadHomeUnit env.log env.state dflags0 (moduleUnitId target.mod)) env.args.homeUnit
+        hsc_env3 <- liftIO $ withMVar env.state \ state -> pure (hscSetModuleGraph state.make.moduleGraph hsc_env2)
+        let hsc_env4 = hscSetActiveUnitId (moduleUnitId target.mod) (hsc_env3)
+        processArg hsc_env4 (loadCachedDeps env.log interp) env.args.cachedDeps
       initializeSessionPlugins
       let targetSpec
             | interp == Interpreted = TargetModuleInterp target

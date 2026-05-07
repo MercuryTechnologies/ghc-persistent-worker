@@ -47,6 +47,19 @@ import Control.Concurrent.MVar (newMVar)
 
 #endif
 
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+
+import GHC.Linker.Types (LinkedBreaks (..))
+import GHC.Unit (emptyModuleEnv)
+
+emptyLinkedBreaks :: LinkedBreaks
+emptyLinkedBreaks = LinkedBreaks
+  { breakarray_env = emptyModuleEnv
+  , ccs_env        = emptyModuleEnv
+  }
+
+#endif
+
 restoreLinkerEnv :: LinkerEnv -> LinkerEnv -> (LinkerEnv, LinkerStats)
 restoreLinkerEnv cached session =
   (merged, basicLinkerStats session cached)
@@ -81,6 +94,9 @@ restoreLoaderState cached session =
         -- UniqDFM, depends on the elements in the maps
         pkgs_loaded = plusUDFM cached.pkgs_loaded session.pkgs_loaded,
         temp_sos = session.temp_sos
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+        , linked_breaks = emptyLinkedBreaks
+#endif
       }
 
     (linker_env, linkerStats) = restoreLinkerEnv cached.linker_env session.linker_env
@@ -168,6 +184,9 @@ updateLoaderState cached session = do
         -- UniqDFM, depends on the elements in the maps
         pkgs_loaded = plusUDFM cached.pkgs_loaded session.pkgs_loaded,
         temp_sos = session.temp_sos
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+        , linked_breaks = emptyLinkedBreaks
+#endif
       }
 
     (linker_env, linkerStats) = updateLinkerEnv cached.linker_env session.linker_env

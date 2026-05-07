@@ -68,7 +68,7 @@ common all
   if (flag(unit-index))
       cpp-options: -DUNIT_INDEX
 
-  if (flag(fixed-nodes))
+  if (flag(fixed-nodes) || impl(ghc >= 9.14))
       cpp-options: -DFIXED_NODES
 
 library
@@ -80,6 +80,7 @@ library
                       Internal.BuildPlan.Json
                       Internal.Cache.Hpt
                       Internal.Cache.Metadata
+                      Internal.Compat.GHC914
                       Internal.Compile.Make
                       Internal.Compile.Oneshot
                       Internal.Debug

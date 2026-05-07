@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Internal.BuildPlan.External where
 
 import Control.Monad.Trans.Class (lift)
@@ -23,6 +25,7 @@ import GHC.Unit.Module (ModuleName (..), UnitId (..), unitIdString)
 import GHC.Unit.Module.ModSummary (ModSummary (..))
 import GHC.Utils.Error (mkPlainErrorMsgEnvelope)
 import Language.Haskell.Syntax.ImpExp (IsBootInterface (NotBoot))
+import Internal.Compat.GHC914 (textualImports)
 import Types.BuildPlan (BuildPlanEnv (..), ModuleKey (..), PackageKey (..), summaryModuleKey)
 
 -- | A lookup table for external modules shared across units.
@@ -91,7 +94,7 @@ moduleImports ::
   ModSummary ->
   ImportCheckM (ExternalCache, (ModuleKey, Map UnitId (PackageKey, [ModuleName])))
 moduleImports env cache0 summary = do
-  (cache, ext) <- mapAccumM (moduleImport env) cache0 summary.ms_textual_imps
+  (cache, ext) <- mapAccumM (moduleImport env) cache0 (textualImports <$> summary.ms_textual_imps)
   pure (cache, (summaryModuleKey summary, byUnit ext))
   where
     byUnit ext =

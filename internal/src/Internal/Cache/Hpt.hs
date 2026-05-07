@@ -27,18 +27,19 @@ import GHC.Iface.Errors.Types (ReadInterfaceError(..))
 import GHC.Linker.Types (Linkable (..))
 import GHC.Types.Avail (AvailInfo (..))
 import GHC.Types.Name (nameOccName)
-import GHC.Types.Name.Reader (GlobalRdrEltX (..), Parent (NoParent))
 import GHC.Types.Name.Occurrence (mkOccEnv)
+import GHC.Types.Name.Reader (GlobalRdrEltX (..), Parent (NoParent))
 import GHC.Unit (Definite (..), GenUnit (..), UnitId)
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Unit.Module.ModDetails (ModDetails (..))
-import GHC.Unit.Module.ModIface (IfaceTopEnv (..), set_mi_extra_decls, set_mi_top_env)
+import GHC.Unit.Module.ModIface (IfaceTopEnv (..), set_mi_top_env)
 import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
 import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO, tryMost)
 import Internal.Cache.Metadata (loadCachedUnit, loadCachedUnits, readParseGHCArgs)
+import Internal.Compat.GHC914 (setExtraDecls)
 import Internal.Log (logTimed)
 import Internal.UnitEnv (addHomeModInfoToHpt, lookupHpt, unitEnv_member)
 import Prelude hiding (log)
@@ -61,6 +62,8 @@ import GHC.Unit.Module.ModIface (mi_foreign)
 
 #if RECENT
 
+import GHC.Types.Avail (sortAvails)
+import GHC.Types.Name.Reader (globalRdrEnvElts, gresToAvailInfo)
 import GHC.Unit.Module.ModIface (mi_sc_extra_decls, mi_sc_foreign)
 
 #endif
@@ -151,7 +154,7 @@ loadCachedDep log interp name hsc_env ifaceFile = do
         hm_iface0 <- loadIface
         hm_details <- initModDetails hsc_env hm_iface0
         homeMod_bytecode <- loadCachedByteCode hsc_env ifaceFile hm_iface0 hm_details
-        let hm_iface = set_mi_extra_decls Nothing hm_iface0
+        let hm_iface = setExtraDecls Nothing hm_iface0
         let new = HomeModInfo {
           hm_iface,
           hm_linkable = HomeModLinkable {homeMod_object = Nothing, homeMod_bytecode},
@@ -183,8 +186,13 @@ loadCachedDep log interp name hsc_env ifaceFile = do
 
                   exports = mkOccEnv (mapMaybe convert es)
                   imports = []
-                  rdrs = IfaceTopEnv exports imports
-               in return (Succeeded (set_mi_top_env (Just rdrs) iface))
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+                  -- Unclear if this is equivalent.
+                  rdrs = IfaceTopEnv (sortAvails (gresToAvailInfo (globalRdrEnvElts exports))) imports
+#else
+                  rdrs = Just (IfaceTopEnv exports imports)
+#endif
+               in return (Succeeded (set_mi_top_env rdrs iface))
           | wanted_mod == actual_mod && interp == Compiled -> return (Succeeded iface)
           | otherwise     -> return (Failed err)
           where
