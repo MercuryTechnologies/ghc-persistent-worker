@@ -29,7 +29,6 @@ import Internal.BuildPlan (buildPlanForSources)
 import Internal.BuildPlan.Json (writeBuildPlan)
 import Internal.Cache.Metadata (addHomeUnitTo, loadCachedUnits)
 import Internal.Log (logTimed)
-import Internal.MakeFile (doMkDependHS)
 import Internal.Session (runSession, withDynFlags, withGhcInSession)
 import Internal.State (updateMakeStateVar)
 import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
@@ -55,10 +54,6 @@ ms_opts :: ModSummary -> [String]
 ms_opts _ = []
 
 #endif
-
-legacyMkDepend :: Bool
-legacyMkDepend =
-  False
 
 -- | 'doMkDependHS' needs this to be enabled.
 metadataTempSession :: HscEnv -> HscEnv
@@ -129,15 +124,12 @@ writeMetadata ::
 writeMetadata path fieldSelection srcs = do
   initializeSessionPlugins
   withTempSession metadataTempSession do
-    if legacyMkDepend
-    then doMkDependHS srcs
-    else do
-      hsc_env <- getSession
-      writeLegacyMakefile hsc_env
-      depJson <- resolveDepJson hsc_env path
-      plan <- buildPlanForSources fields srcs
-      liftIO $ writeBuildPlan depJson plan
-      pure plan.graph
+    hsc_env <- getSession
+    writeLegacyMakefile hsc_env
+    depJson <- resolveDepJson hsc_env path
+    plan <- buildPlanForSources fields srcs
+    liftIO $ writeBuildPlan depJson plan
+    pure plan.graph
   where
     fields = Set.fromList (toList (fromMaybe buildPlanAll fieldSelection))
 
