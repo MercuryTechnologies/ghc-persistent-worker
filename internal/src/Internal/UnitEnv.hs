@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE PatternSynonyms #-}
-#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB) || defined(MWB_2025_10))
+#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,14,0,0) || defined(MWB))
 
 module Internal.UnitEnv where
 

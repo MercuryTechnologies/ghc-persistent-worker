@@ -22,7 +22,7 @@ import Test.Tasty (
 -- | Some tests require our GHC patches.
 fullTest :: Bool
 
-#if defined(MWB) || defined(MWB_2025_10)
+#if defined(MWB)
 
 fullTest = True
 

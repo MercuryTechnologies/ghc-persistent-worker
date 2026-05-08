@@ -16,11 +16,6 @@ flag mwb
     manual: True
     default: False
 
-flag mwb-25-10
-    description: use mwb-customized GHC from October 2025
-    manual: True
-    default: False
-
 common all
   ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages
   default-language: GHC2021
@@ -45,9 +40,6 @@ common all
 
   if (flag(mwb))
       cpp-options: -DMWB -DDOWNSWEEP_CACHE -DUNIT_INDEX
-
-  if (flag(mwb-25-10))
-      cpp-options: -DMWB_2025_10
 
 library
   import: all

@@ -1,9 +1,8 @@
 {-# LANGUAGE ViewPatterns, CPP, OverloadedStrings, PatternSynonyms #-}
-#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10) || FIXED_NODES)
 
 module Internal.Compile.Make where
 
-#if RECENT
+#if FIXED_NODES
 
 import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 
@@ -88,7 +87,7 @@ lookupSummary _logger hsc_env target =
       ++
       showPprUnsafe (pprModuleFull target NotBoot)
 
-#if RECENT
+#if FIXED_NODES
     check = \case
       ModuleNodeCompile ms -> pure ms
       ModuleNodeFixed _ ModLocation {ml_hs_file} ->

@@ -43,7 +43,7 @@ import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
 import Types.Target (TargetSpec (..), UnitTarget (..))
 
-#if !defined(MWB) && !defined(MWB_2025_10)
+#if !defined(MWB)
 
 import GHC (ModSummary)
 

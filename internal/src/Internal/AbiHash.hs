@@ -1,5 +1,4 @@
 {-# LANGUAGE CPP #-}
-#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10))
 
 module Internal.AbiHash where
 
@@ -13,7 +12,7 @@ import GHC.Utils.Logger (LogFlags (..), log_default_dump_context)
 import GHC.Utils.Outputable (ppr, renderWithContext)
 import System.FilePath (dropExtension)
 
-#if !RECENT
+#if !MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
 import GHC.Unit.Module.ModIface (mi_final_exts)
 
@@ -32,7 +31,7 @@ showAbiHash HscEnv {hsc_dflags} iface =
   where
     dump dflags = renderWithContext (log_default_dump_context (initLogFlags dflags)) . ppr
 
-#if RECENT
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
     hash = mi_mod_hash iface
 #else
     hash = mi_mod_hash (mi_final_exts iface)

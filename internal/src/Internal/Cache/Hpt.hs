@@ -1,5 +1,4 @@
 {-# LANGUAGE CPP, OverloadedLists, PatternSynonyms #-}
-#define RECENT MIN_VERSION_GLASGOW_HASKELL(9,13,0,0) || defined(MWB_2025_10)
 
 module Internal.Cache.Hpt where
 
@@ -21,9 +20,9 @@ import GHC.Data.Maybe (MaybeErr (..))
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hsc_HPT)
 import GHC.Driver.Main (initModDetails, initWholeCoreBindings)
 import GHC.Driver.Session (targetProfile)
-import GHC.Iface.Binary (CheckHiWay (..), TraceBinIFace(QuietBinIFace), readBinIface)
+import GHC.Iface.Binary (CheckHiWay (..), TraceBinIFace (QuietBinIFace), readBinIface)
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
-import GHC.Iface.Errors.Types (ReadInterfaceError(..))
+import GHC.Iface.Errors.Types (ReadInterfaceError (..))
 import GHC.Linker.Types (Linkable (..))
 import GHC.Types.Avail (AvailInfo (..))
 import GHC.Types.Name (nameOccName)
@@ -48,7 +47,7 @@ import Types.CachedDeps (CachedDep (..), CachedDeps (..), CachedUnit (..), JsonF
 import Types.Log (Logger (..))
 import Types.State (WorkerState)
 
-#if RECENT || defined(MWB)
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0) || defined(MWB)
 
 import GHC.Unit.Module.Location (pattern ModLocation)
 
@@ -60,7 +59,7 @@ import GHC.Unit.Module.ModIface (mi_foreign)
 
 #endif
 
-#if RECENT
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
 import GHC.Types.Avail (sortAvails)
 import GHC.Types.Name.Reader (globalRdrEnvElts, gresToAvailInfo)
@@ -100,7 +99,7 @@ loadCachedByteCode hsc_env ifaceFile iface details =
         ml_hie_file = error "loadCachedByteCode"
       }
 
-#if RECENT
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
     core_bindings =
       mi_simplified_core iface <&> \ sc ->

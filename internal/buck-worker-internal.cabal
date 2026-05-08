@@ -14,11 +14,6 @@ flag mwb
     manual: True
     default: False
 
-flag mwb-25-10
-    description: use mwb-customized GHC from October 2025
-    manual: True
-    default: False
-
 flag downsweep-cache
     description: GHC contains the patch for using an old module graph as a cache for downsweep
     manual: True
@@ -58,9 +53,6 @@ common all
 
   if (flag(mwb))
       cpp-options: -DMWB -DDOWNSWEEP_CACHE -DUNIT_INDEX
-
-  if (flag(mwb-25-10))
-      cpp-options: -DMWB_2025_10
 
   if (flag(downsweep-cache))
       cpp-options: -DDOWNSWEEP_CACHE

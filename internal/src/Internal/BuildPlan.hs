@@ -53,7 +53,7 @@ import Types.BuildPlan (
   )
 import Types.CachedDeps (JsonFs (..))
 
-#if defined(MWB) || defined(MWB_2025_10) || MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+#if defined(MWB) || MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
 import GHC.Unit.Home.Graph (unitEnv_keys)
 
@@ -63,7 +63,7 @@ import GHC.Unit.Env (unitEnv_keys)
 
 #endif
 
-#if defined(MWB_2025_10) || MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
 import GHC.Unit.Module.ModSummary (isTemplateHaskellOrQQNonBoot)
 
@@ -90,7 +90,7 @@ import GHC.Unit.Module.Graph (mgModSummaries)
 
 #endif
 
-#if !defined(MWB) && !defined(MWB_2025_10)
+#if !defined(MWB)
 
 ms_opts :: ModSummary -> [String]
 ms_opts _ = []
