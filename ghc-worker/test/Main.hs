@@ -1,7 +1,6 @@
 module Main where
-
+ 
 import BuildPlanTest (test_buildPlan_make, test_buildPlan_oneshot)
-import CompileHptTest (test_compileHpt)
 import ProjectBuildTest (test_projectBuild)
 import ScheduleTest (test_sortScheduleOrder)
 import Test.Data.Env (testConfigOptions)

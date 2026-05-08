@@ -58,7 +58,6 @@ library
     Test.Scheduler
     Test.Source
     Test.Target
-    TestSetup
   build-depends:
     aeson,
     async,
