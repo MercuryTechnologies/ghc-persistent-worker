@@ -19,7 +19,7 @@ import Types.Log (Log, Logger (..), TraceId (..), newLog)
 envFromArgs :: [String] -> IO (Env, MVar Log)
 envFromArgs argv = do
   buckArgs <- either parseError pure (parseBuckArgs (CommandEnv []) (RequestArgs argv))
-  args <- toGhcArgs buckArgs
+  args <- toGhcArgs buckArgs Nothing
   state <- newState False
   log <- newLog (TraceId . show <$> args.unit)
   pure (Env {log = newLogger log, state, args}, log)

@@ -40,6 +40,7 @@ library
     Types.CachedDeps
     Types.Compat.GHC914
     Types.Env
+    Types.FeatureFlags
     Types.GhcHandler
     Types.Grpc
     Types.Instrument

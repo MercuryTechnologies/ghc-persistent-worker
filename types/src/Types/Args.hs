@@ -12,6 +12,7 @@ import GHC.Unit (UnitId)
 import GHC.Utils.Outputable (showPprUnsafe)
 import System.OsPath.Extra (OsPath, toOsPath)
 import Types.CachedDeps (CachedBuildPlans, CachedDeps)
+import Types.FeatureFlags (FeatureFlags, defaultFeatureFlags)
 import Types.Target (ModuleTarget)
 
 newtype TargetId = TargetId {string :: String}
@@ -98,7 +99,8 @@ data Args =
     cachedBuildPlans :: Maybe CachedBuildPlans,
     cachedDeps :: Maybe CachedDeps,
     homeUnit :: Maybe OsPath,
-    isBinary :: Bool
+    isBinary :: Bool,
+    features :: FeatureFlags
   }
   deriving stock (Eq, Show)
 
@@ -117,5 +119,6 @@ emptyArgs env =
     cachedBuildPlans = Nothing,
     cachedDeps = Nothing,
     homeUnit = Nothing,
-    isBinary = False
+    isBinary = False,
+    features = defaultFeatureFlags
   }
