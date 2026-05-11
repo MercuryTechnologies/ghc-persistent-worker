@@ -1,10 +1,11 @@
+{-# LANGUAGE ApplicativeDo #-}
+
 module GhcWorker.Run where
 
 import BuckWorkerProto (Instrument, Worker)
 import Common.Grpc (GrpcHandler (..), fromGrpcHandler)
 import Control.Concurrent (MVar, newChan, newMVar)
 import Control.Concurrent.Chan (Chan)
-import Control.Exception (throwIO)
 import Data.Functor (void)
 import GhcWorker.GhcHandler (ghcHandler)
 import GhcWorker.Grpc (instrumentMethods)
@@ -13,6 +14,22 @@ import GhcWorker.Orchestration (CreateMethods (..), FeatureInstrument (..), runC
 import Internal.State (newStateWith)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
 import Network.GRPC.Server.StreamType (Methods)
+import Options.Applicative (
+  Parser,
+  ParserInfo,
+  execParser,
+  fullDesc,
+  header,
+  help,
+  helper,
+  info,
+  long,
+  metavar,
+  progDesc,
+  strOption,
+  switch,
+  (<**>),
+  )
 import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (CommandEnv, RequestArgs)
 import Types.Instrument (Event)
@@ -35,23 +52,16 @@ data CliOptions =
   }
   deriving stock (Eq, Show)
 
-defaultCliOptions :: CliOptions
-defaultCliOptions =
-  CliOptions {
-    workerMode = WorkerMakeMode,
-    serve = ServerSocketPath "" "" "",
-    instrument = FeatureInstrument False
-  }
+cliOptionsParser :: Parser CliOptions
+cliOptionsParser = do
+  serve <- serverSocketFromPath <$> strOption (long "serve" <> metavar "SOCKET" <> help "Socket path for the GHC server")
+  instrument <- FeatureInstrument <$> switch (long "instrument" <> help "Enable instrumentation")
+  pure CliOptions {workerMode = WorkerMakeMode, ..}
 
-parseOptions :: [String] -> IO CliOptions
-parseOptions =
-  spin defaultCliOptions
-  where
-    spin z = \case
-      [] -> pure z
-      "--serve" : socket : rest -> spin z {serve = serverSocketFromPath socket} rest
-      "--instrument" : rest -> spin z {instrument = FeatureInstrument True} rest
-      arg -> throwIO (userError ("Invalid worker CLI args: " ++ unwords arg))
+cliOptionsParserInfo :: ParserInfo CliOptions
+cliOptionsParserInfo =
+  info (cliOptionsParser <**> helper)
+    (fullDesc <> progDesc "GHC persistent worker" <> header "ghc-worker")
 
 -- | Allocate a communication channel for instrumentation events and construct a gRPC server handler that streams said
 -- events to a client.
@@ -99,3 +109,6 @@ runWorker CliOptions {workerMode, serve, instrument} = do
   runCentralGhcSpawned methods instrument serve
   where
     traceId = if null serve.traceId then Nothing else Just (TraceId serve.traceId)
+
+parseCliArgs :: IO CliOptions
+parseCliArgs = execParser cliOptionsParserInfo
