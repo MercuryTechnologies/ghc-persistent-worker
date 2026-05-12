@@ -23,7 +23,7 @@ import qualified GHC
 import GHC (Target)
 import GHC.Data.Maybe (mapMaybe)
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hsc_units)
-import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
+import GHC.Driver.Errors.Types (GhcMessage (..), DriverMessages)
 import GHC.Driver.Make (downsweep)
 import GHC.Driver.Monad (GhcMonad (..), liftIO, withSession)
 import GHC.Driver.Phases (Phase (Unlit), StopPhase (..), startPhase)
@@ -233,16 +233,21 @@ buildPlanEnv hsc_env graph =
       = Preprocessor Nothing
 
 buildPlanModules ::
+  (GhcMonad m) =>
   Set BuildPlanField ->
   HscEnv ->
   ModuleGraph ->
-  IO BuildPlanJson
+  m BuildPlanJson
 buildPlanModules fields hsc_env graph = do
-  toolchainDeps <-
+  etoolchainDeps <-
     if includeToolchainDeps
-    then unitImports env (fst <$> modules)
-    else mempty
-  assembleFields fields toolchainDeps . Map.fromList <$> traverse (buildPlanModule env) modules
+    then liftIO (unitImports env (fst <$> modules))
+    else pure (Right []) -- mempty
+  toolchainDeps <-
+    case etoolchainDeps of
+      Right toolchainDeps -> pure toolchainDeps
+      Left msgs -> throwErrors (fmap GhcDriverMessage msgs)
+  assembleFields fields toolchainDeps . Map.fromList <$> liftIO (traverse (buildPlanModule env) modules)
   where
     (env, modules) = buildPlanEnv hsc_env graph
 
@@ -297,8 +302,8 @@ buildPlanForTargets fields targets = do
   (errs, graph) <- withSession (liftIO . downsweepWithCache)
   let msgs = unionManyMessages errs
   unless (isEmptyMessages msgs) $ throwErrors (fmap GhcDriverMessage msgs)
-  hsc_env <- getSession
-  json <- liftIO $ buildPlanModules fields hsc_env graph
+  hsc_env <- getSession  
+  json <- buildPlanModules fields hsc_env graph
   pure BuildPlan {graph, json}
 
 buildPlanForSources ::
