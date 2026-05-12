@@ -21,24 +21,30 @@ import Data.Set (Set)
 import Data.Traversable (for)
 import qualified GHC
 import GHC (Target)
+import GHC.Data.Graph.Directed (SCC (..))
 import GHC.Data.Maybe (mapMaybe)
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hsc_units)
-import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
-import GHC.Driver.Make (downsweep)
+import GHC.Driver.Errors.Types (DriverMessage (..), GhcMessage (..), DriverMessages)
+import GHC.Driver.Make (downsweep, topSortModuleGraph)
 import GHC.Driver.Monad (GhcMonad (..), liftIO, withSession)
 import GHC.Driver.Phases (Phase (Unlit), StopPhase (..), startPhase)
 import GHC.Driver.Pipeline (TPhase (..), mkPipeEnv, runPipeline, use)
 import GHC.Driver.Pipeline.Monad (PipelineOutput (..))
 import GHC.Driver.Session (pgm_F)
-import GHC.Types.Error (unionManyMessages)
+import GHC.Iface.Errors (cannotFindModule)
+import GHC.Iface.Errors.Types (IfaceMessage (Can'tFindInterface), InterfaceLookingFor (LookingForModule))
+import GHC.Types.Error (Messages, singleMessage, unionManyMessages)
+import GHC.Types.PkgQual (PkgQual (..))
 import GHC.Types.SourceError (throwErrors)
+import GHC.Types.SrcLoc (GenLocated (L), SrcSpan (..))
 import GHC.Types.Unique.Map (UniqMap)
 import GHC.Unit (UnitState (..))
 import GHC.Unit.Env (UnitEnv (..))
+import GHC.Unit.Finder (FindResult (..), findImportedModule)
 import GHC.Unit.Module (IsBootInterface (..), ModLocation (..), ModuleName (..), UnitId (..))
 import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), NodeKey (..), mgModSummaries', msKey)
-import GHC.Unit.Module.ModSummary (ModSummary (..), isBootSummary, msHsFilePath, ms_mod_name, ms_unitid)
-import GHC.Utils.Error (isEmptyMessages)
+import GHC.Unit.Module.ModSummary (ModSummary (..), isBootSummary, msHsFilePath, ms_mod_name, ms_unitid, ms_imps)
+import GHC.Utils.Error (isEmptyMessages, mkPlainErrorMsgEnvelope)
 import Internal.BuildPlan.External (packageName, unitImports)
 import Internal.BuildPlan.Json (assembleFields)
 import System.FilePath (splitExtension)
@@ -287,6 +293,40 @@ downsweepWithCache hsc_env = downsweepCompat hsc_env [] Nothing [] True
 
 #endif
 
+collectDepErrors :: GhcMonad m => HscEnv -> SCC ModuleGraphNode -> m [Messages DriverMessage]
+collectDepErrors hsc_env (AcyclicSCC (ModuleNode _ node)) = do
+  missing_boot_dep_errs <- import_deps IsBoot (ms_srcimps node)
+  missing_not_boot_dep_errs <- import_deps NotBoot (ms_imps node)
+  let all_missing_errors = missing_boot_dep_errs ++ missing_not_boot_dep_errs
+  pure all_missing_errors
+  where
+    import_deps is_boot idecls = concat <$>
+      sequence [
+        liftIO (checkImport hsc_env loc mb_pkg modu is_boot)
+        | (mb_pkg, L loc modu) <- idecls
+        ]
+collectDepErrors _ _ = pure []
+
+-- check a single module import. Failed case only returns non-empty message list.
+checkImport :: HscEnv
+            -> SrcSpan
+            -> PkgQual              -- package qualifier, if any
+            -> ModuleName           -- Imported module
+            -> IsBootInterface      -- Source import
+            -> IO [Messages DriverMessage]
+checkImport hsc_env srcloc pkg imp dep_boot =
+  findImportedModule hsc_env imp pkg >>= \case
+    Found _ _ -> pure []
+    fail_detail ->
+      pure [
+        singleMessage $
+        mkPlainErrorMsgEnvelope srcloc $
+        DriverInterfaceError $
+        Can'tFindInterface (cannotFindModule hsc_env imp fail_detail) $
+        LookingForModule imp dep_boot
+      ]
+
+
 buildPlanForTargets ::
   GhcMonad m =>
   Set BuildPlanField ->
@@ -295,9 +335,11 @@ buildPlanForTargets ::
 buildPlanForTargets fields targets = do
   GHC.setTargets targets
   (errs, graph) <- withSession (liftIO . downsweepWithCache)
-  let msgs = unionManyMessages errs
-  unless (isEmptyMessages msgs) $ throwErrors (fmap GhcDriverMessage msgs)
   hsc_env <- getSession
+  let sorted = topSortModuleGraph False graph Nothing
+  dep_errs <- concat <$> traverse (collectDepErrors hsc_env) sorted
+  let msgs = unionManyMessages (errs ++ dep_errs)
+  unless (isEmptyMessages msgs) $ throwErrors (fmap GhcDriverMessage msgs)
   json <- liftIO $ buildPlanModules fields hsc_env graph
   pure BuildPlan {graph, json}
 
