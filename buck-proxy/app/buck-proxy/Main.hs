@@ -1,14 +1,13 @@
 module Main where
 
+import BuckProxy.Run (parseCliArgs, run)
+import BuckProxy.Util (dbg)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar)
 import Control.Exception (Exception (..), SomeException (..), try)
 import Control.Monad (join, void)
-import BuckProxy.Run (parseOptions, run)
-import BuckProxy.Util (dbg)
-import System.Environment (getArgs)
 import System.Exit (exitSuccess)
 import System.IO (BufferMode (..), hSetBuffering, stderr, stdout)
-import System.Posix.Signals (installHandler, Handler(Catch), sigTERM)
+import System.Posix.Signals (Handler (Catch), installHandler, sigTERM)
 import Types.Orchestration (envServerSocket)
 
 onSigTERM :: MVar (IO ()) -> IO ()
@@ -21,7 +20,7 @@ main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
-  options <- parseOptions =<< getArgs
+  options <- parseCliArgs
   socket <- envServerSocket
   refHandler <- newMVar (pure ())
   void $ installHandler sigTERM (Catch $ onSigTERM refHandler) Nothing

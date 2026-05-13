@@ -5,10 +5,28 @@ import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar, readMVar)
 import Control.Exception (throwIO)
 import Control.Monad (unless)
 import Data.Foldable (for_)
-import Data.Functor ((<&>))
 import Data.Map.Strict qualified as Map
+import Options.Applicative (
+  Parser,
+  ParserInfo,
+  execParser,
+  fullDesc,
+  header,
+  help,
+  helper,
+  info,
+  long,
+  many,
+  metavar,
+  optional,
+  progDesc,
+  strArgument,
+  strOption,
+  switch,
+  (<**>),
+  )
 import System.Process (terminateProcess)
-import Types.Orchestration (ServerSocketPath (..), PrimarySocketName (..))
+import Types.Orchestration (PrimarySocketName (..), ServerSocketPath (..))
 
 
 -- | Global options for the worker, passed when the process is started, in contrast to request options stored in
@@ -29,25 +47,27 @@ data CliOptions =
   }
   deriving stock (Eq, Show)
 
-defaultCliOptions :: CliOptions
-defaultCliOptions =
-  CliOptions {
-    command = Nothing,
-    remain = False,
-    workerSocket = Nothing
-  }
-
-parseOptions :: [String] -> IO CliOptions
-parseOptions =
-  spin defaultCliOptions
+cliOptionsParser :: Parser CliOptions
+cliOptionsParser =
+  build
+    <$> optional (strOption (long "exe" <> metavar "EXE" <> help "Path to the ghc-worker executable"))
+    <*> switch (long "remain" <> help "Don't kill the ghc-worker process after the build")
+    <*> optional (strOption (long "socket-name" <> metavar "NAME" <> help "Override the worker socket name"))
+    <*> many (strArgument (metavar "ARGS..."))
   where
-    spin z = \case
-      [] -> pure z
-      "--exe" : exe : rest -> spin z {command = Just GhcWorkerCommand {exe = WorkerExe exe, args = []}} rest
-      "--remain" : rest -> spin z {remain = True} rest
-      "--socket-name" : workerSocket : rest -> spin z {workerSocket = Just (PrimarySocketName workerSocket)} rest
-      "--" : args -> pure z {command = z.command <&> \ c -> c {args}}
-      arg -> throwIO (userError ("Invalid worker CLI args: " ++ unwords arg))
+    build exe remain workerSocket args =
+      CliOptions {
+        command = exe <&> \ e -> GhcWorkerCommand {exe = WorkerExe e, args},
+        remain,
+        workerSocket = PrimarySocketName <$> workerSocket
+      }
+
+    (<&>) = flip fmap
+
+cliOptionsParserInfo :: ParserInfo CliOptions
+cliOptionsParserInfo =
+  info (cliOptionsParser <**> helper)
+    (fullDesc <> progDesc "Buck2 GHC worker proxy" <> header "buck-proxy")
 
 -- | Main function for starting buck proxy using the provided server socket path and CLI options.
 run ::
@@ -69,3 +89,6 @@ run socket CliOptions {command, remain, workerSocket} refHandler
         for_ wmap \resource ->
           terminateProcess resource.processHandle
     proxyServer refWorkerMap cmd socket workerSocket
+
+parseCliArgs :: IO CliOptions
+parseCliArgs = execParser cliOptionsParserInfo
