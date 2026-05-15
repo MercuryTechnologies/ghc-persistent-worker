@@ -9,11 +9,12 @@ import qualified Data.Set as Set
 import Hedgehog (PropertyT, annotate, diff)
 import System.Directory.OsPath (doesFileExist)
 import System.OsPath (OsPath, osp, (<.>), (</>))
+import System.OsPath.Extra (fromOsPath)
 import Test.Data.BuildSystem (BuildResult (..))
 import Test.Data.Project (InitialProject (..), ModuleKey (..), TaskKey (..), taskModuleKeys)
 import Test.Data.ProjectBuild (ProjectBuild (..), RebuildSet (..), ResumePlan (..))
 import Test.Data.Scheduler (Schedule (..), Task (..), unexpectedFailure)
-import Test.Path (fp, moduleName, moduleOutputBase, showUnit)
+import Test.Path (moduleName, moduleOutputBase, showUnit)
 
 showModuleKey :: ModuleKey -> String
 showModuleKey key =
@@ -53,7 +54,7 @@ assertBuildResult tempDir project BuildResult {failures, succeeded, completed, h
     annotateMissingFiles files =
       unless (null files) do
         annotate "Missing object files:"
-        for_ files (annotate . fp)
+        for_ files (annotate . fromOsPath)
 
     checkObjectFiles =
       concat <$> traverse checkMod (taskModuleKeys succeeded)

@@ -20,8 +20,9 @@ import System.Environment (lookupEnv)
 import System.FilePath ((<.>), (</>))
 import System.IO (hPutStrLn, stderr)
 import System.OsPath (OsPath)
+import System.OsPath.Extra (fromOsPath)
 import System.Process.Typed (proc, runProcess_)
-import Test.Path (extDepModuleName, extDepName, extDepValueName, fp)
+import Test.Path (extDepModuleName, extDepName, extDepValueName)
 
 -- | Write the source file for an external dependency's module.
 --
@@ -111,7 +112,7 @@ createExtDepPackageDbs tempDir extDeps =
       hPutStrLn stderr "$resource_test_ext_deps is unset. Compiling external deps at runtime."
       compileExtDeps
   where
-    fpTempDir = fp tempDir
+    fpTempDir = fromOsPath tempDir
 
     usePrebuiltExtDeps prebuiltDir =
       fmap concat $ for (toList extDeps) \ i -> do

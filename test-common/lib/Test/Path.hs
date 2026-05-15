@@ -2,19 +2,9 @@ module Test.Path where
 
 import Control.Monad.Extra (whenM)
 import System.Directory.OsPath (doesFileExist, removeFile)
-import System.OsPath (OsPath, decodeUtf, osp, unsafeEncodeUtf, (<.>), (</>))
+import System.OsPath (OsPath, osp, (<.>), (</>))
+import System.OsPath.Extra (toOsPath)
 import Test.Data.Project (ModuleKey (..), UnitKey (..))
-
--- * Path Converters
-
-fp :: OsPath -> FilePath
-fp p =
-  either (error . msg) id (decodeUtf p)
-  where
-    msg err = "Decoding path " <> show p <> " failed: " <> show err
-
-osPath :: String -> OsPath
-osPath = unsafeEncodeUtf
 
 -- * Unit Names and Paths
 
@@ -25,7 +15,7 @@ unitName :: UnitKey -> String
 unitName unit = "unit" ++ showUnit unit
 
 unitDir :: UnitKey -> OsPath
-unitDir = osPath . unitName
+unitDir = toOsPath . unitName
 
 unitOutputDir :: UnitKey -> OsPath
 unitOutputDir key = [osp|out|] </> unitDir key
@@ -54,15 +44,15 @@ indexedValueName key i =
 
 moduleOutputBase :: ModuleKey -> OsPath
 moduleOutputBase key =
-  unitOutputDir key.unit </> osPath (moduleName key)
+  unitOutputDir key.unit </> toOsPath (moduleName key)
 
 moduleSourcePath :: ModuleKey -> OsPath
 moduleSourcePath key =
-  unitDir key.unit </> osPath (moduleName key) <.> [osp|hs|]
+  unitDir key.unit </> toOsPath (moduleName key) <.> [osp|hs|]
 
 compileTmpDir :: ModuleKey -> OsPath
 compileTmpDir key =
-  unitDir key.unit </> osPath (moduleName key)
+  unitDir key.unit </> toOsPath (moduleName key)
 
 cachedUnitPath :: UnitKey -> OsPath
 cachedUnitPath unit =

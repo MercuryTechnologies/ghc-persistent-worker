@@ -13,6 +13,7 @@ import GHC.Unit.Types (UnitId (..))
 import Language.Haskell.Syntax.Module.Name (ModuleName (..))
 import System.Directory.OsPath (createDirectoryIfMissing)
 import System.OsPath (OsPath, osp, (<.>), (</>))
+import System.OsPath.Extra (fromOsPath, toOsPath)
 import Test.Build (metadataArgs)
 import Test.Data.Env (SessionEnv (..))
 import Test.Data.Project (
@@ -27,7 +28,7 @@ import Test.Data.Project (
   UnitKey,
   )
 import Test.Data.Scheduler (Schedule (..), Task (..))
-import Test.Path (cachedUnitPath, fp, moduleName, moduleSourcePath, osPath, unitCacheDir, unitName, unitOutputDir)
+import Test.Path (cachedUnitPath, moduleName, moduleSourcePath, unitCacheDir, unitName, unitOutputDir)
 import Types.Args (Args (..))
 import Types.CachedDeps (
   CachedBuildPlan (..),
@@ -49,13 +50,13 @@ writeUnitArgs tempDir ghcOptions unit = do
   pure argsFile
   where
     dir = tempDir </> unitCacheDir unit
-    argsFile = fp (dir </> [osp|unit_args|])
+    argsFile = fromOsPath (dir </> [osp|unit_args|])
 
 cachedBuildPlan :: OsPath -> UnitKey -> CachedBuildPlan
 cachedBuildPlan tempDir d =
   CachedBuildPlan {
     name = jsonFsFromString (unitName d),
-    build_plan = fp (tempDir </> unitCacheDir d </> [osp|cached_unit.json|])
+    build_plan = fromOsPath (tempDir </> unitCacheDir d </> [osp|cached_unit.json|])
   }
 
 -- | Write the build plan index for a unit to a file.
@@ -66,7 +67,7 @@ writeBuildPlans tempDir unit depUnits = do
   Aeson.encodeFile outFile plans
   pure (outFile, plans)
   where
-    outFile = fp (tempDir </> unitCacheDir unit </> [osp|dep_units.json|])
+    outFile = fromOsPath (tempDir </> unitCacheDir unit </> [osp|dep_units.json|])
     plans = CachedBuildPlans (cachedBuildPlan tempDir <$> depUnits)
 
 -- | The full cache dataset describing a unit, used by compile steps to restore unit states in resume builds.
@@ -96,7 +97,7 @@ cachedPackageDep depMods@(ModuleKey {unit} :| _) =
 cachedModule :: SessionEnv -> UnitKey -> BuildModule -> CachedModule
 cachedModule env unit BuildModule {key, deps} =
   CachedModule {
-    source = fp (env.sourceDir </> moduleSourcePath key),
+    source = fromOsPath (env.sourceDir </> moduleSourcePath key),
     modules = jsonFsFromString . moduleName <$> foldMap toList home,
     packages = cachedPackageDep <$> packages
   }
@@ -130,7 +131,7 @@ writeUnitCache env unit = do
   pure buildPlans
   where
     buildPlan = Map.fromList (buildPlanEntry env unit.key <$> unit.modules)
-    outFile = fp (env.tempDir </> cachedUnitPath unit.key)
+    outFile = fromOsPath (env.tempDir </> cachedUnitPath unit.key)
 
 -- | Construct all module-related cache data.
 --
@@ -158,7 +159,7 @@ moduleCache env key deps =
     depKeys = [m | TaskCompile m <- Set.toList deps]
 
     interfacePath dc =
-      fp (env.tempDir </> unitOutputDir dc.unit </> osPath (moduleName dc) <.> [osp|dyn_hi|])
+      fromOsPath (env.tempDir </> unitOutputDir dc.unit </> toOsPath (moduleName dc) <.> [osp|dyn_hi|])
 
 -- | Bundle a build task with its associated cache data for the resume build.
 cacheTask ::
