@@ -5,12 +5,14 @@ module System.OsPath.Extra
   , toOsPath
   , encodeUtf
   , decodeUtf
+  , module OsPathReexport
   ) where
 
 import Control.Exception (Exception, SomeException, throw)
 import Control.Monad.Catch (MonadThrow, throwM)
-import System.OsPath (OsPath)
 import qualified System.OsPath as OsPath (decodeUtf, encodeUtf)
+
+import System.OsPath as OsPathReexport hiding (decodeUtf, encodeUtf)
 
 data OsPathDecodingException = OsPathDecodingException OsPath SomeException
   deriving stock (Show)
