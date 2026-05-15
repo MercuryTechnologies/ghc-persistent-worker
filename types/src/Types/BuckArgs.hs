@@ -17,7 +17,7 @@ import GHC (mkModule, mkModuleName)
 import GHC.Paths (libdir)
 import GHC.Unit (Definite (..), GenUnit (RealUnit), stringToUnitId)
 import System.FilePath (takeDirectory)
-import System.OsPath (OsPath, encodeUtf, encodeFS)
+import System.OsPath (OsPath, encodeUtf)
 import System.OsPath.Extra (fromOsPath, toOsPath)
 import qualified Types.Args
 import Types.Args (
@@ -244,7 +244,7 @@ toGhcArgs args = do
   -- In any case, we default to @libdir@ from @ghc-paths@, which returns the directory in the distribution used by the
   -- GHC that compiled this binary.
   topdir <- (<|> (args.topdir <|> Just libdir)) <$> readPath args.ghcDirFile
-  buildPlan <- traverse encodeFS args.buildPlan
+  buildPlan <- traverse encodeUtf args.buildPlan
   fields <- fmap join <$> traverse (traverse parseField) args.fields
   packageDb <- readPath args.ghcDbFile
   -- When a module name was specified, we don't read any args because we can't use them when picking @ModSummary@ from

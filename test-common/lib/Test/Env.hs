@@ -2,7 +2,7 @@ module Test.Env where
 
 import System.Directory (removeDirectoryRecursive)
 import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
-import System.OsPath (decodeFS, encodeFS)
+import System.OsPath (decodeUtf, encodeUtf)
 import Test.Data.Env (SessionEnv (..), TestEnv (..))
 import Test.Run (mkEnv)
 import Test.Tasty (TestTree, withResource)
@@ -18,9 +18,9 @@ import Types.Args (emptyArgs)
 -- This is discarded and recreated when the second build is started, in 'newResumeSessionEnv'.
 newSessionEnv :: TestEnv -> IO SessionEnv
 newSessionEnv shared@TestEnv {rootDir} = do
-  rootDirFp <- decodeFS rootDir
-  sourceDir <- encodeFS =<< createTempDirectory rootDirFp "src"
-  tempDir <- encodeFS =<< createTempDirectory rootDirFp "tmp"
+  rootDirFp <- decodeUtf rootDir
+  sourceDir <- encodeUtf =<< createTempDirectory rootDirFp "src"
+  tempDir <- encodeUtf =<< createTempDirectory rootDirFp "tmp"
   (env, _) <- mkEnv
   pure SessionEnv {shared, sourceDir, tempDir, env, extDepDbs = [], extDeps = mempty}
 
@@ -36,12 +36,12 @@ newResumeSessionEnv prev = do
 acquireTestEnv :: IO TestEnv
 acquireTestEnv = do
   tmpBase <- getCanonicalTemporaryDirectory
-  rootDir <- encodeFS =<< createTempDirectory tmpBase "project-build-test"
+  rootDir <- encodeUtf =<< createTempDirectory tmpBase "project-build-test"
   pure TestEnv {rootDir, baseArgs = emptyArgs []}
 
 releaseTestEnv :: TestEnv -> IO ()
 releaseTestEnv env = do
-  rootDirFp <- decodeFS env.rootDir
+  rootDirFp <- decodeUtf env.rootDir
   removeDirectoryRecursive rootDirFp
 
 withTestEnv :: (IO TestEnv -> TestTree) -> TestTree
