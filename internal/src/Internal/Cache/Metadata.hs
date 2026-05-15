@@ -56,12 +56,12 @@ import GHC.Unit.Env (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
 
 #if defined(FIXED_NODES)
 
-import GHC.Data.OsPath (unsafeEncodeUtf)
 import GHC.Driver.Config.Finder (initFinderOpts)
 import GHC.Types.SourceFile (HscSource (HsSrcFile))
 import GHC.Unit.Finder (addHomeModuleToFinder, mkHomeModLocation)
 import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 import System.FilePath (splitExtension)
+import System.OsPath.Extra (toOsPath)
 
 #else
 
@@ -156,7 +156,7 @@ loadCachedModule hsc_env unit (JsonFs modName) CachedModule {source, modules, pa
       where
         fopts = initFinderOpts (hsc_dflags hsc_env)
         (basename, extension) = splitExtension src
-        location = mkHomeModLocation fopts name (unsafeEncodeUtf basename) (unsafeEncodeUtf extension) HsSrcFile
+        location = mkHomeModLocation fopts name (toOsPath basename) (toOsPath extension) HsSrcFile
 
 #else
 

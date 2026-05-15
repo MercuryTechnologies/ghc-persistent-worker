@@ -35,7 +35,7 @@ import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
 import Internal.State.Stats (logMemStats)
 import System.Directory (createDirectoryIfMissing)
 import qualified System.File.OsPath as OsPath
-import System.OsPath (OsPath, unsafeEncodeUtf)
+import System.OsPath.Extra (OsPath, toOsPath)
 import Types.Args (Args (..), BuildPlanField, buildPlanAll)
 import Types.BuildPlan (BuildPlan (..))
 import Types.Env (Env (..))
@@ -93,7 +93,7 @@ prepareMetadataSession env dflags = do
 
 resolveDepJson :: HscEnv -> Maybe OsPath -> Ghc OsPath
 resolveDepJson hsc_env path =
-  case (path, unsafeEncodeUtf <$> depJSON hsc_env.hsc_dflags) of
+  case (path, toOsPath <$> depJSON hsc_env.hsc_dflags) of
     (Just new, Just old)
       | new == old -> pure new
       | otherwise -> do
