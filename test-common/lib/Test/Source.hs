@@ -10,7 +10,7 @@ import qualified Data.Text.Lazy as Text
 import Data.Text.Lazy.Encoding (encodeUtf8)
 import System.Directory.OsPath (createDirectoryIfMissing)
 import qualified System.File.OsPath as OsPath
-import System.OsPath (OsPath, (</>))
+import System.OsPath.Extra (OsPath, (</>))
 import Test.Data.Project (ErrorVariant (..), ModuleKey (..))
 import Test.Data.SourceMode (ModuleSource (..), SourceMode (..))
 import Test.Path (

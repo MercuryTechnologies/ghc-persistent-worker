@@ -6,7 +6,7 @@ import Data.Set (Set)
 import Numeric.Natural (Natural)
 import Test.Data.Scheduler (Task (..))
 import Types.CachedDeps (CachedBuildPlans, CachedDeps)
-import System.OsPath (OsPath)
+import System.OsPath.Extra (OsPath)
 
 -- | Error variant for modules that should fail compilation.
 -- The variant determines both the generated source expression and the expected GHC diagnostic code.

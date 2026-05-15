@@ -7,7 +7,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import qualified System.File.OsPath as OsPath
-import System.OsPath (OsPath, osp, (<.>), (</>))
+import System.OsPath.Extra (OsPath, osp, (<.>), (</>))
 import Test.Data.BuildSystem (BuildResult (..), BuildSystem (..))
 import Test.Data.Env (SessionEnv (..))
 import Test.Data.Project (InitialProject (..), ModuleKey (..), ResumeComponent, TaskKey)

@@ -46,7 +46,7 @@ import GHC.Unit.State
 import qualified GHC.Unit.State as GHC
 import Internal.State.UnitIndex.Update (Provider (..), Providers, unitOverrides, updateProviders)
 import Prelude hiding ((<>))
-import System.OsPath (OsPath)
+import System.OsPath.Extra (OsPath)
 import Types.State.Make (MakeState (..))
 
 enableSharedProviders :: Bool

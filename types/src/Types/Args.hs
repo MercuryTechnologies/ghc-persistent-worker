@@ -10,7 +10,7 @@ import Data.Map.Strict ((!?))
 import GHC.Paths (libdir)
 import GHC.Unit (UnitId)
 import GHC.Utils.Outputable (showPprUnsafe)
-import System.OsPath (OsPath)
+import System.OsPath.Extra (OsPath)
 import Types.CachedDeps (CachedBuildPlans, CachedDeps)
 import Types.Target (ModuleTarget)
 

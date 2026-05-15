@@ -3,7 +3,7 @@ module Test.Data.Env where
 import Data.Set (Set)
 import Data.Proxy (Proxy (..))
 import Data.Typeable (Typeable)
-import System.OsPath (OsPath)
+import System.OsPath.Extra (OsPath)
 import Test.Tasty (TestTree, askOption)
 import Test.Tasty.Options (IsOption (..), OptionDescription (..), safeRead)
 import Types.Args (Args)

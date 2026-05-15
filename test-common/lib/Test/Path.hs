@@ -2,8 +2,7 @@ module Test.Path where
 
 import Control.Monad.Extra (whenM)
 import System.Directory.OsPath (doesFileExist, removeFile)
-import System.OsPath (OsPath, osp, (<.>), (</>))
-import System.OsPath.Extra (toOsPath)
+import System.OsPath.Extra (OsPath, osp, toOsPath, (<.>), (</>))
 import Test.Data.Project (ModuleKey (..), UnitKey (..))
 
 -- * Unit Names and Paths

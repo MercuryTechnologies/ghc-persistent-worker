@@ -8,8 +8,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Hedgehog (PropertyT, annotate, diff)
 import System.Directory.OsPath (doesFileExist)
-import System.OsPath (OsPath, osp, (<.>), (</>))
-import System.OsPath.Extra (fromOsPath)
+import System.OsPath.Extra (OsPath, fromOsPath, osp, (<.>), (</>))
 import Test.Data.BuildSystem (BuildResult (..))
 import Test.Data.Project (InitialProject (..), ModuleKey (..), TaskKey (..), taskModuleKeys)
 import Test.Data.ProjectBuild (ProjectBuild (..), RebuildSet (..), ResumePlan (..))

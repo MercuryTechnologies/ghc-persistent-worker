@@ -19,8 +19,7 @@ import System.Directory (createDirectoryIfMissing, doesDirectoryExist)
 import System.Environment (lookupEnv)
 import System.FilePath ((<.>), (</>))
 import System.IO (hPutStrLn, stderr)
-import System.OsPath (OsPath)
-import System.OsPath.Extra (fromOsPath)
+import System.OsPath.Extra (OsPath, decodeUtf)
 import System.Process.Typed (proc, runProcess_)
 import Test.Path (extDepModuleName, extDepName, extDepValueName)
 
@@ -112,8 +111,6 @@ createExtDepPackageDbs tempDir extDeps =
       hPutStrLn stderr "$resource_test_ext_deps is unset. Compiling external deps at runtime."
       compileExtDeps
   where
-    fpTempDir = fromOsPath tempDir
-
     usePrebuiltExtDeps prebuiltDir =
       fmap concat $ for (toList extDeps) \ i -> do
         let name = extDepName i
@@ -127,8 +124,9 @@ createExtDepPackageDbs tempDir extDeps =
       fmap concat $ for (toList extDeps) compileSingleExtDep
 
     compileSingleExtDep i = do
+      fpTempDirPath <- decodeUtf tempDir
       let name = extDepName i
-          pkgDir = fpTempDir </> "extdeps" </> name
+          pkgDir = fpTempDirPath </> "extdeps" </> name
           db = pkgDir </> "package.conf.d"
       writeExtDepSource pkgDir i
       compileExtDep pkgDir i

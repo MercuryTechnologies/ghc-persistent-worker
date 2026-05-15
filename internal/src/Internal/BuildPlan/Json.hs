@@ -10,7 +10,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import GHC.Unit.Module (ModuleName (..), UnitId)
 import qualified System.File.OsPath as OsPath
-import System.OsPath (OsPath)
+import System.OsPath.Extra (OsPath)
 import Types.Args (BuildPlanField (..))
 import Types.BuildPlan (
   BuildPlan (..),

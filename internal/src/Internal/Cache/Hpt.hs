@@ -46,8 +46,7 @@ import Types.BuckArgs (IsInterpreted (Compiled, Interpreted), decodeJsonArg)
 import Types.CachedDeps (CachedDep (..), CachedDeps (..), CachedUnit (..), JsonFs (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState)
-import System.OsPath (OsPath)
-import System.OsPath.Extra (toOsPath)
+import System.OsPath.Extra (OsPath, toOsPath)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0) || defined(MWB)
 

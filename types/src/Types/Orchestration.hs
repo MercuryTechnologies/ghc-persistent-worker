@@ -1,8 +1,7 @@
 module Types.Orchestration where
 
 import System.Environment (getEnv)
-import System.OsPath ((</>), OsPath, splitDirectories, takeDirectory)
-import System.OsPath.Extra (fromOsPath, toOsPath)
+import System.OsPath.Extra ((</>), OsPath, fromOsPath, toOsPath, splitDirectories, takeDirectory)
 import System.OsString (intercalate, split, unsafeFromChar)
 import Types.Args (TargetId (..))
 
