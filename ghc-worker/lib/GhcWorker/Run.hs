@@ -37,6 +37,7 @@ import Types.Log (TraceId (..))
 import Types.Orchestration (ServerSocketPath (..), serverSocketFromPath)
 import Types.State (WorkerState (..))
 import Types.State.Oneshot (OneshotCacheFeatures (..))
+import System.OsPath.Extra (toOsPath)
 
 -- | Global options for the worker, passed when the process is started, in contrast to request options stored in
 -- 'BuckArgs'.
@@ -54,7 +55,7 @@ data CliOptions =
 
 cliOptionsParser :: Parser CliOptions
 cliOptionsParser = do
-  serve <- serverSocketFromPath <$> strOption (long "serve" <> metavar "SOCKET" <> help "Socket path for the GHC server")
+  serve <- serverSocketFromPath . toOsPath <$> strOption (long "serve" <> metavar "SOCKET" <> help "Socket path for the GHC server")
   instrument <- FeatureInstrument <$> switch (long "instrument" <> help "Enable instrumentation")
   pure CliOptions {workerMode = WorkerMakeMode, ..}
 

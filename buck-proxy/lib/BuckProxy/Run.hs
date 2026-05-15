@@ -25,6 +25,7 @@ import Options.Applicative (
   switch,
   (<**>),
   )
+import System.OsPath.Extra (toOsPath)
 import System.Process (terminateProcess)
 import Types.Orchestration (PrimarySocketName (..), ServerSocketPath (..))
 
@@ -59,7 +60,7 @@ cliOptionsParser =
       CliOptions {
         command = exe <&> \ e -> GhcWorkerCommand {exe = WorkerExe e, args},
         remain,
-        workerSocket = PrimarySocketName <$> workerSocket
+        workerSocket = PrimarySocketName . toOsPath <$> workerSocket
       }
 
     (<&>) = flip fmap

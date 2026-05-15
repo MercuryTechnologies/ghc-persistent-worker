@@ -68,6 +68,7 @@ library
     containers,
     deepseq,
     directory,
+    file-io,
     filepath,
     ghc,
     grapesy ^>=1.0.1,
