@@ -51,6 +51,7 @@ library
     Types.State.Oneshot
     Types.State.Stats
     Types.Target
+    System.OsPath.Extra
   build-depends:
     aeson,
     base ==4.*,
