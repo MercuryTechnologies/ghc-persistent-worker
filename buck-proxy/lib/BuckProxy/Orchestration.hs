@@ -134,7 +134,7 @@ proxyServer workerMap command socket workerSocketOverride = do
       NoMoreMethods
     launch = do
       dbg ("Starting buck-proxy on " ++ fromOsPath socket.path)
-      runGrpcServer (fromOsPath socket.path) methods
+      runGrpcServer socket.path methods
 
 
 
@@ -142,7 +142,7 @@ proxyServer workerMap command socket workerSocketOverride = do
 waitForGhcWorker :: ProcessHandle -> PrimarySocketPath -> IO ()
 waitForGhcWorker ph socket = do
   dbg "Waiting for server"
-  waitPoll (fromOsPath socket.path)
+  waitPoll socket.path
   dbg "Server is up"
   exitCode <- getProcessExitCode ph
   when (isJust exitCode) do

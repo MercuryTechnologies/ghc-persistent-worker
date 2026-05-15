@@ -30,6 +30,7 @@ import Proto.Worker (ExecuteCommand'EnvironmentEntry, ExecuteEvent, Worker)
 import Proto.Worker_Fields qualified as Fields
 import System.Exit (ExitCode (..), exitSuccess)
 import System.IO (hPutStrLn, stderr)
+import System.OsPath.Extra (OsPath, fromOsPath)
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
 
 debugRequestArgs :: Bool
@@ -99,16 +100,16 @@ fromGrpcHandler handler =
     (mkNonStreaming (execute handler))
 
 -- | Create a gRPC server config listening on a Unix domain socket.
-grpcServerConfig :: FilePath -> ServerConfig
+grpcServerConfig :: OsPath -> ServerConfig
 grpcServerConfig socketPath =
   ServerConfig
-    { serverInsecure = Just (InsecureUnix socketPath)
+    { serverInsecure = Just (InsecureUnix $ fromOsPath socketPath)
     , serverSecure = Nothing
     }
 
 -- | Run a gRPC server on a Unix domain socket with the given methods.
 runGrpcServer ::
-  FilePath ->
+  OsPath ->
   Methods IO rpcs ->
   IO ()
 runGrpcServer socketPath methods =
@@ -139,7 +140,7 @@ forwardRequest connection req =
 
 -- | Attempt to connect and send a gRPC message to the server at the given socket path.
 -- Retries up to 30 times with 100ms delay (3 seconds total).
-waitPoll :: FilePath -> IO ()
+waitPoll :: OsPath -> IO ()
 waitPoll socketPath =
   check maxRetries
   where
@@ -155,7 +156,7 @@ waitPoll socketPath =
           check (n - 1)
 
     -- The part that throws is in @withConnection@, so this has to be executed every time.
-    connect = sendRequest (ServerUnix socketPath) messageExecute
+    connect = sendRequest (ServerUnix $ fromOsPath socketPath) messageExecute
 
     messageExecute :: Proto ExecuteCommand
     messageExecute = defMessage

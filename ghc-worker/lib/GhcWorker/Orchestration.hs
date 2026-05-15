@@ -59,10 +59,10 @@ runLocalGhc CreateMethods {..} socket minstr = mdo
   instrResource <- for minstr \instrumentSocket -> do
     dbg ("Instrumentation info available on " ++ fromOsPath instrumentSocket.path)
     (resource, instrMethods) <- createInstrumentation (\ ce (RequestArgs args) -> recompile ce (RequestArgs (args ++ ["-fforce-recomp"])))
-    _instrThread <- async $ runGrpcServer (fromOsPath instrumentSocket.path) instrMethods
+    _instrThread <- async $ runGrpcServer instrumentSocket.path instrMethods
     pure resource
   (recompile, methods) <- createGhc instrResource
-  runGrpcServer (fromOsPath socket.path) methods
+  runGrpcServer socket.path methods
 
 -- | Start a gRPC server that runs GHC for client proxies, deleting the discovery file on shutdown.
 runCentralGhc ::
@@ -109,7 +109,7 @@ proxyServer primary socket = do
     launch =
       withProxy primary \ methods -> do
         dbg ("Starting proxy for " ++ fromOsPath primary.path ++ " on " ++ fromOsPath socket.path)
-        runGrpcServer (fromOsPath socket.path) methods
+        runGrpcServer socket.path methods
 
 
 
@@ -117,7 +117,7 @@ proxyServer primary socket = do
 waitForCentralGhc :: ProcessHandle -> PrimarySocketPath -> IO ()
 waitForCentralGhc proc socket = do
   dbg "Waiting for server"
-  waitPoll (fromOsPath socket.path)
+  waitPoll socket.path
   dbg "Server is up"
   exitCode <- getProcessExitCode proc
   when (isJust exitCode) do
@@ -182,7 +182,7 @@ serveOrProxyCentralGhc methods socket = do
     run primaryFile = do
       let primary = PrimarySocketPath socket.path
       thread <- async (runCentralGhc methods primaryFile socket instrumentSocket)
-      waitPoll (fromOsPath primary.path)
+      waitPoll primary.path
       pure (primary, thread)
 
     instrumentSocket = Just (instrumentSocketIn socketDir)
