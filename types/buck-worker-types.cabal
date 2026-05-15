@@ -57,6 +57,7 @@ library
     base ==4.*,
     binary,
     containers,
+    exceptions,
     filepath,
     ghc,
     ghc-paths,

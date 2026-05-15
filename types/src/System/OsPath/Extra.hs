@@ -1,7 +1,16 @@
-module System.OsPath.Extra where
+module System.OsPath.Extra
+  ( OsPathDecodingException (..)
+  , OsPathEncodingException (..)
+  , fromOsPath
+  , toOsPath
+  , encodeUtf
+  , decodeUtf
+  ) where
 
 import Control.Exception (Exception, SomeException, throw)
-import System.OsPath (OsPath, decodeUtf, encodeUtf)
+import Control.Monad.Catch (MonadThrow, throwM)
+import System.OsPath (OsPath)
+import qualified System.OsPath as OsPath (decodeUtf, encodeUtf)
 
 data OsPathDecodingException = OsPathDecodingException OsPath SomeException
   deriving stock (Show)
@@ -16,9 +25,17 @@ instance Exception OsPathEncodingException where
 -- | Like 'decodeUtf' but throws an exception instead of returning an Either
 -- and the exception provides the filepath as context.
 fromOsPath :: OsPath -> String
-fromOsPath p = either (throw . OsPathDecodingException p) id (decodeUtf p)
+fromOsPath = either throw id . decodeUtf
 
 -- | Like 'encodeUtf' but throws an exception instead of returning an Either
 -- and the exception provides the filepath as context.
 toOsPath :: String -> OsPath
-toOsPath p = either (throw . OsPathEncodingException p) id (encodeUtf p)
+toOsPath = either throw id . encodeUtf
+
+-- | Like 'encodeUtf' but provides the filepath in exceptions
+encodeUtf :: MonadThrow m => String -> m OsPath
+encodeUtf p = either (throwM . OsPathEncodingException p) pure (OsPath.encodeUtf p)
+
+-- | Like 'decodeUtf' but provides the filepath in exceptions
+decodeUtf :: MonadThrow m => OsPath -> m String
+decodeUtf p = either (throwM . OsPathDecodingException p) pure (OsPath.decodeUtf p)

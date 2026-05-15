@@ -2,7 +2,7 @@ module Test.Env where
 
 import System.Directory (removeDirectoryRecursive)
 import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
-import System.OsPath (decodeUtf, encodeUtf)
+import System.OsPath.Extra (decodeUtf, encodeUtf)
 import Test.Data.Env (SessionEnv (..), TestEnv (..))
 import Test.Run (mkEnv)
 import Test.Tasty (TestTree, withResource)

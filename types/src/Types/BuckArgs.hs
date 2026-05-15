@@ -17,8 +17,8 @@ import GHC (mkModule, mkModuleName)
 import GHC.Paths (libdir)
 import GHC.Unit (Definite (..), GenUnit (RealUnit), stringToUnitId)
 import System.FilePath (takeDirectory)
-import System.OsPath (OsPath, encodeUtf)
-import System.OsPath.Extra (fromOsPath, toOsPath)
+import System.OsPath (OsPath)
+import System.OsPath.Extra (encodeUtf, fromOsPath, toOsPath)
 import qualified Types.Args
 import Types.Args (
   Args (Args),
