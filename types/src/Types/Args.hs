@@ -97,7 +97,7 @@ data Args =
     ghcOptions :: [String],
     cachedBuildPlans :: Maybe CachedBuildPlans,
     cachedDeps :: Maybe CachedDeps,
-    homeUnit :: Maybe FilePath,
+    homeUnit :: Maybe OsPath,
     isBinary :: Bool
   }
   deriving stock (Eq, Show)

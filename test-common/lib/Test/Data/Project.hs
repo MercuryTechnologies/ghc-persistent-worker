@@ -6,6 +6,7 @@ import Data.Set (Set)
 import Numeric.Natural (Natural)
 import Test.Data.Scheduler (Task (..))
 import Types.CachedDeps (CachedBuildPlans, CachedDeps)
+import System.OsPath (OsPath)
 
 -- | Error variant for modules that should fail compilation.
 -- The variant determines both the generated source expression and the expected GHC diagnostic code.
@@ -132,7 +133,7 @@ data UnitCache =
 data ModuleCache =
   ModuleCache {
     -- | The home unit's build plan and arguments.
-    cachedUnit :: FilePath,
+    cachedUnit :: OsPath,
 
     -- | The interfaces of the dependency closure across the project.
     -- Decoded outside of worker handlers, so no JSON file.

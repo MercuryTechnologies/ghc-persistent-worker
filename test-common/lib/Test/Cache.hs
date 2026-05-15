@@ -142,7 +142,7 @@ moduleCache ::
   SessionEnv ->
   ModuleKey ->
   Set TaskKey ->
-  (FilePath, CachedDeps)
+  (OsPath, CachedDeps)
 moduleCache env key deps =
   (unitPath, CachedDeps (mkCachedDep <$> depKeys))
   where
@@ -153,7 +153,7 @@ moduleCache env key deps =
         interfaces = interfacePath dc :| []
       }
 
-    unitPath = fp (env.tempDir </> cachedUnitPath key.unit)
+    unitPath = env.tempDir </> cachedUnitPath key.unit
 
     depKeys = [m | TaskCompile m <- Set.toList deps]
 
