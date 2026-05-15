@@ -35,6 +35,7 @@ import Proto.Worker (Worker (..))
 
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
+import System.OsPath.Extra (fromOsPath)
 import System.Process (ProcessHandle, getProcessExitCode, spawnProcess)
 import Types.Args (TargetId)
 import Types.BuckArgs (BuckArgs (workerTargetId), parseBuckArgs)
@@ -119,12 +120,12 @@ proxyServer ::
 proxyServer workerMap command socket workerSocketOverride = do
   try launch >>= \case
     Right () ->
-      dbg ("Shutting down buck-proxy on " ++ socket.path)
+      dbg ("Shutting down buck-proxy on " ++ fromOsPath socket.path)
     Left (err :: IOError) -> do
-      dbg ("buck-proxy on" ++ socket.path ++ " crashed" ++ show err)
+      dbg ("buck-proxy on" ++ fromOsPath socket.path ++ " crashed" ++ show err)
       exitFailure
   where
-    (traceId, workerSpecId) = extractTraceIdAndWorkerSpecId socket.path
+    (traceId, workerSpecId) = extractTraceIdAndWorkerSpecId (fromOsPath socket.path)
     workerSocketDefault = PrimarySocketName (traceId ++ "-" ++ workerSpecId)
     methods :: Methods IO (ProtobufMethodsOf Worker)
     methods =
@@ -132,8 +133,8 @@ proxyServer workerMap command socket workerSocketOverride = do
       Method (mkNonStreaming (proxyHandler workerMap command workerSocketDefault workerSocketOverride)) $
       NoMoreMethods
     launch = do
-      dbg ("Starting buck-proxy on " ++ socket.path)
-      runGrpcServer socket.path methods
+      dbg ("Starting buck-proxy on " ++ fromOsPath socket.path)
+      runGrpcServer (fromOsPath socket.path) methods
 
 
 

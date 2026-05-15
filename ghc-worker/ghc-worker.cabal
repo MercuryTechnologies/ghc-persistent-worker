@@ -72,6 +72,7 @@ library
     ghc,
     grapesy ^>=1.0.1,
     optparse-applicative,
+    os-string,
     process,
     text
   if (flag(ghc-debug))

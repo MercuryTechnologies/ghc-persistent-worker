@@ -3,13 +3,15 @@ module Types.Orchestration where
 import Data.List (intersperse)
 import Data.List.Split (splitOn)
 import System.Environment (getEnv)
-import System.FilePath (splitDirectories, takeDirectory, (</>))
+import System.FilePath (splitDirectories, (</>))
+import System.OsPath (OsPath, takeDirectory)
+import System.OsPath.Extra (fromOsPath, toOsPath)
 import Types.Args (TargetId (..))
 
 -- | The file system path of the socket on which the worker running in this process is supposed to listen.
 data ServerSocketPath =
   ServerSocketPath {
-    path :: FilePath,
+    path :: OsPath,
     traceId :: String,
     workerSpecId :: String
   }
@@ -33,7 +35,7 @@ extractTraceIdAndWorkerSpecId sockPath =
 serverSocketFromPath :: FilePath -> ServerSocketPath
 serverSocketFromPath path =
   let (traceId, workerSpecId) = extractTraceIdAndWorkerSpecId path
-   in ServerSocketPath {path, traceId, workerSpecId}
+   in ServerSocketPath {path = toOsPath path, traceId, workerSpecId}
 
 -- | This environment variable is usually set by Buck before starting the worker process.
 envServerSocket :: IO ServerSocketPath
@@ -49,7 +51,7 @@ newtype SocketDirectory =
 -- | Derive the socket base dir from the socket path provided by Buck.
 spawnedSocketDirectory :: ServerSocketPath -> SocketDirectory
 spawnedSocketDirectory server =
-  SocketDirectory (takeDirectory server.path)
+  SocketDirectory (fromOsPath (takeDirectory server.path))
 
 -- | The prefix of the socket directory name for the GHC server.
 -- Used for manual override on the CLI.
