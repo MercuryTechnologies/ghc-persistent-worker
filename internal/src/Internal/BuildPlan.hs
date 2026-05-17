@@ -22,7 +22,9 @@ import Data.Traversable (for)
 import qualified GHC
 import GHC (Target)
 import GHC.Data.Maybe (mapMaybe)
-import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hsc_units)
+import GHC.Driver.Backend (noBackend)
+import GHC.Driver.DynFlags (backend)
+import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscUpdateFlags, hsc_units)
 import GHC.Driver.Errors.Types (GhcMessage (..), DriverMessages)
 import GHC.Driver.Make (downsweep)
 import GHC.Driver.Monad (GhcMonad (..), liftIO, withSession)
@@ -292,6 +294,12 @@ downsweepWithCache hsc_env = downsweepCompat hsc_env [] Nothing [] True
 
 #endif
 
+-- | Disabling the backend, in conjunction with setting `ghcMode = MkDepend`, prevents
+--   downsweep from performing TH dependency analysis, which is the external build tool's
+--   responsibility.
+useNoBackend :: HscEnv -> HscEnv
+useNoBackend = hscUpdateFlags \dflags -> dflags {backend = noBackend}
+
 buildPlanForTargets ::
   GhcMonad m =>
   Set BuildPlanField ->
@@ -299,10 +307,10 @@ buildPlanForTargets ::
   m BuildPlan
 buildPlanForTargets fields targets = do
   GHC.setTargets targets
-  (errs, graph) <- withSession (liftIO . downsweepWithCache)
+  (errs, graph) <- withSession (liftIO . downsweepWithCache . useNoBackend)
   let msgs = unionManyMessages errs
   unless (isEmptyMessages msgs) $ throwErrors (fmap GhcDriverMessage msgs)
-  hsc_env <- getSession  
+  hsc_env <- getSession
   json <- buildPlanModules fields hsc_env graph
   pure BuildPlan {graph, json}
 
