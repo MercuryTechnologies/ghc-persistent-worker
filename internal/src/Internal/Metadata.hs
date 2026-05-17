@@ -3,10 +3,11 @@
 module Internal.Metadata where
 
 import Control.Concurrent (readMVar)
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT (..))
 import Data.Foldable (for_)
+import Data.List (isSuffixOf)
 import Data.List.NonEmpty (NonEmpty, toList)
 import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Set as Set
@@ -23,7 +24,7 @@ import GHC (
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateFlags, hscUpdateLoggerFlags)
 import GHC.Driver.Monad (modifySession, withSession, withTempSession)
 import GHC.Runtime.Loader (initializeSessionPlugins)
-import GHC.Unit (UnitId)
+import GHC.Unit (UnitId, unitIdString)
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.BuildPlan (buildPlanForSources)
 import Internal.BuildPlan.Json (writeBuildPlan)
@@ -167,7 +168,9 @@ computeMetadata env = do
         liftIO $ env.log.setTarget target
         module_graph <- writeMetadata env.args.buildPlan env.args.fields (fst <$> srcs)
         liftIO do
-          updateMakeStateVar env.state (storeModuleGraph module_graph)
+          let isBinaryUnit = "-binary" `isSuffixOf` unitIdString unit
+          unless isBinaryUnit $
+            updateMakeStateVar env.state (storeModuleGraph module_graph)
           for_ dflags.stubDir \ stubdir -> do
             env.log.debug ("Creating stubdir: " ++ stubdir)
             createDirectoryIfMissing False stubdir
