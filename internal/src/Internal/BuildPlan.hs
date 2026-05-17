@@ -22,6 +22,8 @@ import Data.Traversable (for)
 import qualified GHC
 import GHC (Target)
 import GHC.Data.Maybe (mapMaybe)
+import GHC.Driver.Backend (noBackend)
+import GHC.Driver.DynFlags (backend)
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hsc_units)
 import GHC.Driver.Errors.Types (GhcMessage (..), DriverMessages)
 import GHC.Driver.Make (downsweep)
@@ -292,6 +294,11 @@ downsweepWithCache hsc_env = downsweepCompat hsc_env [] Nothing [] True
 
 #endif
 
+useNoBackend :: HscEnv -> HscEnv
+useNoBackend hsc_env =
+  let dflags = hsc_dflags hsc_env
+   in hsc_env { hsc_dflags = dflags {backend = noBackend}}
+
 buildPlanForTargets ::
   GhcMonad m =>
   Set BuildPlanField ->
@@ -299,7 +306,7 @@ buildPlanForTargets ::
   m BuildPlan
 buildPlanForTargets fields targets = do
   GHC.setTargets targets
-  (errs, graph) <- withSession (liftIO . downsweepWithCache)
+  (errs, graph) <- withSession (liftIO . downsweepWithCache . useNoBackend)
   let msgs = unionManyMessages errs
   unless (isEmptyMessages msgs) $ throwErrors (fmap GhcDriverMessage msgs)
   hsc_env <- getSession  
