@@ -3,7 +3,7 @@
 module Internal.Metadata where
 
 import Control.Concurrent (readMVar)
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT (..))
 import Data.Foldable (for_)
@@ -89,7 +89,7 @@ prepareMetadataSession env dflags = do
   modifySession \ hsc_env -> loadState hsc_env state.make
   unit <- addHomeUnit dflags
   setActiveUnit unit
-  storeNewUnit
+  unless env.args.isBinary storeNewUnit
   pure unit
   where
     setActiveUnit unit = modifySession (hscUpdateLoggerFlags . hscSetActiveUnitId unit)
@@ -167,7 +167,8 @@ computeMetadata env = do
         liftIO $ env.log.setTarget target
         module_graph <- writeMetadata env.args.buildPlan env.args.fields (fst <$> srcs)
         liftIO do
-          updateMakeStateVar env.state (storeModuleGraph module_graph)
+          unless env.args.isBinary $
+            updateMakeStateVar env.state (storeModuleGraph module_graph)
           for_ dflags.stubDir \ stubdir -> do
             env.log.debug ("Creating stubdir: " ++ stubdir)
             createDirectoryIfMissing False stubdir

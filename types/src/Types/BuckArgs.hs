@@ -76,7 +76,8 @@ data BuckArgs =
     mode :: Maybe Mode,
     envKey :: Maybe String,
     closeInput :: Maybe String,
-    closeOutput :: Maybe String
+    closeOutput :: Maybe String,
+    isBinary :: Bool
   }
   deriving stock (Eq, Show)
 
@@ -108,7 +109,8 @@ emptyBuckArgs env =
     mode = Nothing,
     envKey = Nothing,
     closeInput = Nothing,
-    closeOutput = Nothing
+    closeOutput = Nothing,
+    isBinary = False
   }
 
 options :: Map String ([String] -> BuckArgs -> Either String ([String], BuckArgs))
@@ -137,6 +139,7 @@ options =
     withArg "--bin-exe" \ z a -> z {binPath = takeDirectory a : z.binPath},
     withArg "--worker-mode" \ z a -> z {mode = Just (parseMode a)},
     flag "--worker-multiplexer-custom" \ z -> z {multiplexerCustom = True},
+    flag "--unit-is-binary" \ z -> z {isBinary = True},
     withArg "--close-input" \z a -> z {closeInput = Just a},
     withArg "--close-output" \z a -> z {closeOutput = Just a},
     ("-c", \ rest z -> Right (rest, z {mode = Just ModeCompile})),
@@ -246,7 +249,8 @@ toGhcArgs args = do
     ghcOptions = ghcArgs ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
     cachedBuildPlans,
     cachedDeps,
-    homeUnit = args.homeUnit
+    homeUnit = args.homeUnit,
+    isBinary = args.isBinary
   }
   where
     packageDbArg path = ["-package-db", path]
