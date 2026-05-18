@@ -1,6 +1,7 @@
 module Test.Run where
 
 import Control.Concurrent (MVar)
+import Control.Monad ((<=<))
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Foldable (for_, toList)
 import Data.IORef (IORef, readIORef)
@@ -11,7 +12,7 @@ import GHC (Ghc)
 import GHC.Driver.Monad (reflectGhc, reifyGhc)
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import GHC.Types.Error (diagnosticCodeNumber)
-import Hedgehog (MonadTest, TestT, evalMaybe, property, test, withTests)
+import Hedgehog (MonadTest, TestT, evalMaybe, property, test, withTests, (===))
 import Hedgehog.Internal.Property (failWith)
 import Internal.Session (runSession, simpleSessionWithDebugLog)
 import Internal.State (newState, newStateWith)
@@ -36,6 +37,19 @@ unitTest ::
 unitTest desc t =
   withFrozenCallStack do
     testProperty desc (withTests 1 (property (test t)))
+
+assertJust ::
+  forall a m .
+  Eq a =>
+  Show a =>
+  Monad m =>
+  HasCallStack =>
+  a ->
+  Maybe a ->
+  TestT m ()
+assertJust a =
+  withFrozenCallStack do
+    (===) a <=< evalMaybe
 
 acquireTemp :: FilePath -> IO FilePath
 acquireTemp name = do
