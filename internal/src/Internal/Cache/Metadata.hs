@@ -27,7 +27,7 @@ import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
 import GHC.Utils.Outputable (ppr, quotes, text, (<+>))
 import Internal.DynFlags (buckLocation, parseFlags, setupPath)
-import Internal.Log (logDebugD, logTimed, logTimedD)
+import Internal.Log (logTimed, logTimedD)
 import Internal.State (updateMakeState)
 import qualified Internal.State.Make as Make
 import Internal.State.Make (insertUnitEnv, storeModuleGraph)
@@ -247,13 +247,9 @@ loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) hsc_env0 =
     ensureBuildPlan hsc_env (CachedBuildPlan {name = JsonFs uid}, mb_cachedUnit_dflags) = do
       present <- gets \ s -> isJust (unitEnv_lookup_maybe uid s.make.hug)
       if present
-      then skipPresent hsc_env uid
+      then pure hsc_env
       else do
         case mb_cachedUnit_dflags of
           Nothing -> pure hsc_env -- don't we yield error here?
           Just (cachedUnit, dflags) -> do
             loadCachedUnit logger hsc_env uid (cachedUnit, dflags)
-
-    skipPresent hsc_env uid = do
-      logDebugD logger (text "Present in the unit env:" <+> quotes (ppr uid))
-      pure hsc_env
