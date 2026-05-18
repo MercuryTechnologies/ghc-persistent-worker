@@ -23,7 +23,7 @@ import GHC (
   setSessionDynFlags,
   withSignalHandlers,
   )
-import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateFlags)
+import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
 import GHC.Driver.Main (initHscEnv)
 import GHC.Driver.Monad (Session (Session), modifySession, modifySessionM, unGhc)
 import GHC.Runtime.Loader (initializeSessionPlugins)
@@ -42,6 +42,7 @@ import Internal.DynFlags (
   mkTargetAsInterpreted,
   parseFlags,
   setupPath,
+  updateDynFlags,
   )
 import Internal.Env (withDebugLog)
 import Internal.Error (handleExceptions)
@@ -58,7 +59,7 @@ import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
 import System.OsPath.Extra (OsPath, fromOsPath, toOsPath)
 
 setTempDir :: OsPath -> HscEnv -> HscEnv
-setTempDir dir = hscUpdateFlags \ dflags -> dflags {tmpDir = TempDir (fromOsPath dir)}
+setTempDir dir = updateDynFlags \ dflags -> dflags {tmpDir = TempDir (fromOsPath dir)}
 
 -- | Run a program with fresh 'DynFlags' constructed from command line args.
 -- Passes the flags and the unprocessed args to the callback, which usually consist of the file or module names intended

@@ -5,7 +5,7 @@ module Internal.Compile.Oneshot where
 import Data.Maybe (isJust)
 import GHC (DynFlags (..), Ghc, GhcException (..), GhcMonad (..), HscEnv, Phase)
 import GHC.Driver.Backend (backendGeneratesCode)
-import GHC.Driver.Env (HscEnv (..), hscUpdateFlags)
+import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Phases (Phase (..), StopPhase (..), startPhase)
 import GHC.Driver.Pipeline (
   TPhase,
@@ -29,6 +29,7 @@ import GHC.Unit.Home.ModInfo (HomeModLinkable (..))
 import GHC.Utils.Monad (MonadIO (..), unlessM)
 import GHC.Utils.Outputable (ppr, text)
 import GHC.Utils.Panic (panic, throwGhcExceptionIO)
+import Internal.DynFlags (updateDynFlags)
 import Internal.State (ModuleArtifacts (..))
 import System.Directory (doesFileExist)
 import System.OsPath.Extra (OsPath, fromOsPath)
@@ -73,8 +74,8 @@ pipelineOneshot pipe_env hsc_env input_fn =
    fromPhase MergeForeign = panic "fromPhase: MergeForeign"
 
 setDumpPrefix :: PipeEnv -> HscEnv -> HscEnv
-setDumpPrefix pipe_env hsc_env =
-  hscUpdateFlags (\dflags -> dflags { dumpPrefix = src_basename pipe_env ++ "."}) hsc_env
+setDumpPrefix pipe_env =
+  updateDynFlags \ dflags -> dflags { dumpPrefix = src_basename pipe_env ++ "."}
 
 compileFile :: HscEnv -> OsPath -> IO (Maybe ModuleArtifacts)
 compileFile hsc_env src = do

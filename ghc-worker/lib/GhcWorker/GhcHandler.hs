@@ -26,6 +26,7 @@ import Internal.Compile.Make (compileModuleWithDepsInHpt)
 #ifdef GHC_DEBUG
 import Internal.Debug (debugSocketPath)
 #endif
+import Internal.DynFlags (modifyDynFlags)
 import Internal.Log (newLogger)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (withGhcMakeModule, withGhcMakeSource)
@@ -60,7 +61,7 @@ compileAndReadAbiHash ::
   Ghc (Maybe CompileResult)
 compileAndReadAbiHash ghcMode compile hooks args target = do
   liftIO $ hooks.compileStart args (Just target)
-  modifySession $ hscUpdateFlags \ d -> d {ghcMode}
+  modifyDynFlags \ d -> d {ghcMode}
   compile target >>= traverse \ artifacts -> do
     hsc_env <- getSession
     let

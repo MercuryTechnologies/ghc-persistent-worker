@@ -13,11 +13,11 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import GHC (DynFlags (..), Ghc, GhcMode (..), ModuleName, Target (..), getSession, mkModuleName)
-import GHC.Driver.Env (HscEnv (..), hscUpdateFlags)
-import GHC.Driver.Monad (modifySession)
+import GHC.Driver.Env (HscEnv (..))
 import GHC.Unit (UnitId, stringToUnitId)
 import Hedgehog (TestT, evalMaybe, (===))
 import Internal.BuildPlan (buildPlanForTargets)
+import Internal.DynFlags (modifyDynFlags)
 import Internal.Metadata (prepareMetadataSession)
 import Internal.Session (sessionWithDebugLog, withDynFlags)
 import Internal.State (newState, updateMakeStateVar)
@@ -171,7 +171,7 @@ expected2 oneshot =
 
 runBuildPlan :: NonEmpty Target -> Ghc (BuildPlan, HscEnv)
 runBuildPlan targets = do
-  modifySession (hscUpdateFlags \ d -> d {ghcMode = MkDepend})
+  modifyDynFlags \ d -> d {ghcMode = MkDepend}
   plan <- buildPlanForTargets fields (toList targets)
   hsc_env <- getSession
   pure (plan, hsc_env)

@@ -20,7 +20,7 @@ import GHC (
   getSessionDynFlags,
   setSession,
   )
-import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateFlags, hscUpdateLoggerFlags)
+import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateLoggerFlags)
 import GHC.Driver.Monad (modifySession, withSession, withTempSession)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit (UnitId)
@@ -28,6 +28,7 @@ import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.BuildPlan (buildPlanForSources)
 import Internal.BuildPlan.Json (writeBuildPlan)
 import Internal.Cache.Metadata (addHomeUnitTo, loadCachedUnits)
+import Internal.DynFlags (updateDynFlags)
 import Internal.Log (logTimed)
 import Internal.Session (runSession, withDynFlags, withGhcInSession)
 import Internal.State (updateMakeStateVar)
@@ -58,7 +59,7 @@ ms_opts _ = []
 -- | 'doMkDependHS' needs this to be enabled.
 metadataTempSession :: HscEnv -> HscEnv
 metadataTempSession =
-  hscUpdateFlags \ d -> d {ghcMode = MkDepend}
+  updateDynFlags \ d -> d {ghcMode = MkDepend}
 
 -- | Add a new home unit to the current session using the provided 'DynFlags'.
 -- The flags have been constructed from Buck CLI args passed to the metadata step, which, crucially, contain the package

@@ -7,13 +7,22 @@ import Data.List.NonEmpty (nonEmpty)
 import Data.Maybe (maybeToList)
 import qualified Data.Set as Set
 import qualified GHC
-import GHC (DynFlags (..), GhcException (..), GhcLink (LinkBinary), Phase, parseDynamicFlags, parseTargetFiles)
+import GHC (
+  DynFlags (..),
+  GhcException (..),
+  GhcLink (LinkBinary),
+  GhcMonad,
+  Phase,
+  parseDynamicFlags,
+  parseTargetFiles,
+  )
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
 import GHC.Driver.DynFlags (gopt_set)
 import GHC.Driver.Env (HscEnv (..), mkInteractiveHscEnv)
 import GHC.Driver.Errors (printOrThrowDiagnostics)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
+import GHC.Driver.Monad (modifySession)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Unit (moduleUnitId)
 import GHC.Utils.Logger (setLogFlags)
@@ -91,3 +100,11 @@ mkTargetAsInterpreted hsc_env modu =
          },
          hsc_targets = [tgt]
       }
+
+updateDynFlags :: (DynFlags -> DynFlags) -> HscEnv -> HscEnv
+updateDynFlags f hsc_env =
+  hsc_env {hsc_dflags = f hsc_env.hsc_dflags}
+
+modifyDynFlags :: GhcMonad m => (DynFlags -> DynFlags) -> m ()
+modifyDynFlags =
+  modifySession . updateDynFlags
