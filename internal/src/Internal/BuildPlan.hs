@@ -24,7 +24,7 @@ import GHC (Target)
 import GHC.Data.Maybe (mapMaybe)
 import GHC.Driver.Backend (noBackend)
 import GHC.Driver.DynFlags (backend)
-import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscUpdateFlags, hsc_units)
+import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hsc_units)
 import GHC.Driver.Errors.Types (GhcMessage (..), DriverMessages)
 import GHC.Driver.Make (downsweep)
 import GHC.Driver.Monad (GhcMonad (..), liftIO, withSession)
@@ -298,7 +298,9 @@ downsweepWithCache hsc_env = downsweepCompat hsc_env [] Nothing [] True
 --   downsweep from performing TH dependency analysis, which is the external build tool's
 --   responsibility.
 useNoBackend :: HscEnv -> HscEnv
-useNoBackend = hscUpdateFlags \dflags -> dflags {backend = noBackend}
+useNoBackend hsc_env =
+  let dflags = hsc_dflags hsc_env
+   in hsc_env { hsc_dflags = dflags {backend = noBackend}}
 
 buildPlanForTargets ::
   GhcMonad m =>
