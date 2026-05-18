@@ -268,7 +268,7 @@ loadHomeUnit log stateVar dflags0 features unit hsc_env0 path
     hsc_env1 <- fmap (fromMaybe hsc_env0) $ for cachedUnit.dep_units \ file -> do
       deps <- decodeJsonArg "--home-unit" file
       loadCachedUnits log stateVar dflags0 deps features hsc_env0
-    dflags <- maybe (pure dflags0) (readParseGHCArgs hsc_env1 dflags0) unit_args
+    dflags <- maybe (pure dflags0) (readParseGHCArgs features.flagParser hsc_env1 dflags0) unit_args
 
     modifyMVar stateVar $
       logTimed log "Loading cached home unit" .

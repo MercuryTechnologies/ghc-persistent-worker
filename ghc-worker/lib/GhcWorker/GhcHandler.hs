@@ -43,10 +43,10 @@ import Types.State (WorkerState (..))
 import Types.Target (TargetSpec (..))
 
 #if __DEBUG__
+
 import Internal.State (dumpState)
 
 #endif
-
 
 -- | Compile a single module.
 -- Depending on @mode@ this will either use the old EPS-based oneshot-style compilation logic or the HPT-based

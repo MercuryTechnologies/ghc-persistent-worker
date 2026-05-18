@@ -10,6 +10,7 @@ import Control.Monad (foldM, (>=>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State.Strict (StateT (..), gets, modify, modifyM)
 import Data.Aeson (eitherDecodeFileStrict')
+import qualified Data.ByteString as BS
 import Data.Foldable (fold, traverse_)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
@@ -23,8 +24,10 @@ import GHC.Unit (GenWithIsBoot (..), HomeUnit, UnitDatabase, UnitId (..), UnitSt
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), updateHug)
 import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
-import GHC.Utils.Outputable (ppr, quotes, text, (<+>))
+import GHC.Utils.Outputable (comma, hcat, ppr, punctuate, quotes, text, (<+>))
+import Internal.Compat.GHC914 (moduleNodeEdge)
 import Internal.DynFlags (buckLocation, parseFlags, setupPath)
+import Internal.DynFlags.Parse (parseDynFlags)
 import Internal.Log (logTimed, logTimedD)
 import Internal.State (updateMakeState)
 import qualified Internal.State.Make as Make
@@ -43,7 +46,6 @@ import Types.FeatureFlags (FeatureFlags (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
 import Types.State.Make (MakeState (..))
-import Internal.Compat.GHC914 (moduleNodeEdge)
 
 #if defined(FIXED_NODES) || defined(MWB)
 
@@ -65,9 +67,13 @@ import System.OsPath.Extra (splitExtension, toOsPath)
 
 #endif
 
-import GHC.Driver.Errors.Types (GhcMessage (..))
+import Data.ByteString (ByteString)
+import qualified Data.Text as Text
+import Data.Text.Encoding (decodeUtf8)
+import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
-import Internal.Error (eitherMessages)
+import GHC.Types.SourceError (throwErrors)
+import Internal.Error (eitherMessages, unknownErrors)
 import System.OsPath.Extra (OsPath, fromOsPath)
 
 -- | Add a fresh 'HomeUnitEnv' to the home unit graph using the supplied unit state and dependencies.
@@ -192,18 +198,33 @@ loadCachedArgs path = do
     Right args -> modifyM (setupPath args.cachedBinPath)
     Left err -> liftIO $ throwIO (userError err)
 
+ensureNoPositionalArgs :: (DynFlags, [ByteString]) -> Either DriverMessages DynFlags
+ensureNoPositionalArgs = \case
+  (dflags, []) -> Right dflags
+  (dflags, args) -> Left (unknownErrors (Just "worker") dflags (argsError args))
+  where
+    argsError args =
+      text "Found positional args when restoring unit state from cache:"
+      <+>
+      hcat (punctuate comma (text . Text.unpack . decodeUtf8 <$> args))
+
 -- | Cached CLI args for a unit.
 --
 -- This function is separated so that we can parallelize CLI arg parsing part.
 readParseGHCArgs ::
+  Bool ->
   HscEnv ->
   DynFlags ->
   OsPath ->
   IO DynFlags
-readParseGHCArgs hsc_env0 dflags0 args_file = do
-  args <- readFile (fromOsPath args_file)
-  (dflags1, _, _, _) <- parseFlags dflags0 hsc_env0.hsc_logger (buckLocation <$> lines args)
-  pure dflags1
+readParseGHCArgs parseFast hsc_env0 dflags0 args_file
+  | parseFast = do
+    args <- BS.readFile (fromOsPath args_file)
+    either (throwErrors . fmap GhcDriverMessage) pure (ensureNoPositionalArgs =<< parseDynFlags dflags0 args)
+  | otherwise = do
+    args <- readFile (fromOsPath args_file)
+    (dflags1, _, _, _) <- parseFlags dflags0 hsc_env0.hsc_logger (buckLocation <$> lines args)
+    pure dflags1
 
 -- | Restore the unit state and module graph from the external cache.
 --
@@ -252,7 +273,7 @@ loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) features h
             then pure (plan, Nothing)
             else do
               cachedUnit@CachedUnit {unit_args} <- liftIO $ decodeJsonBuildPlan planFile
-              mdflags1 <- traverse (readParseGHCArgs hsc_env1 dflags0) unit_args
+              mdflags1 <- traverse (readParseGHCArgs features.flagParser hsc_env1 dflags0) unit_args
               pure (plan, (cachedUnit,) <$> mdflags1)
       runStateT (foldM ensureBuildPlan hsc_env1 buildPlans_with_cunit_and_dflags) state
   where

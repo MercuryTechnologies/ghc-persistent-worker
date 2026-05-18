@@ -72,10 +72,12 @@ featureFlagsParser =
     applyFlags =
       flip foldl' defaultFeatureFlags \ flags -> \case
         (fixedNodesCache, FeatureFixedNodesCache) -> flags {fixedNodesCache}
+        (flagParser, FeatureFlagParser) -> flags {flagParser}
 
     flagOption value = do
       flag <- eitherReader \case
         "fixed-nodes-cache" -> Right FeatureFixedNodesCache
+        "flag-parser" -> Right FeatureFlagParser
         flag -> Left ("Invalid feature flag: " ++ flag)
       pure (value, flag)
 

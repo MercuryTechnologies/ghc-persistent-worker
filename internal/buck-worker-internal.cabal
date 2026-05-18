@@ -109,6 +109,7 @@ library
                       ghc,
                       ghc-boot,
                       hashable,
+                      text,
                       time,
                       transformers
     default-language: GHC2021
