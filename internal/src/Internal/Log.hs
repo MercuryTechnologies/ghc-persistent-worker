@@ -8,22 +8,11 @@ import Data.Fixed (Milli, Pico)
 import Data.Foldable (traverse_)
 import Data.Hashable (hash)
 import Data.Time (diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
-import GHC (Ghc, Severity (SevIgnore), SrcSpan, noSrcSpan)
-import GHC.Driver.Config.Diagnostic (initDiagOpts)
+import GHC (Ghc, Severity (SevIgnore), SrcSpan)
 import GHC.Driver.DynFlags (getDynFlags)
-import GHC.Driver.Errors.Types (DriverMessage (..), GhcMessage (GhcDriverMessage))
+import GHC.Driver.Errors.Types (GhcMessage (GhcDriverMessage))
 import GHC.Driver.Monad qualified as GHC (logDiagnostics)
-import GHC.Types.Error (
-  DiagnosticReason (WarningWithoutFlag),
-  MessageClass (..),
-  getCaretDiagnostic,
-  mkLocMessageWarningGroups,
-  mkPlainDiagnostic,
-  mkSimpleUnknownDiagnostic,
-  noHints,
-  singleMessage,
-  )
-import GHC.Utils.Error (mkPlainMsgEnvelope)
+import GHC.Types.Error (DiagnosticReason (..), MessageClass (..), getCaretDiagnostic, mkLocMessageWarningGroups)
 import GHC.Utils.Logger (LogAction, LogFlags (..))
 import GHC.Utils.Outputable (
   Outputable,
@@ -38,6 +27,7 @@ import GHC.Utils.Outputable (
   ($$),
   ($+$),
   )
+import Internal.Error (unknownMessages)
 import Prelude hiding (log)
 import System.Directory (createDirectoryIfMissing, doesPathExist)
 import System.FilePath (addExtension, takeDirectory, (</>))
@@ -206,15 +196,7 @@ logDebugD log =
 ghcLogd :: SDoc -> Ghc ()
 ghcLogd doc = do
   dflags <- getDynFlags
-  let diagOpts = initDiagOpts dflags
-      reason = WarningWithoutFlag
-      msg =
-        DriverUnknownMessage $
-          mkSimpleUnknownDiagnostic $
-          mkPlainDiagnostic reason noHints $
-          doc
-      msgs = singleMessage (mkPlainMsgEnvelope diagOpts noSrcSpan msg)
-  GHC.logDiagnostics (GhcDriverMessage <$> msgs)
+  GHC.logDiagnostics (GhcDriverMessage <$> unknownMessages WarningWithoutFlag Nothing dflags doc)
 
 -- | Run the given computation and write the given description and the elapsed real time it took to the debug log.
 logTimed ::

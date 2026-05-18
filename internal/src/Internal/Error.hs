@@ -1,15 +1,28 @@
-{-# language BlockArguments #-}
-
 module Internal.Error where
 
 import Control.Exception (AsyncException (..), Exception (..), IOException, throwIO)
 import qualified Control.Monad.Catch as MC
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import GHC (Ghc, GhcException (..), printException)
-import GHC.Driver.Errors.Types (GhcMessage)
-import GHC.Types.Error (Messages)
+import GHC (DynFlags, Ghc, GhcException (..), noSrcSpan, printException)
+import GHC.Data.Bag (listToBag)
+import GHC.Data.FastString (mkFastString)
+import GHC.Driver.Config.Diagnostic (initDiagOpts)
+import GHC.Driver.Errors.Types (DriverMessage (..), DriverMessages, GhcMessage)
+import GHC.Types.Error (
+  DiagnosticReason (..),
+  Messages,
+  MsgEnvelope,
+  mkMessages,
+  mkPlainDiagnostic,
+  mkSimpleUnknownDiagnostic,
+  noHints,
+  singleMessage,
+  )
 import GHC.Types.SourceError (SourceError, throwErrors)
-import GHC.Utils.Outputable (Outputable (..), text)
+import GHC.Types.SrcLoc (mkGeneralSrcSpan)
+import GHC.Utils.Error (mkPlainMsgEnvelope)
+import GHC.Utils.Outputable (Outputable (..), SDoc, text)
+import Prelude hiding (log)
 import System.Environment (getProgName)
 import System.Exit (ExitCode)
 import Types.Log (Logger (..))
@@ -76,3 +89,46 @@ notePpr ::
   m a
 notePpr msg doc =
   maybe (liftIO (throwIO (PprPanic msg (ppr doc)))) pure
+
+listToMessages :: [MsgEnvelope a] -> Messages a
+listToMessages = mkMessages . listToBag
+
+unknownMessage ::
+  DiagnosticReason ->
+  Maybe String ->
+  DynFlags ->
+  SDoc ->
+  MsgEnvelope DriverMessage
+unknownMessage reason location dflags doc =
+  mkPlainMsgEnvelope diagOpts (maybe noSrcSpan (mkGeneralSrcSpan . mkFastString) location) msg
+  where
+    msg =
+      DriverUnknownMessage $
+      mkSimpleUnknownDiagnostic $
+      mkPlainDiagnostic reason noHints $
+      doc
+
+    diagOpts = initDiagOpts dflags
+
+unknownMessages ::
+  DiagnosticReason ->
+  Maybe String ->
+  DynFlags ->
+  SDoc ->
+  DriverMessages
+unknownMessages reason location dflags doc =
+  singleMessage (unknownMessage reason location dflags doc)
+
+unknownError ::
+  Maybe String ->
+  DynFlags ->
+  SDoc ->
+  MsgEnvelope DriverMessage
+unknownError = unknownMessage ErrorWithoutFlag
+
+unknownErrors ::
+  Maybe String ->
+  DynFlags ->
+  SDoc ->
+  DriverMessages
+unknownErrors = unknownMessages ErrorWithoutFlag
