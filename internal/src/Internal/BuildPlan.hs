@@ -43,6 +43,7 @@ import Internal.BuildPlan.External (packageName, unitImports)
 import Internal.BuildPlan.Json (assembleFields)
 import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, deps, downsweepCompat, key, summary)
 import Internal.Compat.GHC914 (edgeTarget)
+import Internal.Error (eitherMessages)
 import System.FilePath (splitExtension)
 import System.OsPath.Extra (toOsPath)
 import Types.Args (BuildPlanField (..))
@@ -293,14 +294,10 @@ buildPlanModules ::
   ModuleGraph ->
   m BuildPlanJson
 buildPlanModules fields hsc_env graph = do
-  etoolchainDeps <-
-    if includeToolchainDeps
-    then liftIO (unitImports env (fst <$> modules))
-    else pure (Right []) -- mempty
   toolchainDeps <-
-    case etoolchainDeps of
-      Right toolchainDeps -> pure toolchainDeps
-      Left msgs -> throwErrors (fmap GhcDriverMessage msgs)
+    if includeToolchainDeps
+    then eitherMessages GhcDriverMessage =<< liftIO (unitImports env (fst <$> modules))
+    else pure []
   assembleFields fields toolchainDeps . Map.fromList <$> liftIO (traverse (buildPlanModule env) modules)
   where
     (env, modules) = buildPlanEnv hsc_env graph
