@@ -10,9 +10,12 @@ import qualified GHC
 import GHC (DynFlags (..), GhcException (..), GhcLink (LinkBinary), Phase, parseDynamicFlags, parseTargetFiles)
 import GHC.Driver.Config.Diagnostic (initDiagOpts, initPrintConfig)
 import GHC.Driver.Config.Logger (initLogFlags)
+import GHC.Driver.DynFlags (gopt_set)
+import GHC.Driver.Env (HscEnv (..), mkInteractiveHscEnv)
 import GHC.Driver.Errors (printOrThrowDiagnostics)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
+import GHC.Unit (moduleUnitId)
 import GHC.Utils.Logger (setLogFlags)
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Prelude hiding (log)
@@ -69,3 +72,20 @@ initDynFlags dflags0 logger fileish_args dynamicFlagWarnings = do
   pure (dflags1, srcs)
   where
     flagWarnings' = GhcDriverMessage <$> dynamicFlagWarnings
+
+-- For TargetModuleInterp, we set the backend to be interpreter and targetAllowObjCode to be False.
+-- This sets mi_top_env, which is essential for loading module in the interpreter in the later session.
+mkTargetAsInterpreted :: HscEnv -> GHC.Module -> HscEnv
+mkTargetAsInterpreted hsc_env modu =
+  let tgt = GHC.Target {
+        GHC.targetId = GHC.TargetModule (GHC.moduleName modu),
+        GHC.targetAllowObjCode = False,
+        GHC.targetUnitId = moduleUnitId modu,
+        GHC.targetContents = Nothing
+      }
+   in (mkInteractiveHscEnv hsc_env) {
+         hsc_dflags = (gopt_set (hsc_dflags hsc_env) GHC.Opt_UseBytecodeRatherThanObjects) {
+           backend = GHC.interpreterBackend
+         },
+         hsc_targets = [tgt]
+      }

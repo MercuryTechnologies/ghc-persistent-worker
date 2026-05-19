@@ -25,9 +25,8 @@ import GHC (
   gopt,
   mgLookupModule,
   )
-import GHC.Driver.Backend (interpreterBackend)
 import GHC.Driver.DynFlags (gopt_set)
-import GHC.Driver.Env (HscEnv (..), mkInteractiveHscEnv)
+import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
 import GHC.Driver.Monad (modifySessionM)
@@ -35,12 +34,12 @@ import GHC.Driver.Pipeline (compileOne)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit.Env (ue_unsafeHomeUnit)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
-import GHC.Unit.Module.ModSummary (ms_mod_name, ms_unitid)
 import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
 import Internal.Debug (pprModuleFull)
+import Internal.DynFlags (mkTargetAsInterpreted)
 import Internal.Error (eitherMessages, noteGhc)
 import Internal.Log (logTimedD)
 import Internal.State (ModuleArtifacts (..))
@@ -149,7 +148,7 @@ compileModuleWithDepsInHpt logger target =
     hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
       summary <- ensureSummary logger hsc_env target
       let hsc_env'
-            | TargetModuleInterp _ <- target = mkTargetAsInterpreted hsc_env summary
+            | TargetModuleInterp _ <- target = mkTargetAsInterpreted hsc_env (ms_mod summary)
             | otherwise = hsc_env
       result <- compileOne hsc_env' (forceRecomp summary) 1 100000 Nothing (HomeModLinkable Nothing Nothing)
       cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env') (hsc_tmpfs hsc_env') summary.ms_hspp_opts
@@ -160,17 +159,3 @@ compileModuleWithDepsInHpt logger target =
     -- This bypasses another recompilation check in 'compileOne'
     forceRecomp summary =
       summary {ms_hspp_opts = gopt_set summary.ms_hspp_opts Opt_ForceRecomp}
-
-    -- For TargetModuleInterp, we set the backend to be interpreter and targetAllowObjCode to be False.
-    -- This sets mi_top_env, which is essential for loading module in the interpreter in the later session.
-    mkTargetAsInterpreted hsc_env summary =
-      let tgt = GHC.Target {
-            GHC.targetId = GHC.TargetModule (ms_mod_name summary),
-            GHC.targetAllowObjCode = False,
-            GHC.targetUnitId = ms_unitid summary,
-            GHC.targetContents = Nothing
-          }
-       in (mkInteractiveHscEnv hsc_env) {
-             hsc_dflags = (hsc_dflags hsc_env) {backend = interpreterBackend},
-             hsc_targets = [tgt]
-          }

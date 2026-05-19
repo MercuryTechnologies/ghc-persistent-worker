@@ -48,6 +48,12 @@ parseMode = \case
   "metadata" -> ModeMetadata
   mode -> ModeUnknown mode
 
+data IsInterpreted =
+  Compiled
+  |
+  Interpreted
+  deriving stock (Eq, Show)
+
 data BuckArgs =
   BuckArgs {
     topdir :: Maybe String,
@@ -77,7 +83,8 @@ data BuckArgs =
     envKey :: Maybe String,
     closeInput :: Maybe String,
     closeOutput :: Maybe String,
-    isBinary :: Bool
+    isBinary :: Bool,
+    interp :: IsInterpreted
   }
   deriving stock (Eq, Show)
 
@@ -110,7 +117,8 @@ emptyBuckArgs env =
     envKey = Nothing,
     closeInput = Nothing,
     closeOutput = Nothing,
-    isBinary = False
+    isBinary = False,
+    interp = Compiled
   }
 
 options :: Map String ([String] -> BuckArgs -> Either String ([String], BuckArgs))
@@ -132,7 +140,7 @@ options =
     withArg "--unit" \ z a -> z {unit = Just a},
     withArg "--build-plan" \ z a -> z {buildPlan = Just a},
     withArg "--fields" \ z a -> z {fields = nonEmpty (splitOn "," a)},
-    withArg "--module" \ z a -> z {moduleName = Just a, mode = Just ModeCompile},
+    withArg "--module" \ z a -> z {moduleName = Just a},
     withArg "--ghc-args" \ z a -> z {ghcArgsFile = Just a},
     withArg "--extra-pkg-db" \ z a -> z {ghcDbFile = Just a},
     withArg "--bin-path" \ z a -> z {binPath = a : z.binPath},
@@ -142,6 +150,7 @@ options =
     flag "--unit-is-binary" \ z -> z {isBinary = True},
     withArg "--close-input" \z a -> z {closeInput = Just a},
     withArg "--close-output" \z a -> z {closeOutput = Just a},
+    flag "--interp" \ z -> z {interp = Interpreted},
     ("-c", \ rest z -> Right (rest, z {mode = Just ModeCompile})),
     ("-M", \ rest z -> Right (rest, z {mode = Just ModeMetadata}))
   ]

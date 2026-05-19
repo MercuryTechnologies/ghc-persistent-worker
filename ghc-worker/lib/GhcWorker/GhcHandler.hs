@@ -29,7 +29,7 @@ import Internal.State (ModuleArtifacts (..))
 import Prelude hiding (log)
 import Types.Args (Args (..))
 import qualified Types.BuckArgs
-import Types.BuckArgs (BuckArgs, Mode (..), parseBuckArgs, toGhcArgs)
+import Types.BuckArgs (BuckArgs, IsInterpreted (..), Mode (..), parseBuckArgs, toGhcArgs)
 import Types.Env (Env (..))
 import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (RequestArgs (..))
@@ -39,7 +39,7 @@ import Types.Target (TargetSpec (..))
 
 #if __DEBUG__
 import Internal.State (dumpState)
-  
+
 #endif
 
 
@@ -92,8 +92,12 @@ dispatch workerMode hooks env args targetCallback =
     compile = case workerMode of
       WorkerMakeMode
         | Just target <- env.args.moduleTarget -> do
-          env.log.setTarget (TargetModule target)
-          withGhcMakeModule target env (withTarget compileHpt)
+          if args.interp == Interpreted
+          then
+            env.log.setTarget (TargetModuleInterp target)
+          else
+            env.log.setTarget (TargetModule target)
+          withGhcMakeModule args.interp target env (withTarget compileHpt)
         | otherwise ->
           withGhcMakeSource env (withTarget compileHpt . TargetSource)
 
