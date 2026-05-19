@@ -28,7 +28,7 @@ import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.BuildPlan (buildPlanForSources)
 import Internal.BuildPlan.Json (writeBuildPlan)
 import Internal.Cache.Metadata (addHomeUnitTo, loadCachedUnits)
-import Internal.DynFlags (updateDynFlags)
+import Internal.DynFlags (updateActiveUnitFlags)
 import Internal.Log (logTimed)
 import Internal.Session (runSession, withDynFlags, withGhcInSession)
 import Internal.State (updateMakeStateVar)
@@ -56,10 +56,12 @@ ms_opts _ = []
 
 #endif
 
--- | 'doMkDependHS' needs this to be enabled.
+-- | When the build plan validates imports, it calls a GHC function that requires interface files to exist, unless
+-- @finder_bypassHiFileCheck@ in the @FinderOpts@ is 'False'.
+-- @initFinderOpts@ uses @ghcMode@ to determine the value of that flag.
 metadataTempSession :: HscEnv -> HscEnv
 metadataTempSession =
-  updateDynFlags \ d -> d {ghcMode = MkDepend}
+  updateActiveUnitFlags \ d -> d {ghcMode = MkDepend}
 
 -- | Add a new home unit to the current session using the provided 'DynFlags'.
 -- The flags have been constructed from Buck CLI args passed to the metadata step, which, crucially, contain the package

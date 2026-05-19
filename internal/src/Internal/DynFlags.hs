@@ -25,6 +25,7 @@ import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (GhcDriverMessage))
 import GHC.Driver.Monad (modifySession)
 import GHC.Types.SrcLoc (Located, mkGeneralLocated, unLoc)
 import GHC.Unit (moduleUnitId)
+import GHC.Unit.Env (ue_currentUnit, ue_setFlags, ue_unitFlags)
 import GHC.Utils.Logger (setLogFlags)
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Prelude hiding (log)
@@ -101,10 +102,24 @@ mkTargetAsInterpreted hsc_env modu =
          hsc_targets = [tgt]
       }
 
-updateDynFlags :: (DynFlags -> DynFlags) -> HscEnv -> HscEnv
-updateDynFlags f hsc_env =
+updateActiveUnitFlags :: (DynFlags -> DynFlags) -> HscEnv -> HscEnv
+updateActiveUnitFlags f hsc_env =
+  hsc_env {
+    hsc_unit_env = ue_setFlags (f (ue_unitFlags unit unit_env)) unit_env
+  }
+  where
+    unit = ue_currentUnit unit_env
+
+    unit_env = hsc_env.hsc_unit_env
+
+modifyActiveUnitFlags :: GhcMonad m => (DynFlags -> DynFlags) -> m ()
+modifyActiveUnitFlags =
+  modifySession . updateActiveUnitFlags
+
+updateGlobalFlags :: (DynFlags -> DynFlags) -> HscEnv -> HscEnv
+updateGlobalFlags f hsc_env =
   hsc_env {hsc_dflags = f hsc_env.hsc_dflags}
 
-modifyDynFlags :: GhcMonad m => (DynFlags -> DynFlags) -> m ()
-modifyDynFlags =
-  modifySession . updateDynFlags
+modifyGlobalFlags :: GhcMonad m => (DynFlags -> DynFlags) -> m ()
+modifyGlobalFlags =
+  modifySession . updateGlobalFlags

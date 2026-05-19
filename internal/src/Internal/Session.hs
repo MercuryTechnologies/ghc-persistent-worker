@@ -42,7 +42,7 @@ import Internal.DynFlags (
   mkTargetAsInterpreted,
   parseFlags,
   setupPath,
-  updateDynFlags,
+  updateGlobalFlags,
   )
 import Internal.Env (withDebugLog)
 import Internal.Error (handleExceptions)
@@ -59,7 +59,7 @@ import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
 import System.OsPath.Extra (OsPath, fromOsPath, toOsPath)
 
 setTempDir :: OsPath -> HscEnv -> HscEnv
-setTempDir dir = updateDynFlags \ dflags -> dflags {tmpDir = TempDir (fromOsPath dir)}
+setTempDir dir = updateGlobalFlags \ dflags -> dflags {tmpDir = TempDir (fromOsPath dir)}
 
 -- | Run a program with fresh 'DynFlags' constructed from command line args.
 -- Passes the flags and the unprocessed args to the callback, which usually consist of the file or module names intended

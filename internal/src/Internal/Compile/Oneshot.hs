@@ -29,7 +29,7 @@ import GHC.Unit.Home.ModInfo (HomeModLinkable (..))
 import GHC.Utils.Monad (MonadIO (..), unlessM)
 import GHC.Utils.Outputable (ppr, text)
 import GHC.Utils.Panic (panic, throwGhcExceptionIO)
-import Internal.DynFlags (updateDynFlags)
+import Internal.DynFlags (updateGlobalFlags)
 import Internal.State (ModuleArtifacts (..))
 import System.Directory (doesFileExist)
 import System.OsPath.Extra (OsPath, fromOsPath)
@@ -75,7 +75,7 @@ pipelineOneshot pipe_env hsc_env input_fn =
 
 setDumpPrefix :: PipeEnv -> HscEnv -> HscEnv
 setDumpPrefix pipe_env =
-  updateDynFlags \ dflags -> dflags { dumpPrefix = src_basename pipe_env ++ "."}
+  updateGlobalFlags \ dflags -> dflags { dumpPrefix = src_basename pipe_env ++ "."}
 
 compileFile :: HscEnv -> OsPath -> IO (Maybe ModuleArtifacts)
 compileFile hsc_env src = do

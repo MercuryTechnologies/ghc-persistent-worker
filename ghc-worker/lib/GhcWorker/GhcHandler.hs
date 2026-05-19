@@ -16,8 +16,7 @@ import GHC (DynFlags (..), Ghc, getSession)
 import GHC.Debug.Stub (withGhcDebugUnix)
 #endif
 import GHC.Driver.DynFlags (GhcMode (..))
-import GHC.Driver.Env (hscUpdateFlags)
-import GHC.Driver.Monad (modifySession, reflectGhc, reifyGhc)
+import GHC.Driver.Monad (reflectGhc, reifyGhc)
 import GhcWorker.CompileResult (CompileResult (..), writeResult)
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import GhcWorker.Orchestration (FeatureInstrument (..))
@@ -26,7 +25,7 @@ import Internal.Compile.Make (compileModuleWithDepsInHpt)
 #ifdef GHC_DEBUG
 import Internal.Debug (debugSocketPath)
 #endif
-import Internal.DynFlags (modifyDynFlags)
+import Internal.DynFlags (modifyGlobalFlags)
 import Internal.Log (newLogger)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (withGhcMakeModule, withGhcMakeSource)
@@ -61,7 +60,7 @@ compileAndReadAbiHash ::
   Ghc (Maybe CompileResult)
 compileAndReadAbiHash ghcMode compile hooks args target = do
   liftIO $ hooks.compileStart args (Just target)
-  modifyDynFlags \ d -> d {ghcMode}
+  modifyGlobalFlags \ d -> d {ghcMode}
   compile target >>= traverse \ artifacts -> do
     hsc_env <- getSession
     let

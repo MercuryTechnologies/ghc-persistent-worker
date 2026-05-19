@@ -12,7 +12,7 @@ import GHC.Driver.Session (DynFlags (..), GhcMode (..))
 import GHC.Types.Error (diagnosticCodeNumber)
 import GHC.Unit (stringToUnit)
 import Internal.Compile.Make (compileModuleWithDepsInHpt)
-import Internal.DynFlags (modifyDynFlags)
+import Internal.DynFlags (modifyGlobalFlags)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (withGhcMakeModule)
 import Numeric.Natural (Natural)
@@ -97,7 +97,7 @@ runCompile env mkArgs key = do
     let compileEnv = taskEnv {args}
         target = compileTarget key
     result <- withGhcMakeModule Compiled target compileEnv \ _targetSpec -> do
-      modifyDynFlags \ d -> d {ghcMode = CompManager}
+      modifyGlobalFlags \ d -> d {ghcMode = CompManager}
       compileModuleWithDepsInHpt compileEnv.log (TargetModule target)
     pure (isJust result)
   where
