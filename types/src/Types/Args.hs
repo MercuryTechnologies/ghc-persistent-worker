@@ -87,7 +87,7 @@ data Args =
   Args {
     topdir :: Maybe String,
     workerTargetId :: Maybe TargetId,
-    binPath :: [String],
+    binPath :: [OsPath],
     tempDir :: Maybe String,
     unit :: Maybe UnitName,
     buildPlan :: Maybe OsPath,

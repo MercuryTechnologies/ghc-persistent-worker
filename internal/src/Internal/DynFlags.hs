@@ -20,14 +20,16 @@ import GHC.Utils.Logger (setLogFlags)
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Prelude hiding (log)
 import System.Environment (setEnv)
+import System.OsPath.Extra (OsPath, fromOsPath)
 import Types.State (BinPath (..), WorkerState (..))
 
 -- | Add all the directories passed by Buck in @--bin-path@ options to the global @$PATH@.
 -- Although Buck intends these to be module specific, all subsequent compile jobs will see all previous jobs' entries,
 -- since we only have one process environment.
-setupPath :: [String] -> WorkerState -> IO WorkerState
+setupPath :: [OsPath] -> WorkerState -> IO WorkerState
 setupPath binPath old = do
-  setEnv "PATH" (intercalate ":" (toList path.extra ++ maybeToList path.initial))
+  setEnv "PATH" $
+    intercalate ":" $ map fromOsPath $ toList path.extra ++ maybeToList path.initial
   pure new
   where
     path = new.path

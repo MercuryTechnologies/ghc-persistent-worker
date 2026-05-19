@@ -16,8 +16,7 @@ import Data.Maybe (fromMaybe, isJust)
 import GHC (mkModule, mkModuleName)
 import GHC.Paths (libdir)
 import GHC.Unit (Definite (..), GenUnit (RealUnit), stringToUnitId)
-import System.FilePath (takeDirectory)
-import System.OsPath.Extra (OsPath, encodeUtf, fromOsPath, toOsPath)
+import System.OsPath.Extra (OsPath, encodeUtf, fromOsPath, takeDirectory, toOsPath)
 import qualified Types.Args
 import Types.Args (
   Args (Args),
@@ -73,7 +72,7 @@ data BuckArgs =
     workerTargetId :: Maybe TargetId,
     pluginDb :: Maybe String,
     env :: Map String String,
-    binPath :: [String],
+    binPath :: [OsPath],
     tempDir :: Maybe String,
     ghcDirFile :: Maybe String,
     ghcDbFile :: Maybe String,
@@ -144,8 +143,8 @@ options =
     withArg "--module" \ z a -> z {moduleName = Just a},
     withArg "--ghc-args" \ z a -> z {ghcArgsFile = Just a},
     withArg "--extra-pkg-db" \ z a -> z {ghcDbFile = Just a},
-    withArg "--bin-path" \ z a -> z {binPath = a : z.binPath},
-    withArg "--bin-exe" \ z a -> z {binPath = takeDirectory a : z.binPath},
+    withOsPathArg "--bin-path" \ z a -> z {binPath = a : z.binPath},
+    withOsPathArg "--bin-exe" \ z a -> z {binPath = takeDirectory a : z.binPath},
     withArg "--worker-mode" \ z a -> z {mode = Just (parseMode a)},
     flag "--worker-multiplexer-custom" \ z -> z {multiplexerCustom = True},
     flag "--unit-is-binary" \ z -> z {isBinary = True},
@@ -275,7 +274,7 @@ toGhcArgs args = do
 -- | Arguments interpreted by the worker directly that need to be applied again when restoring module graphs from cache.
 data CachedBuckArgs =
   CachedBuckArgs {
-    cachedBinPath :: [String]
+    cachedBinPath :: [OsPath]
   }
   deriving stock (Eq, Show)
 
@@ -292,13 +291,17 @@ cachedOptions =
     withArg "--bin-exe" \ z a -> z {cachedBinPath = takeDirectory a : z.cachedBinPath}
   ]
   where
-    withArg name f = (name, \ argv z -> takeArg name argv (Right . f z))
+    withArg name f = (name, \ argv z -> takeOsPathArg name argv (Right . f z))
 
     takeArg name argv store = case argv of
       [] -> Left (name ++ " needs an argument")
       arg : rest -> do
         new <- store arg
         Right (rest, new)
+
+    takeOsPathArg name argv store = takeArg name argv $ \arg -> case encodeUtf arg of
+      Left e -> Left ("could not encode " ++ name ++ "=" ++ arg ++ ": " ++ show e)
+      Right p -> store p
 
 parseCachedBuckArgs :: [String] -> Either String CachedBuckArgs
 parseCachedBuckArgs =

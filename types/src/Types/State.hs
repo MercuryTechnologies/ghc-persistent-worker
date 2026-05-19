@@ -7,11 +7,12 @@ import Types.Grpc (CommandEnv, RequestArgs)
 import Types.State.Make (MakeState (..))
 import Types.State.Oneshot (OneshotState)
 import Types.Target (TargetSpec)
+import System.OsPath (OsPath)
 
 data BinPath =
   BinPath {
-    initial :: Maybe String,
-    extra :: Set String
+    initial :: Maybe OsPath,
+    extra :: Set OsPath
   }
   deriving stock (Eq, Show)
 

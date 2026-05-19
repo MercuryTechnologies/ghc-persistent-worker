@@ -16,6 +16,7 @@ import qualified Internal.State.Oneshot as Oneshot
 import qualified Internal.State.Stats as Stats
 import Internal.State.UnitIndex (newUnitIndex)
 import System.Environment (lookupEnv)
+import System.OsPath.Extra (toOsPath)
 import Types.Args (TargetId (..))
 import Types.Log (Logger (..))
 import Types.State (BinPath (..), WorkerState (..), defaultOptions)
@@ -46,7 +47,7 @@ newStateWith features = do
   unitIndex <- newUnitIndex
   newMVar WorkerState {
     path = BinPath {
-      initial = initialPath,
+      initial = toOsPath <$> initialPath,
       extra = mempty
     },
     baseSession = Nothing,
