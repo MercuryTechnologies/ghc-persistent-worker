@@ -77,7 +77,7 @@ data CachedDep =
   CachedDep {
     name :: JsonFs ModuleName,
     package :: JsonFs UnitId,
-    interfaces :: NonEmpty FilePath
+    interfaces :: NonEmpty OsPath
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
@@ -135,9 +135,9 @@ data CachedUnit =
   CachedUnit {
     build_plan :: Maybe (Map (JsonFs ModuleName) CachedModule),
     cache :: Maybe (Map (JsonFs ModuleName) CachedModule),
-    unit_args :: Maybe FilePath,
-    unit_buck_args :: Maybe FilePath,
-    dep_units :: Maybe FilePath
+    unit_args :: Maybe OsPath,
+    unit_buck_args :: Maybe OsPath,
+    dep_units :: Maybe OsPath
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
@@ -145,7 +145,7 @@ data CachedUnit =
 data CachedBuildPlan =
   CachedBuildPlan {
     name :: JsonFs UnitId,
-    build_plan :: FilePath
+    build_plan :: OsPath
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)

@@ -67,9 +67,10 @@ import System.OsPath.Extra (splitExtension, toOsPath)
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
 import Internal.Error (eitherMessages)
-import System.OsPath.Extra (fromOsPath)
 
 #endif
+
+import System.OsPath.Extra (OsPath, fromOsPath)
 
 -- | Add a fresh 'HomeUnitEnv' to the home unit graph using the supplied unit state and dependencies.
 insertHomeUnit ::
@@ -118,9 +119,9 @@ addHomeUnitTo hsc_env dflags = do
   where
     unit = dflags.homeUnitId_
 
-decodeJsonBuildPlan :: FilePath -> IO CachedUnit
+decodeJsonBuildPlan :: OsPath -> IO CachedUnit
 decodeJsonBuildPlan =
-  eitherDecodeFileStrict' >=> \case
+  eitherDecodeFileStrict' . fromOsPath >=> \case
     Right a -> pure a
     Left err -> throwIO (userError err)
 
@@ -173,10 +174,10 @@ loadCachedModule hsc_env unit (JsonFs modName) CachedModule {source, modules, pa
 -- At the moment, this only includes the @$PATH@ variable, which is relevant even when restoring the module graph from
 -- cache because we're parsing the source code, which might include executing preprocessors.
 loadCachedArgs ::
-  FilePath ->
+  OsPath ->
   StateT WorkerState IO ()
 loadCachedArgs path = do
-  cachedArgs <- liftIO $ readFile path
+  cachedArgs <- liftIO $ readFile (fromOsPath path)
   case parseCachedBuckArgs (lines cachedArgs) of
     Right args -> modifyM (setupPath args.cachedBinPath)
     Left err -> liftIO $ throwIO (userError err)
@@ -187,10 +188,10 @@ loadCachedArgs path = do
 readParseGHCArgs ::
   HscEnv ->
   DynFlags ->
-  FilePath ->
+  OsPath ->
   IO DynFlags
 readParseGHCArgs hsc_env0 dflags0 args_file = do
-  args <- readFile args_file
+  args <- readFile (fromOsPath args_file)
   (dflags1, _, _, _) <- parseFlags dflags0 hsc_env0.hsc_logger (buckLocation <$> lines args)
   pure dflags1
 

@@ -12,7 +12,7 @@ import Data.Set (Set)
 import GHC.Unit.Types (UnitId (..))
 import Language.Haskell.Syntax.Module.Name (ModuleName (..))
 import System.Directory.OsPath (createDirectoryIfMissing)
-import System.OsPath.Extra (OsPath, fromOsPath, decodeUtf, osp, toOsPath, (<.>), (</>))
+import System.OsPath.Extra (OsPath, fromOsPath, osp, toOsPath, (<.>), (</>))
 import Test.Build (metadataArgs)
 import Test.Data.Env (SessionEnv (..))
 import Test.Data.Project (
@@ -42,11 +42,11 @@ import Types.CachedDeps (
   )
 
 -- | Write the GHC arguments used to construct a unit state to a file, as it is done by Buck.
-writeUnitArgs :: OsPath -> [String] -> UnitKey -> IO FilePath
+writeUnitArgs :: OsPath -> [String] -> UnitKey -> IO OsPath
 writeUnitArgs tempDir ghcOptions unit = do
   createDirectoryIfMissing True dir
-  argsPath <- decodeUtf (dir </> [osp|unit_args|])
-  writeFile argsPath (unlines ghcOptions)
+  let argsPath = dir </> [osp|unit_args|]
+  writeFile (fromOsPath argsPath) (unlines ghcOptions)
   pure argsPath
   where
     dir = tempDir </> unitCacheDir unit
@@ -55,25 +55,25 @@ cachedBuildPlan :: OsPath -> UnitKey -> CachedBuildPlan
 cachedBuildPlan tempDir d =
   CachedBuildPlan {
     name = jsonFsFromString (unitName d),
-    build_plan = fromOsPath (tempDir </> unitCacheDir d </> [osp|cached_unit.json|])
+    build_plan = tempDir </> unitCacheDir d </> [osp|cached_unit.json|]
   }
 
 -- | Write the build plan index for a unit to a file.
 -- These are consumed by both metadata and compile steps, and in the former we don't need to read them from files, so we
 -- return them for direct use as well.
-writeBuildPlans :: OsPath -> UnitKey -> [UnitKey] -> IO (FilePath, CachedBuildPlans)
+writeBuildPlans :: OsPath -> UnitKey -> [UnitKey] -> IO (OsPath, CachedBuildPlans)
 writeBuildPlans tempDir unit depUnits = do
-  Aeson.encodeFile outFile plans
+  Aeson.encodeFile (fromOsPath outFile) plans
   pure (outFile, plans)
   where
-    outFile = fromOsPath (tempDir </> unitCacheDir unit </> [osp|dep_units.json|])
+    outFile = tempDir </> unitCacheDir unit </> [osp|dep_units.json|]
     plans = CachedBuildPlans (cachedBuildPlan tempDir <$> depUnits)
 
 -- | The full cache dataset describing a unit, used by compile steps to restore unit states in resume builds.
 cachedUnit ::
   Map (JsonFs ModuleName) CachedModule ->
-  FilePath ->
-  FilePath ->
+  OsPath ->
+  OsPath ->
   CachedUnit
 cachedUnit build_plan args depUnits =
   CachedUnit {
@@ -158,7 +158,7 @@ moduleCache env key deps =
     depKeys = [m | TaskCompile m <- Set.toList deps]
 
     interfacePath dc =
-      fromOsPath (env.tempDir </> unitOutputDir dc.unit </> toOsPath (moduleName dc) <.> [osp|dyn_hi|])
+      env.tempDir </> unitOutputDir dc.unit </> toOsPath (moduleName dc) <.> [osp|dyn_hi|]
 
 -- | Bundle a build task with its associated cache data for the resume build.
 cacheTask ::
