@@ -60,14 +60,14 @@ import GHC.Driver.Config.Finder (initFinderOpts)
 import GHC.Types.SourceFile (HscSource (HsSrcFile))
 import GHC.Unit.Finder (addHomeModuleToFinder, mkHomeModLocation)
 import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
-import System.FilePath (splitExtension)
-import System.OsPath.Extra (toOsPath)
+import System.OsPath.Extra (splitExtension, toOsPath)
 
 #else
 
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
 import Internal.Error (eitherMessages)
+import System.OsPath.Extra (fromOsPath)
 
 #endif
 
@@ -161,7 +161,7 @@ loadCachedModule hsc_env unit (JsonFs modName) CachedModule {source, modules, pa
 #else
 
     createNode src _ = do
-      summResult <- summariseFile hsc_env (DefiniteHomeUnit unit Nothing) mempty src Nothing Nothing
+      summResult <- summariseFile hsc_env (DefiniteHomeUnit unit Nothing) mempty (fromOsPath src) Nothing Nothing
       eitherMessages GhcDriverMessage summResult
 
 #endif

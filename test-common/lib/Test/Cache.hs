@@ -96,7 +96,7 @@ cachedPackageDep depMods@(ModuleKey {unit} :| _) =
 cachedModule :: SessionEnv -> UnitKey -> BuildModule -> CachedModule
 cachedModule env unit BuildModule {key, deps} =
   CachedModule {
-    source = fromOsPath (env.sourceDir </> moduleSourcePath key),
+    source = env.sourceDir </> moduleSourcePath key,
     modules = jsonFsFromString . moduleName <$> foldMap toList home,
     packages = cachedPackageDep <$> packages
   }

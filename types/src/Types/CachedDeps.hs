@@ -26,6 +26,7 @@ import GHC.Data.FastString (FastString, bytesFS, mkFastString, mkFastStringByteS
 import GHC.Generics (Generic)
 import GHC.Unit (UnitId (..))
 import GHC.Utils.Outputable (showPprUnsafe)
+import System.OsPath.Extra (OsPath, toOsPath)
 
 newtype JsonFs a =
   JsonFs a
@@ -109,7 +110,7 @@ instance FromJSON CachedPackageDep where
 
 data CachedModule =
   CachedModule {
-    source :: FilePath,
+    source :: OsPath,
     modules :: [JsonFs ModuleName],
     packages :: [CachedPackageDep]
   }
@@ -125,8 +126,8 @@ instance FromJSON CachedModule where
       modules <- o .: "modules"
       packages <- o .: "packages"
       case (mb_source, mb_sources) of
-        (Just source, _) -> pure CachedModule {..}
-        (Nothing, Just (source : _)) -> pure CachedModule {..}
+        (Just source, _) -> pure CachedModule {source=toOsPath source,..}
+        (Nothing, Just (source : _)) -> pure CachedModule {source=toOsPath source,..}
         (Nothing, Just _) -> fail "No 'source' and 'sources' does not contain exactly one element"
         (Nothing, Nothing) -> fail "Neither 'source' nor 'sources'"
 

@@ -19,6 +19,7 @@ import GHC.Unit.Module.Graph (ModuleGraph, NodeKey)
 import GHC.Unit.Module.ModSummary (isBootSummary)
 import GHC.Utils.Outputable (Outputable (..), text)
 import Types.CachedDeps (CachedModule, JsonFs (..))
+import System.OsPath.Extra (OsPath)
 
 data Dep =
   Dep {
@@ -59,9 +60,9 @@ packageKey unit =
 -- | All data required to compute the individual build plan fields for one home module.
 data BuildPlanModule =
   BuildPlanModule {
-    source :: FilePath,
+    source :: OsPath,
     -- Legacy field
-    sources :: [FilePath],
+    sources :: [OsPath],
     boot :: Bool,
     modules :: [(ModuleKey, JsonFs ModuleName)],
     modulesBoot :: [(ModuleKey, JsonFs ModuleName)],

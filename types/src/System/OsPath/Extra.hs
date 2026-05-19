@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
 module System.OsPath.Extra
   ( OsPathDecodingException (..)
   , OsPathEncodingException (..)
@@ -8,6 +9,8 @@ module System.OsPath.Extra
   , module OsPathReexport
   ) where
 
+import Data.Aeson (ToJSON (..), Value (..))
+import qualified Data.Text as T
 import Control.Exception (Exception, SomeException, throw)
 import Control.Monad.Catch (MonadThrow, throwM)
 import qualified System.OsPath as OsPath (decodeUtf, encodeUtf)
@@ -41,3 +44,7 @@ encodeUtf p = either (throwM . OsPathEncodingException p) pure (OsPath.encodeUtf
 -- | Like 'decodeUtf' but provides the filepath in exceptions
 decodeUtf :: MonadThrow m => OsPath -> m String
 decodeUtf p = either (throwM . OsPathDecodingException p) pure (OsPath.decodeUtf p)
+
+instance ToJSON OsPath where
+  toEncoding = toEncoding . fromOsPath
+  toJSON = String . T.pack . fromOsPath
