@@ -48,7 +48,6 @@ library
     Types.State
     Types.State.Finder
     Types.State.Make
-    Types.State.Oneshot
     Types.State.Stats
     Types.Target
     System.OsPath.Extra
