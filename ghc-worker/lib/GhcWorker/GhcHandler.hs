@@ -36,7 +36,6 @@ import qualified Types.BuckArgs
 import Types.BuckArgs (BuckArgs, IsInterpreted (..), Mode (..), parseBuckArgs, toGhcArgs)
 import Types.Env (Env (..))
 import Types.FeatureFlags (FeatureFlags (..))
-import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (RequestArgs (..))
 import Types.Log (Logger (..), TraceId, newLog)
 import Types.State (WorkerState (..))
@@ -74,13 +73,12 @@ compileAndReadAbiHash ghcMode compile hooks args target = do
 -- single module for 'ModeCompile' (@-c@), or computing and writing the module graph to a JSON file for 'ModeMetadata'
 -- (@-M@).
 dispatch ::
-  WorkerMode ->
   Hooks ->
   Env ->
   BuckArgs ->
   (TargetSpec -> IO FeatureInstrument) ->
   IO (Int32, Maybe TargetSpec)
-dispatch workerMode hooks env args targetCallback =
+dispatch hooks env args targetCallback =
   case args.mode of
     Just ModeCompile -> do
       (code, result) <- do
@@ -94,17 +92,16 @@ dispatch workerMode hooks env args targetCallback =
     Just m -> error ("worker: mode not implemented: " ++ show m)
     Nothing -> error "worker: no mode specified"
   where
-    compile = case workerMode of
-      WorkerMakeMode
-        | Just target <- env.args.moduleTarget -> do
-          if args.interp == Interpreted
-          then
-            env.log.setTarget (TargetModuleInterp target)
-          else
-            env.log.setTarget (TargetModule target)
-          withGhcMakeModule args.interp target env (withTarget compileHpt)
-        | otherwise ->
-          withGhcMakeSource env (withTarget compileHpt . TargetSource)
+    compile = case env.args.moduleTarget of
+      Just target -> do
+        if args.interp == Interpreted
+        then
+          env.log.setTarget (TargetModuleInterp target)
+        else
+          env.log.setTarget (TargetModule target)
+        withGhcMakeModule args.interp target env (withTarget compileHpt)
+      Nothing ->
+        withGhcMakeSource env (withTarget compileHpt . TargetSource)
 
     compileHpt = compileAndReadAbiHash CompManager (compileModuleWithDepsInHpt env.log) hooks args
 
@@ -156,12 +153,11 @@ processResult hooks logger _stateVar result = do
 ghcHandler ::
   -- | first req lock hack
   MVar WorkerState ->
-  WorkerMode ->
   FeatureFlags ->
   FeatureInstrument ->
   Maybe TraceId ->
   InstrumentedHandler
-ghcHandler state workerMode features instrument traceId =
+ghcHandler state features instrument traceId =
   InstrumentedHandler \ hooks -> GrpcHandler \ commandEnv argv -> do
     log <- newLogger <$> newLog traceId
     result <- try do
@@ -169,8 +165,8 @@ ghcHandler state workerMode features instrument traceId =
       args <- toGhcArgs buckArgs (Just features)
       log.debug (unlines (coerce argv))
       let env = Env {log, state, args = args}
-      dispatch workerMode hooks env buckArgs $ \ target -> do
-        when instrument.flag $
+      dispatch hooks env buckArgs \ target -> do
+        when instrument.flag do
           modifyMVar_ state \ st ->
             pure $ st {targetArgs = Map.insert target (commandEnv, argv) st.targetArgs}
         pure instrument

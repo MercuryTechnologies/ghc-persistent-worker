@@ -34,7 +34,6 @@ import Options.Applicative (
   (<**>),
   )
 import Types.FeatureFlags (FeatureFlag (..), FeatureFlags (..), defaultFeatureFlags)
-import Types.GhcHandler (WorkerMode (..))
 import Types.Grpc (CommandEnv, RequestArgs)
 import Types.Instrument (Event)
 import Types.Log (TraceId (..))
@@ -47,9 +46,6 @@ import System.OsPath.Extra (toOsPath)
 -- 'BuckArgs'.
 data CliOptions =
   CliOptions {
-    -- | The worker implementation: Make mode or oneshot mode.
-    workerMode :: WorkerMode,
-
     -- | If this is given, the app should start a GHC server synchronously, listening on the given path.
     serve :: ServerSocketPath,
 
@@ -86,7 +82,7 @@ cliOptionsParser = do
   serve <- serverSocketFromPath . toOsPath <$> strOption (long "serve" <> metavar "SOCKET" <> help "Socket path for the GHC server")
   instrument <- FeatureInstrument <$> switch (long "instrument" <> help "Enable instrumentation")
   features <- featureFlagsParser
-  pure CliOptions {workerMode = WorkerMakeMode, ..}
+  pure CliOptions {..}
 
 cliOptionsParserInfo :: ParserInfo CliOptions
 cliOptionsParserInfo =
@@ -108,22 +104,21 @@ createInstrumentMethods stateVar recompile = do
 -- | Construct a gRPC server handler for the main part of the persistent worker.
 createGhcMethods ::
   MVar WorkerState ->
-  WorkerMode ->
   FeatureFlags ->
   FeatureInstrument ->
   MVar WorkerStatus ->
   Maybe TraceId ->
   Maybe (Chan Event) ->
   IO (CommandEnv -> RequestArgs -> IO (), Methods IO (ProtobufMethodsOf Worker))
-createGhcMethods state workerMode features instrument status traceId instrChan =
-  let handler = toGrpcHandler (ghcHandler state workerMode features instrument traceId) status state instrChan
+createGhcMethods state features instrument status traceId instrChan =
+  let handler = toGrpcHandler (ghcHandler state features instrument traceId) status state instrChan
       voidRun commandEnv requestArgs =
         void $ handler.run commandEnv requestArgs
   in pure (voidRun, fromGrpcHandler handler)
 
 -- | Main function for running the default persistent worker using the provided server socket path and CLI options.
 runWorker :: CliOptions -> IO ()
-runWorker CliOptions {workerMode, serve, instrument, features} = do
+runWorker CliOptions {serve, instrument, features} = do
   state <- newStateWith OneshotCacheFeatures {
     loader = False,
     enable = True,
@@ -135,7 +130,7 @@ runWorker CliOptions {workerMode, serve, instrument, features} = do
   let
     methods = CreateMethods {
       createInstrumentation = createInstrumentMethods state,
-      createGhc = createGhcMethods state workerMode features instrument status traceId
+      createGhc = createGhcMethods state features instrument status traceId
     }
   runCentralGhcSpawned methods instrument serve
   where
