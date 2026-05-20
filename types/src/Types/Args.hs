@@ -10,7 +10,7 @@ import Data.Map.Strict ((!?))
 import GHC.Paths (libdir)
 import GHC.Unit (UnitId)
 import GHC.Utils.Outputable (showPprUnsafe)
-import System.OsPath.Extra (OsPath)
+import System.OsPath.Extra (OsPath, toOsPath)
 import Types.CachedDeps (CachedBuildPlans, CachedDeps)
 import Types.Target (ModuleTarget)
 
@@ -88,7 +88,7 @@ data Args =
     topdir :: Maybe String,
     workerTargetId :: Maybe TargetId,
     binPath :: [OsPath],
-    tempDir :: Maybe String,
+    tempDir :: Maybe OsPath,
     unit :: Maybe UnitName,
     buildPlan :: Maybe OsPath,
     -- | The build plan fields included in the JSON.
@@ -108,7 +108,7 @@ emptyArgs env =
     topdir = Just libdir,
     workerTargetId = Nothing,
     binPath = [],
-    tempDir = env !? "TMPDIR",
+    tempDir = toOsPath <$> (env !? "TMPDIR"),
     unit = Nothing,
     buildPlan = Nothing,
     fields = Nothing,

@@ -69,7 +69,7 @@ runBuildTask ::
   IO RequestResult
 runBuildTask env label tempName expectedCodes action =
   withTestLog False label \ (log, logVar) -> do
-    let taskEnv = env.env {log, args = env.env.args {Args.tempDir = Just (fromOsPath tempDir)}}
+    let taskEnv = env.env {log, args = env.env.args {Args.tempDir = Just tempDir}}
     createDirectoryIfMissing True tempDir
     success <- action taskEnv
     testLog <- readIORef logVar

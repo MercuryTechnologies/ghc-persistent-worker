@@ -55,10 +55,10 @@ import Types.Log (Logger (..))
 import Types.State (Options (..), WorkerState (..))
 import Types.State.Make (MakeState (..))
 import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
-import System.OsPath.Extra (toOsPath)
+import System.OsPath.Extra (OsPath, fromOsPath, toOsPath)
 
-setTempDir :: String -> HscEnv -> HscEnv
-setTempDir dir = hscUpdateFlags \ dflags -> dflags {tmpDir = TempDir dir}
+setTempDir :: OsPath -> HscEnv -> HscEnv
+setTempDir dir = hscUpdateFlags \ dflags -> dflags {tmpDir = TempDir (fromOsPath dir)}
 
 -- | Run a program with fresh 'DynFlags' constructed from command line args.
 -- Passes the flags and the unprocessed args to the callback, which usually consist of the file or module names intended
