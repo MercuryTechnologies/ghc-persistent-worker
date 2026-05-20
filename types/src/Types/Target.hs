@@ -4,16 +4,17 @@ import Data.String (IsString (fromString))
 import GHC (Module, moduleName, moduleNameString)
 import GHC.Unit (UnitId, moduleUnitId, unitIdString)
 import GHC.Utils.Outputable (Outputable (..), showPprUnsafe, text, (<+>))
+import System.OsPath.Extra (OsPath, fromOsPath)
 
 -- | The path to the source file the worker is currently compiling.
 -- used primarily to index maps in the state and for logging.
 newtype Target =
-  Target { path :: FilePath }
+  Target { path :: OsPath }
   deriving stock (Eq, Show)
   deriving newtype (Ord)
 
 instance Outputable Target where
-  ppr (Target path) = text path
+  ppr (Target path) = text (fromOsPath path)
 
 newtype ModuleTarget =
   ModuleTarget { mod :: Module }
@@ -45,7 +46,7 @@ data TargetSpec =
 
 renderTargetSpec :: IsString a => TargetSpec -> a
 renderTargetSpec = \case
-  TargetSource (Target path) -> fromString path
+  TargetSource (Target path) -> fromString $ fromOsPath path
   TargetModule (ModuleTarget m) -> fromString (unitIdString (moduleUnitId m) ++ ":" ++ moduleNameString (moduleName m))
   TargetModuleInterp (ModuleTarget m) -> fromString (unitIdString (moduleUnitId m) ++ ":" ++ moduleNameString (moduleName m) ++ ":<interpreted>")
   TargetUnit (UnitTarget unit) -> fromString (unitIdString unit)
@@ -56,7 +57,7 @@ instance Ord TargetSpec where
 
 instance Outputable TargetSpec where
   ppr = \case
-    TargetSource (Target path) -> text path
+    TargetSource (Target path) -> text (fromOsPath path)
     TargetModule (ModuleTarget m) -> ppr m
     TargetModuleInterp (ModuleTarget m) -> ppr m <+> text "<interp>"
     TargetUnit (UnitTarget unit) -> ppr unit

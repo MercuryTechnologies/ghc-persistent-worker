@@ -27,6 +27,7 @@ import Types.State.Stats (
   SymbolsStats (..),
   )
 import Types.Target (Target (..))
+import System.OsPath.Extra (fromOsPath)
 
 basicLinkerStats :: LinkerEnv -> LinkerEnv -> LinkerStats
 basicLinkerStats base update =
@@ -131,7 +132,7 @@ report logger workerId target stats = do
   let memory = fromIntegral (s.gc.gcdetails_mem_in_use_bytes) / 1000000
   logger.infoD (hang header 2 (reportMessages target stats memory))
   where
-    header = text target.path Outputable.<> maybe (text "") workerDesc workerId Outputable.<> text ":"
+    header = text (fromOsPath target.path) Outputable.<> maybe (text "") workerDesc workerId Outputable.<> text ":"
 
     workerDesc wid = text (" (" ++ wid.string ++ ")")
 

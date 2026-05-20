@@ -45,6 +45,7 @@ import Internal.State (ModuleArtifacts (..))
 import Internal.UnitEnv (addDepsToHscEnv)
 import Types.Log (Logger (..))
 import Types.Target (ModuleTarget (..), Target (..), TargetSpec (..))
+import System.OsPath.Extra (fromOsPath)
 
 -- | Update the location of the result of @summariseFile@ to point to the locations specified on the command line, since
 -- these are placed in the source file's directory by that function.
@@ -118,7 +119,7 @@ ensureSummary logger hsc_env = \case
     logTimedD logger ("Fetching ModSummary for" <+> ppr m <+> "from module graph") do
       lookupSummary logger hsc_env m
   TargetSource (Target src) -> do
-    computeSummary logger hsc_env src
+    computeSummary logger hsc_env (fromOsPath src)
   TargetUnit unit ->
     throwGhcExceptionIO (PprProgramError "Specified target unit for compile request" (ppr unit))
   TargetUnknown spec ->

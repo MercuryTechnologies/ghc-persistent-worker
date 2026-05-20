@@ -31,6 +31,7 @@ import GHC.Utils.Outputable (ppr, text)
 import GHC.Utils.Panic (panic, throwGhcExceptionIO)
 import Internal.State (ModuleArtifacts (..))
 import System.Directory (doesFileExist)
+import System.OsPath.Extra (OsPath, fromOsPath)
 import Types.Target (Target (Target), TargetSpec (..))
 
 type P m = TPipelineClass TPhase m
@@ -75,13 +76,13 @@ setDumpPrefix :: PipeEnv -> HscEnv -> HscEnv
 setDumpPrefix pipe_env hsc_env =
   hscUpdateFlags (\dflags -> dflags { dumpPrefix = src_basename pipe_env ++ "."}) hsc_env
 
-compileFile :: HscEnv -> FilePath -> IO (Maybe ModuleArtifacts)
+compileFile :: HscEnv -> OsPath -> IO (Maybe ModuleArtifacts)
 compileFile hsc_env src = do
    unlessM (doesFileExist offset_file) do
      throwGhcExceptionIO (CmdLineError ("does not exist: " ++ offset_file))
    runPipeline (hsc_hooks hsc_env) pipeline
    where
-    offset_file = augmentByWorkingDirectory dflags src
+    offset_file = augmentByWorkingDirectory dflags (fromOsPath src)
     dflags = hsc_dflags hsc_env
     mb_o_file = outputFile dflags
     ghc_link = ghcLink dflags

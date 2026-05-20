@@ -55,6 +55,7 @@ import Types.Log (Logger (..))
 import Types.State (Options (..), WorkerState (..))
 import Types.State.Make (MakeState (..))
 import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
+import System.OsPath.Extra (toOsPath)
 
 setTempDir :: String -> HscEnv -> HscEnv
 setTempDir dir = hscUpdateFlags \ dflags -> dflags {tmpDir = TempDir dir}
@@ -146,7 +147,7 @@ simpleSessionWithDebugLog state args ma =
 -- Wrap it in 'Target' or terminate.
 ensureSingleTarget :: [(String, Maybe Phase)] -> Ghc Target
 ensureSingleTarget = \case
-  [(src, Nothing)] -> pure (Target src)
+  [(src, Nothing)] -> pure (Target $ toOsPath src)
   [(_, phase)] -> panic ("Called worker with unexpected start phase: " ++ show phase)
   args -> panic ("Called worker with multiple source targets: " ++ show args)
 
