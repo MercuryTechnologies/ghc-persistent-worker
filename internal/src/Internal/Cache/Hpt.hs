@@ -23,14 +23,17 @@ import GHC.Driver.Session (targetProfile)
 import GHC.Iface.Binary (CheckHiWay (..), TraceBinIFace (QuietBinIFace), readBinIface)
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
 import GHC.Iface.Errors.Types (ReadInterfaceError (..))
-import GHC.Linker.Types (Linkable (..))
+import GHC.Linker.Types (Linkable (..), LinkablePart (..))
 import GHC.Types.Avail (AvailInfo (..))
 import GHC.Types.Name (nameOccName)
 import GHC.Types.Name.Occurrence (mkOccEnv)
 import GHC.Types.Name.Reader (GlobalRdrEltX (..), Parent (NoParent))
 import GHC.Unit (Definite (..), GenUnit (..), UnitId)
 import GHC.Unit.Env (UnitEnv (..))
+import GHC.Unit.Home.Graph (unitEnv_lookup_maybe)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
+import GHC.Unit.Home.PackageTable (addHomeModInfoToHpt, lookupHpt)
+import GHC.Unit.Module.Location (pattern ModLocation)
 import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Unit.Module.ModIface (IfaceTopEnv (..), set_mi_top_env)
 import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
@@ -40,7 +43,6 @@ import GHC.Utils.Panic (throwGhcExceptionIO, tryMost)
 import Internal.Cache.Metadata (loadCachedUnit, loadCachedUnits, readParseGHCArgs)
 import Internal.Compat.GHC914 (setExtraDecls)
 import Internal.Log (logTimed)
-import Internal.UnitEnv (addHomeModInfoToHpt, lookupHpt, unitEnv_member)
 import Prelude hiding (log)
 import Types.BuckArgs (IsInterpreted (Compiled, Interpreted), decodeJsonArg)
 import Types.CachedDeps (CachedDep (..), CachedDeps (..), CachedUnit (..), JsonFs (..))
@@ -49,33 +51,15 @@ import Types.Log (Logger (..))
 import Types.State (WorkerState)
 import System.OsPath.Extra (OsPath, fromOsPath)
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0) || defined(MWB)
-
-import GHC.Unit.Module.Location (pattern ModLocation)
-
-#endif
-
 #if defined(MWB)
 
 import GHC.Unit.Module.ModIface (mi_foreign)
 
-#endif
-
-#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+#elif MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
 import GHC.Types.Avail (sortAvails)
 import GHC.Types.Name.Reader (globalRdrEnvElts, gresToAvailInfo)
 import GHC.Unit.Module.ModIface (mi_sc_extra_decls, mi_sc_foreign)
-
-#endif
-
-#if defined(MWB) || MIN_VERSION_GLASGOW_HASKELL(9,12,0,0)
-
-import GHC.Linker.Types (LinkablePart (..))
-
-#else
-
-import GHC.Linker.Types (Unlinked (..))
 
 #endif
 
@@ -113,22 +97,12 @@ loadCachedByteCode hsc_env ifaceFile iface details =
       mi_extra_decls iface <&> \ wcb_bindings ->
         WholeCoreBindings {wcb_mod_location, wcb_foreign = mi_foreign iface, wcb_module = mi_module iface, ..}
 
-#else
-
-    core_bindings =
-      mi_extra_decls iface <&> \ wcb_bindings ->
-        WholeCoreBindings {wcb_mod_location, wcb_module = mi_module iface, ..}
-
 #endif
 
     bcoLinkable parts = do
       if_time <- modificationTimeIfExists (ml_hi_file wcb_mod_location)
       time <- maybe getCurrentTime pure if_time
-#if defined(MWB) || MIN_VERSION_GLASGOW_HASKELL(9,12,0,0)
       return $! Linkable time (mi_module iface) parts
-#else
-      return $! LM time (mi_module iface) parts
-#endif
 
 -- | If the given module name is missing from the HPT, load the given interface from disk and store it in the module's
 -- 'HomeModInfo'.
@@ -161,7 +135,8 @@ loadCachedDep log interp name hsc_env ifaceFile = do
           hm_linkable = HomeModLinkable {homeMod_object = Nothing, homeMod_bytecode},
           hm_details
         }
-        addHomeModInfoToHpt hsc_env name new hpt
+        addHomeModInfoToHpt new hpt
+        pure hsc_env
 
     -- @readIface@ needs the dflags only for platform/ways, so we don't need the unit dflags
     loadIface =
@@ -216,7 +191,7 @@ loadCachedDep log interp name hsc_env ifaceFile = do
 
 hasUnit :: UnitId -> HscEnv -> Bool
 hasUnit uid hsc_env =
-  unitEnv_member uid hsc_env.hsc_unit_env.ue_home_unit_graph
+  isJust $ unitEnv_lookup_maybe uid hsc_env.hsc_unit_env.ue_home_unit_graph
 
 -- | Load all dependencies of the current module from the Buck cache into the HPT if they don't exist.
 --

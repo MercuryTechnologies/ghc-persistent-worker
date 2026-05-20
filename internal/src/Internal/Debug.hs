@@ -4,33 +4,20 @@ module Internal.Debug where
 
 import qualified Data.Map.Strict as Map
 import Data.Traversable (for)
-import GHC (DynFlags (..), IsBootInterface (..), Module, mi_module, moduleName)
+import GHC (DynFlags (..), IsBootInterface (..), ModSummary (..), Module, mi_module, moduleName)
 import GHC.Fingerprint (fingerprintString)
 import GHC.Types.Unique.Map (nonDetEltsUniqMap)
 import GHC.Unit (UnitDatabase (..), UnitId, UnitState (..), homeUnitId, moduleEnvToList, moduleUnitId, unitPackageId)
 import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..))
 import GHC.Unit.External (ExternalPackageState (..), eucEPS)
+import GHC.Unit.Home.Graph (UnitEnvGraph (..))
+import GHC.Unit.Home.PackageTable (HomePackageTable (..), pprHPT)
 import GHC.Unit.Module.Graph (ModuleGraph)
+import GHC.Unit.Module.ModSummary (isBootSummary)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (Outputable, SDoc, hang, hcat, ppr, text, vcat, (<+>))
 import System.FilePath ((</>))
 import Types.Target (TargetSpec, renderTargetSpec)
-
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
-
-import GHC (ModSummary (..))
-import GHC.Unit.Home.Graph (UnitEnvGraph (..))
-import GHC.Unit.Home.PackageTable (HomePackageTable (..), pprHPT)
-import GHC.Unit.Module.ModSummary (isBootSummary)
-
-#else
-
-import GHC.Types.Unique.DFM (udfmToList)
-import GHC.Unit.Env (UnitEnvGraph (..))
-import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomePackageTable, hm_iface)
-import GHC.Utils.Outputable (comma, punctuate)
-
-#endif
 
 #if defined(FIXED_NODES)
 
@@ -38,16 +25,7 @@ import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 
 #endif
 
-#if !MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) && !defined(MWB)
-
-import Data.Foldable (toList)
-import GHC.Unit.Module.Graph (mgTransDeps)
-
-#else
-
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries')
-
-#endif
 
 #if defined(UNIT_INDEX)
 
@@ -110,9 +88,7 @@ showModGraph g =
       -- UnitNode deps unit -> [hang (ppr unit <+> "->") 2 (vcat (ppr <$> deps))]
       _ -> []
 
-#else
-
-#if defined(MWB)
+#elif defined(MWB)
 
 showModGraph :: ModuleGraph -> SDoc
 showModGraph g =
@@ -121,14 +97,6 @@ showModGraph g =
     showOne = \case
       ModuleNode deps ms -> hang (pprModuleFull (ms_mod ms) (isBootSummary ms) <+> "->") 2 (vcat (ppr <$> deps))
       _ -> ""
-
-#else
-
-showModGraph :: ModuleGraph -> SDoc
-showModGraph g =
-  showMap (ppr . toList) (Map.toList (mgTransDeps g))
-
-#endif
 
 #endif
 
@@ -154,19 +122,8 @@ showHomeUnitDflags DynFlags {homeUnitId_} =
     ("homeUnitId", ppr homeUnitId_)
   ]
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
-
 showHpt :: HomePackageTable -> IO SDoc
 showHpt = pprHPT
-
-#else
-
-showHpt :: HomePackageTable -> IO SDoc
-showHpt hpt =
-  pure $ hcat (punctuate comma [ppr (mi_module hm_iface) | (_, HomeModInfo {..}) <- udfmToList hpt])
-   -- <+> ppr hm_linkable
-
-#endif
 
 showDbPath :: UnitDatabase UnitId -> SDoc
 showDbPath UnitDatabase {unitDatabasePath} =

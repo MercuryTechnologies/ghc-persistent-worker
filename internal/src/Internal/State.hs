@@ -7,6 +7,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
 import GHC (Ghc, emptyMG)
 import GHC.Driver.Monad (modifySessionM, withSession)
+import GHC.Unit.Home.Graph (unitEnv_new)
 import Internal.Debug (showHugShort, showModGraph)
 import qualified Internal.State.Make as Make
 import Internal.State.UnitIndex (newUnitIndex)
@@ -15,12 +16,6 @@ import System.OsPath.Extra (toOsPath)
 import Types.Log (Logger (..))
 import Types.State (BinPath (..), WorkerState (..), defaultOptions)
 import Types.State.Make (MakeState (..))
-
-#if MIN_VERSION_GLASGOW_HASKELL(9,11,0,0) || defined(MWB)
-import GHC.Unit.Home.Graph (unitEnv_new)
-#else
-import GHC.Unit.Env (unitEnv_new)
-#endif
 
 newState :: IO (MVar WorkerState)
 newState = do

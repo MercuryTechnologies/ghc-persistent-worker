@@ -2,12 +2,6 @@
 
 module Internal.Compile.Make where
 
-#if FIXED_NODES
-
-import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
-
-#endif
-
 import qualified GHC
 import GHC (
   DynFlags (..),
@@ -25,10 +19,9 @@ import GHC (
   mgLookupModule,
   )
 import GHC.Driver.DynFlags (gopt_set)
-import GHC.Driver.Env (HscEnv (..))
+import GHC.Driver.Env (HscEnv (..), hscInsertHPT)
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
-import GHC.Driver.Monad (modifySessionM)
 import GHC.Driver.Pipeline (compileOne)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit.Env (ue_unsafeHomeUnit)
@@ -42,10 +35,15 @@ import Internal.Debug (pprModuleFull)
 import Internal.DynFlags (mkTargetAsInterpreted)
 import Internal.Error (eitherMessages, noteGhc)
 import Internal.Log (logTimedD)
-import Internal.UnitEnv (addDepsToHscEnv)
 import Types.Log (Logger (..))
 import Types.Target (ModuleTarget (..), Target (..), TargetSpec (..))
 import System.OsPath.Extra (fromOsPath)
+
+#if FIXED_NODES
+
+import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
+
+#endif
 
 -- | Update the location of the result of @summariseFile@ to point to the locations specified on the command line, since
 -- these are placed in the source file's directory by that function.
@@ -153,7 +151,7 @@ compileModuleWithDepsInHpt logger target =
       result <- compileOne hsc_env' (forceRecomp summary) 1 100000 Nothing (HomeModLinkable Nothing Nothing)
       cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env') (hsc_tmpfs hsc_env') summary.ms_hspp_opts
       pure result
-    modifySessionM (liftIO . addDepsToHscEnv [hmi])
+    liftIO $ hscInsertHPT hmi hsc_env
     pure (Just hmi.hm_iface)
   where
     -- This bypasses another recompilation check in 'compileOne'

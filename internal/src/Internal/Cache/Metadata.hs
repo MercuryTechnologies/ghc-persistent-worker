@@ -23,6 +23,7 @@ import GHC.Driver.Session (updatePlatformConstants)
 import GHC.Unit (GenWithIsBoot (..), HomeUnit, UnitDatabase, UnitId (..), UnitState, initUnits)
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), updateHug)
 import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
+import GHC.Unit.Home.PackageTable (emptyHomePackageTable)
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
 import GHC.Utils.Outputable (comma, hcat, ppr, punctuate, quotes, text, (<+>))
 import Internal.Compat.GHC914 (moduleNodeEdge)
@@ -32,7 +33,6 @@ import Internal.Log (logTimed, logTimedD)
 import Internal.State (updateMakeState)
 import qualified Internal.State.Make as Make
 import Internal.State.Make (insertUnitEnv, storeModuleGraph)
-import Internal.UnitEnv (emptyHomePackageTable)
 import Types.BuckArgs (CachedBuckArgs (..), parseCachedBuckArgs)
 import Types.CachedDeps (
   CachedBuildPlan (..),

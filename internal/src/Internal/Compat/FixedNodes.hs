@@ -8,15 +8,18 @@ import GHC.Driver.Make (downsweep)
 import GHC.Unit.Module.Graph (ModNodeKeyWithUid, ModuleGraphNode (..))
 import GHC.Unit.Module.Location (ModLocation)
 
-#if defined(MWB) || !MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+#if defined(MWB)
 
 import GHC.Unit.Module.Graph (mkModuleGraph)
+
+#elif MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+
+import GHC.Types.Error (mkUnknownDiagnostic)
 
 #endif
 
 #if defined(FIXED_NODES)
 
-import GHC.Types.Error (mkUnknownDiagnostic)
 import GHC.Unit.Module.Graph (ModuleNodeEdge, ModuleNodeInfo (..))
 
 pattern CompileNode :: [ModuleNodeEdge] -> ModSummary -> ModuleGraphNode
@@ -54,10 +57,5 @@ downsweepCompat hsc_env summaries cache excl dup =
 
 downsweepCompat hsc_env summaries _ =
   downsweep hsc_env mkUnknownDiagnostic Nothing summaries
-
-#else
-
-downsweepCompat hsc_env summaries _ excl dup =
-  fmap mkModuleGraph <$> downsweep hsc_env summaries excl dup
 
 #endif

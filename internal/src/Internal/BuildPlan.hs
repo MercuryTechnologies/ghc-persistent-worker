@@ -29,6 +29,7 @@ import GHC.Types.Unique.Map (UniqMap)
 import GHC.Unit (GenWithIsBoot (..), UnitState (..))
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Module (IsBootInterface (..), ModLocation (..), ModuleName (..), UnitId (..))
+import GHC.Unit.Home.Graph (unitEnv_keys)
 import GHC.Unit.Module.Graph (
   ModNodeKeyWithUid (..),
   ModuleGraph,
@@ -73,26 +74,9 @@ import GHC.Unit.Module.Graph (isTemplateHaskellOrQQNonBoot)
 
 #endif
 
-#if defined(MWB) || MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
-
-import GHC.Unit.Home.Graph (unitEnv_keys)
-
-#else
-
-import GHC.Unit.Env (unitEnv_keys)
-
-#endif
-
 #if defined(DOWNSWEEP_CACHE)
 
 import GHC.Unit.Module.Graph (mgModSummaries)
-
-#endif
-
-#if !defined(MWB)
-
-ms_opts :: ModSummary -> [String]
-ms_opts _ = []
 
 #endif
 
@@ -145,7 +129,6 @@ buildPlanModule env (summary, depKeys) = do
     modules,
     modulesBoot,
     packages = modulePackageDeps env.unitNames env.packageModules depKeys,
-    options = Set.fromList (ms_opts summary),
     thEnabled = isTemplateHaskellOrQQNonBoot summary,
     preprocessor
   }

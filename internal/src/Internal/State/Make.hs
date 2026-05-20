@@ -1,31 +1,18 @@
 {-# LANGUAGE CPP #-}
-#define RECENT (MIN_VERSION_GLASGOW_HASKELL(9,14,0,0) || defined(MWB))
 
 module Internal.State.Make where
 
-import GHC.Driver.Env (HscEnv (..))
-import GHC.Unit.Env (UnitEnv (..))
-import GHC.Unit.Module.Graph (ModuleGraph)
-import Internal.State.Stats (logMemStats)
-import Internal.State.UnitIndex (restoreUnitIndex)
-import Internal.UnitEnv (mergeHugs)
-import Types.Log (Logger)
-import Types.State.Make (MakeState (..))
-
-#if RECENT
-
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_lookup)
-import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries', mkModuleGraph, mkNodeKey)
+import GHC.Driver.Env (HscEnv (..))
+import GHC.Unit.Env (UnitEnv (..))
+import GHC.Unit.Home.Graph (UnitEnvGraph (..), unitEnv_insert, unitEnv_lookup)
+import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), mgModSummaries', mkModuleGraph, mkNodeKey)
 import Internal.Compat.GHC914 (edgeTarget, moduleNodeEdge)
-
-#else
-
-import GHC.Unit.Env (unitEnv_insert, unitEnv_lookup)
-import GHC.Unit.Module.Graph (unionMG)
-
-#endif
+import Internal.State.Stats (logMemStats)
+import Internal.State.UnitIndex (restoreUnitIndex)
+import Types.Log (Logger)
+import Types.State.Make (MakeState (..))
 
 -- | Restore the shared state used by both @computeMetadata@ and @compileHpt@ from the cache.
 -- See 'loadCacheMakeCompile' for details.
@@ -75,7 +62,6 @@ loadStateCompile hsc_env0 state =
 -- There was also some issue with node duplication, which is why this function is so convoluted.
 storeModuleGraph :: ModuleGraph -> MakeState -> MakeState
 storeModuleGraph new state =
-#if RECENT
   state {moduleGraph = merged}
   where
     !merged = merge state.moduleGraph
@@ -92,9 +78,6 @@ storeModuleGraph new state =
         oldMap = Map.fromList $ [(mkNodeKey n, n) | n <- mgModSummaries' old]
 
         newMap = Map.fromList $ [(mkNodeKey n, n) | n <- mgModSummaries' new]
-#else
-    state {moduleGraph = unionMG state.moduleGraph new}
-#endif
 
 -- | Extract the unit env of the currently active unit and store it in the cache.
 -- This is used by the make mode worker after the metadata step has initialized the new unit.
@@ -115,6 +98,10 @@ storeState ::
   IO MakeState
 storeState logger hsc_env state = do
   logMemStats "store make state" logger
-  let !new = hsc_env.hsc_unit_env.ue_home_unit_graph
-      !hug = mergeHugs state.hug new
   pure state {hug}
+  where
+    !hug = UnitEnvGraph (new <> old)
+
+    UnitEnvGraph !new = hsc_env.hsc_unit_env.ue_home_unit_graph
+
+    UnitEnvGraph !old = state.hug
