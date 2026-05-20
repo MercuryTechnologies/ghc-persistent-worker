@@ -75,7 +75,6 @@ library
                       Internal.Compat.FixedNodes
                       Internal.Compat.GHC914
                       Internal.Compile.Make
-                      Internal.Compile.Oneshot
                       Internal.Debug
                       Internal.DynFlags
                       Internal.DynFlags.Options
@@ -89,7 +88,6 @@ library
                       Internal.State
                       Internal.State.Finder
                       Internal.State.Make
-                      Internal.State.Oneshot
                       Internal.State.Stats
                       Internal.State.UnitIndex
                       Internal.State.UnitIndex.Update
