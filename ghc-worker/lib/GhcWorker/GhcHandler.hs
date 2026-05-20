@@ -11,10 +11,10 @@ import Data.Coerce (coerce)
 import Data.Functor ((<&>))
 import Data.Int (Int32)
 import Data.Map qualified as Map
-import GHC (DynFlags (..), Ghc, getSession)
 #ifdef GHC_DEBUG
 import GHC.Debug.Stub (withGhcDebugUnix)
 #endif
+import GHC (DynFlags (..), Ghc, ModIface, getSession)
 import GHC.Driver.DynFlags (GhcMode (..))
 import GHC.Driver.Monad (reflectGhc, reifyGhc)
 import GhcWorker.CompileResult (CompileResult (..), writeResult)
@@ -29,7 +29,6 @@ import Internal.DynFlags (modifyGlobalFlags)
 import Internal.Log (newLogger)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (withGhcMakeModule, withGhcMakeSource)
-import Internal.State (ModuleArtifacts (..))
 import Prelude hiding (log)
 import Types.Args (Args (..))
 import qualified Types.BuckArgs
@@ -52,7 +51,7 @@ import Internal.State (dumpState)
 -- make-style implementation.
 compileAndReadAbiHash ::
   GhcMode ->
-  (TargetSpec -> Ghc (Maybe ModuleArtifacts)) ->
+  (TargetSpec -> Ghc (Maybe ModIface)) ->
   Hooks ->
   BuckArgs ->
   TargetSpec ->
@@ -60,14 +59,14 @@ compileAndReadAbiHash ::
 compileAndReadAbiHash ghcMode compile hooks args target = do
   liftIO $ hooks.compileStart args (Just target)
   modifyGlobalFlags \ d -> d {ghcMode}
-  compile target >>= traverse \ artifacts -> do
+  compile target >>= traverse \ iface -> do
     hsc_env <- getSession
     let
       abiHash :: Maybe AbiHash
       abiHash = do
         path <- args.abiOut
-        Just AbiHash {path, hash = showAbiHash hsc_env artifacts.iface}
-    pure CompileResult {artifacts, abiHash}
+        Just AbiHash {path, hash = showAbiHash hsc_env iface}
+    pure CompileResult {abiHash}
 
 -- | Process a worker request based on the operational mode specified in the request arguments, either compiling a
 -- single module for 'ModeCompile' (@-c@), or computing and writing the module graph to a JSON file for 'ModeMetadata'
@@ -81,11 +80,11 @@ dispatch ::
 dispatch hooks env args targetCallback =
   case args.mode of
     Just ModeCompile -> do
-      (code, result) <- do
-        result <- compile
-        code <- writeResult args (fst <$> result)
-        pure (code, result)
-      pure (code, snd <$> result)
+      compile >>= \case
+        Nothing -> pure (1, Nothing)
+        Just (CompileResult {abiHash}, target) -> do
+          writeResult args abiHash
+          pure (0, Just target)
     Just ModeMetadata -> do
       (success, target) <- computeMetadata env
       pure (if success then 0 else 1, target)

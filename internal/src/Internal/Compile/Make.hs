@@ -16,6 +16,7 @@ import GHC (
   GhcException (..),
   GhcMonad (..),
   IsBootInterface (..),
+  ModIface,
   ModLocation (..),
   pattern ModLocation,
   ModSummary (..),
@@ -41,7 +42,6 @@ import Internal.Debug (pprModuleFull)
 import Internal.DynFlags (mkTargetAsInterpreted)
 import Internal.Error (eitherMessages, noteGhc)
 import Internal.Log (logTimedD)
-import Internal.State (ModuleArtifacts (..))
 import Internal.UnitEnv (addDepsToHscEnv)
 import Types.Log (Logger (..))
 import Types.Target (ModuleTarget (..), Target (..), TargetSpec (..))
@@ -140,12 +140,12 @@ ensureSummary logger hsc_env = \case
 compileModuleWithDepsInHpt ::
   Logger ->
   TargetSpec ->
-  Ghc (Maybe ModuleArtifacts)
+  Ghc (Maybe ModIface)
 compileModuleWithDepsInHpt logger target =
   logTimedD logger "Compiling" do
     initializeSessionPlugins
     hsc_env <- getSession
-    hmi@HomeModInfo {hm_iface = iface, hm_linkable} <- liftIO do
+    hmi <- liftIO do
       summary <- ensureSummary logger hsc_env target
       let hsc_env'
             | TargetModuleInterp _ <- target = mkTargetAsInterpreted hsc_env (ms_mod summary)
@@ -154,7 +154,7 @@ compileModuleWithDepsInHpt logger target =
       cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env') (hsc_tmpfs hsc_env') summary.ms_hspp_opts
       pure result
     modifySessionM (liftIO . addDepsToHscEnv [hmi])
-    pure (Just ModuleArtifacts {iface, bytecode = homeMod_bytecode hm_linkable})
+    pure (Just hmi.hm_iface)
   where
     -- This bypasses another recompilation check in 'compileOne'
     forceRecomp summary =

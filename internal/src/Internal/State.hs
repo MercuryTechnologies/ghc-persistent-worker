@@ -5,10 +5,9 @@ module Internal.State where
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar, withMVar)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
-import GHC (Ghc, ModIface, emptyMG, mi_module, moduleName, moduleNameString, setSession)
 import GHC.Driver.Env (HscEnv (..))
+import GHC (Ghc, emptyMG, setSession)
 import GHC.Driver.Monad (modifySessionM, withSession)
-import GHC.Linker.Types (Linkable)
 import GHC.Unit.Module.Graph (ModuleGraph)
 import Internal.Debug (showHugShort, showModGraph)
 import qualified Internal.State.Make as Make
@@ -29,16 +28,6 @@ import GHC.Unit.Home.Graph (unitEnv_new)
 #else
 import GHC.Unit.Env (unitEnv_new)
 #endif
-
-data ModuleArtifacts =
-  ModuleArtifacts {
-    iface :: ModIface,
-    bytecode :: Maybe Linkable
-  }
-
-instance Show ModuleArtifacts where
-  show ModuleArtifacts {iface} =
-    "ModuleArtifacts { iface = " ++ moduleNameString (moduleName (mi_module iface)) ++ " }"
 
 newStateWith :: OneshotCacheFeatures -> IO (MVar WorkerState)
 newStateWith features = do
