@@ -86,7 +86,6 @@ library
                       Internal.Metadata
                       Internal.Session
                       Internal.State
-                      Internal.State.Finder
                       Internal.State.Make
                       Internal.State.Stats
                       Internal.State.UnitIndex

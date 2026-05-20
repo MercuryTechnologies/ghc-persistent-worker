@@ -46,7 +46,6 @@ library
     Types.Log
     Types.Orchestration
     Types.State
-    Types.State.Finder
     Types.State.Make
     Types.Target
     System.OsPath.Extra
