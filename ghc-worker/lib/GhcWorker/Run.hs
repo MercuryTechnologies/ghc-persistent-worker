@@ -12,7 +12,7 @@ import GhcWorker.GhcHandler (ghcHandler)
 import GhcWorker.Grpc (instrumentMethods)
 import GhcWorker.Instrumentation (WorkerStatus (..), toGrpcHandler)
 import GhcWorker.Orchestration (CreateMethods (..), FeatureInstrument (..), runCentralGhcSpawned)
-import Internal.State (newStateWith)
+import Internal.State (newState)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
 import Network.GRPC.Server.StreamType (Methods)
 import Options.Applicative (
@@ -39,7 +39,6 @@ import Types.Instrument (Event)
 import Types.Log (TraceId (..))
 import Types.Orchestration (ServerSocketPath (..), serverSocketFromPath)
 import Types.State (WorkerState (..))
-import Types.State.Oneshot (OneshotCacheFeatures (..))
 import System.OsPath.Extra (toOsPath)
 
 -- | Global options for the worker, passed when the process is started, in contrast to request options stored in
@@ -119,13 +118,7 @@ createGhcMethods state features instrument status traceId instrChan =
 -- | Main function for running the default persistent worker using the provided server socket path and CLI options.
 runWorker :: CliOptions -> IO ()
 runWorker CliOptions {serve, instrument, features} = do
-  state <- newStateWith OneshotCacheFeatures {
-    loader = False,
-    enable = True,
-    names = False,
-    finder = False,
-    eps = False
-  }
+  state <- newState
   status <- newMVar WorkerStatus {active = 0}
   let
     methods = CreateMethods {

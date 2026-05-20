@@ -47,7 +47,7 @@ import Internal.DynFlags (
 import Internal.Env (withDebugLog)
 import Internal.Error (handleExceptions)
 import Internal.Log (logDebugD)
-import Internal.State (withCacheMake, withCacheOneshot)
+import Internal.State (withState)
 import Prelude hiding (log)
 import Types.Args (Args (..))
 import Types.BuckArgs (IsInterpreted (Interpreted))
@@ -186,15 +186,10 @@ withGhcSource cacheWrapper =
     cacheWrapper target env.log env.state do
       run target
 
--- | Like @withGhcSource@, using the oneshot cache handler @withCacheOneshot@.
-withGhcOneshotSource :: Env -> (Target -> Ghc (Maybe a)) -> IO (Maybe a)
-withGhcOneshotSource env =
-  withGhcSource (withCacheOneshot env.args.workerTargetId) env
-
 -- | Like @withGhcSource@, using the make cache handler @withCacheMake@.
 withGhcMakeSource :: Env -> (Target -> Ghc (Maybe a)) -> IO (Maybe a)
 withGhcMakeSource =
-  withGhcSource (const withCacheMake)
+  withGhcSource (const withState)
 
 -- | Run a GHC session with multiple home unit support for a module target.
 --
@@ -212,7 +207,7 @@ withGhcMakeModule interp target = do
     dflags0 <- getSessionDynFlags
     ensureNoArgs srcs
     logDebugD env.log (text "Compiling module target" <+> ppr target)
-    withCacheMake env.log env.state do
+    withState env.log env.state do
       -- TODO use foldM or something instead
       modifySessionM \ hsc_env0 -> do
         let hsc_env1

@@ -195,7 +195,7 @@ test_buildPlan_make =
     unitTest "build plan JSON with persistent state" do
       tmp <- liftIO tmpResource
       dummyFile <- writeDummy tmp
-      state <- liftIO $ newState False
+      state <- liftIO $ newState
       testUnit1 tmp state
       testUnit2 dummyFile state
   where

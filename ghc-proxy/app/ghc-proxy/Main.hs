@@ -20,7 +20,7 @@ envFromArgs :: [String] -> IO (Env, MVar Log)
 envFromArgs argv = do
   buckArgs <- either parseError pure (parseBuckArgs (CommandEnv []) (RequestArgs argv))
   args <- toGhcArgs buckArgs Nothing
-  state <- newState False
+  state <- newState
   log <- newLog (TraceId . show <$> args.unit)
   pure (Env {log = newLogger log, state, args}, log)
   where
