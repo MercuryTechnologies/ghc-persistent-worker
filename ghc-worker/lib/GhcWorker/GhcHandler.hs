@@ -12,7 +12,9 @@ import Data.Functor ((<&>))
 import Data.Int (Int32)
 import Data.Map qualified as Map
 import GHC (DynFlags (..), Ghc, getSession)
+#ifdef GHC_DEBUG
 import GHC.Debug.Stub (withGhcDebugUnix)
+#endif
 import GHC.Driver.DynFlags (GhcMode (..))
 import GHC.Driver.Env (hscUpdateFlags)
 import GHC.Driver.Monad (modifySession, reflectGhc, reifyGhc)
@@ -21,7 +23,9 @@ import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import GhcWorker.Orchestration (FeatureInstrument (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Compile.Make (compileModuleWithDepsInHpt)
+#ifdef GHC_DEBUG
 import Internal.Debug (debugSocketPath)
+#endif
 import Internal.Log (newLogger)
 import Internal.Metadata (computeMetadata)
 import Internal.Session (withGhcMakeModule, withGhcMakeSource)
@@ -107,8 +111,13 @@ dispatch workerMode hooks env args targetCallback =
       reifyGhc $ \session -> do
         env.log.setTarget target
         instrument <- targetCallback target
+#ifdef GHC_DEBUG
         let path = debugSocketPath target
         (if instrument.flag then withGhcDebugUnix path else id) $
+#else
+        do
+          let _ = instrument  -- suppress unused variable warning
+#endif
           reflectGhc (f target) session <&> fmap \ r -> (r, target)
 
 processResult ::
