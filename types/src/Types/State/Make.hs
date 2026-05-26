@@ -7,7 +7,6 @@ import GHC (ModuleGraph, ModuleName)
 import GHC.Runtime.Interpreter (Interp)
 import GHC.Unit.Env (HomeUnitGraph)
 import GHC.Unit.Module.Graph (ModuleGraphNode, NodeKey)
--- import Data.IORef (IORef)
 import Data.Map.Strict qualified as M
 
 #if defined(UNIT_INDEX)

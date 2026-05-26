@@ -161,6 +161,21 @@ instance FromJSON BuildPlanJson where
     schema <- parseJSON v
     pure BuildPlanJson {legacy = Nothing, schema}
 
+emptyBuildPlanJson :: BuildPlanJson
+emptyBuildPlanJson =
+  BuildPlanJson {
+    legacy = Nothing,
+    schema = BuildPlanSchema {
+      exposed_modules = Nothing,
+      module_graph = Nothing,
+      package_deps = Nothing,
+      project_deps = Nothing,
+      toolchain_deps = Nothing,
+      th_modules = Nothing,
+      cache = Nothing
+    }
+  }
+
 -- | The final result of build plan generation.
 data BuildPlan =
   BuildPlan {

@@ -69,6 +69,7 @@ library
     exposed-modules:  Internal.AbiHash
                       Internal.BuildPlan
                       Internal.BuildPlan.External
+                      Internal.BuildPlan.Incremental
                       Internal.BuildPlan.Json
                       Internal.Cache.Hpt
                       Internal.Cache.Metadata
@@ -101,6 +102,7 @@ library
                       containers,
                       directory,
                       exceptions,
+                      extra,
                       bytestring,
                       flatparse,
                       filepath,

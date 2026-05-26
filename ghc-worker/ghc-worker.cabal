@@ -115,6 +115,7 @@ test-suite ghc-worker-test
     containers,
     exceptions,
     extra,
+    file-io,
     filepath,
     ghc,
     ghc-boot,

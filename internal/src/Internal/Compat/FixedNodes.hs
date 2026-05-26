@@ -36,21 +36,27 @@ type Edge = NodeKey
 
 #endif
 
+support_FixedNodes :: Bool
+support_FixedNodes = True
+
 pattern CompileNode :: [Edge] -> ModSummary -> ModuleGraphNode
-pattern CompileNode {deps, summary} <- ModuleNode !deps (ModuleNodeCompile !summary)
+pattern CompileNode {depsCompile, summary} <- ModuleNode !depsCompile (ModuleNodeCompile !summary)
 
 pattern FixedNode :: [Edge] -> ModNodeKeyWithUid -> ModLocation -> ModuleGraphNode
-pattern FixedNode {deps, key, location} <- ModuleNode !deps (ModuleNodeFixed !key !location)
+pattern FixedNode {depsFixed, key, location} <- ModuleNode !depsFixed (ModuleNodeFixed !key !location)
 
 #else
 
 import GHC.Unit.Module.Graph (NodeKey)
 
+support_FixedNodes :: Bool
+support_FixedNodes = False
+
 pattern CompileNode :: [NodeKey] -> ModSummary -> ModuleGraphNode
-pattern CompileNode {deps, summary} <- ModuleNode !deps !summary
+pattern CompileNode {depsCompile, summary} <- ModuleNode !depsCompile !summary
 
 pattern FixedNode :: [NodeKey] -> ModNodeKeyWithUid -> ModLocation -> ModuleGraphNode
-pattern FixedNode {deps, key, location} <- (const Nothing -> Just (deps, key, location))
+pattern FixedNode {depsFixed, key, location} <- (const Nothing -> Just (depsFixed, key, location))
 
 #endif
 

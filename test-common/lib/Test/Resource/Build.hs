@@ -24,7 +24,7 @@ phaseName = \case
 -- | Wrap 'initialStrategy' to measure allocations per task and accumulate results.
 measuredStrategy :: IORef [PhaseResult] -> SessionEnv -> Component -> IO RequestResult
 measuredStrategy ref env component = do
-  (result, phase) <- measurePhase (phaseName component) (initialStrategy env component)
+  (result, phase) <- measurePhase (phaseName component) (initialStrategy env False component)
   modifyIORef' ref (phase :)
   pure result
 

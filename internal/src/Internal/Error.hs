@@ -144,3 +144,10 @@ workerError ::
 workerError reason = do
   dflags <- getSessionDynFlags
   throwErrors (GhcDriverMessage <$> unknownErrors (Just "worker") dflags reason)
+
+eitherWorkerError ::
+  GhcMonad m =>
+  Either SDoc a ->
+  m a
+eitherWorkerError =
+  either workerError pure

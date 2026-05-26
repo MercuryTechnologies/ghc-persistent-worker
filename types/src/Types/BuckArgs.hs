@@ -16,7 +16,7 @@ import Data.Maybe (fromMaybe, isJust)
 import GHC (mkModule, mkModuleName)
 import GHC.Paths (libdir)
 import GHC.Unit (Definite (..), GenUnit (RealUnit), stringToUnitId)
-import System.OsPath.Extra (OsPath, encodeUtf, fromOsPath, takeDirectory, toOsPath)
+import System.OsPath.Extra (OsPath, fromOsPath, takeDirectory, toOsPath, encodeUtf)
 import qualified Types.Args
 import Types.Args (
   Args (Args),
@@ -27,7 +27,7 @@ import Types.Args (
   buildPlanKey,
   parseBuildPlanKey,
   )
-import Types.BuildPlan.Incremental (BuckHashesPath (..))
+import Types.BuildPlan.Incremental (BuckHashesPath (..), BuildPlanPath (..), IncrementalStatePath (..))
 import Types.Compat.GHC914 (sanitizeGhcArgs)
 import Types.FeatureFlags (FeatureFlags, defaultFeatureFlags)
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
@@ -65,6 +65,8 @@ data BuckArgs =
     buck2PackageDbDep :: Maybe String,
     unit :: Maybe String,
     buildPlan :: Maybe String,
+    -- | The path for the state file in which the worker stores the hashes of source files for incremental build plans.
+    incrementalState :: Maybe String,
     -- | The build plan fields included in the JSON.
     fields :: Maybe (NonEmpty String),
     moduleName :: Maybe String,
@@ -102,6 +104,7 @@ emptyBuckArgs env =
     buck2PackageDbDep = Nothing,
     unit = Nothing,
     buildPlan = Nothing,
+    incrementalState = Nothing,
     fields = Nothing,
     moduleName = Nothing,
     depModules = Nothing,
@@ -146,6 +149,7 @@ options =
     withArg "--ghc-dir" \ z a -> z {ghcDirFile = Just a},
     withArg "--unit" \ z a -> z {unit = Just a},
     withArg "--build-plan" \ z a -> z {buildPlan = Just a},
+    withArg "--incremental" \ z a -> z {incrementalState = Just a},
     withArg "--fields" \ z a -> z {fields = nonEmpty (splitOn "," a)},
     withArg "--module" \ z a -> z {moduleName = Just a},
     withArg "--ghc-args" \ z a -> z {ghcArgsFile = Just a},
@@ -251,7 +255,6 @@ toGhcArgs args features = do
   -- In any case, we default to @libdir@ from @ghc-paths@, which returns the directory in the distribution used by the
   -- GHC that compiled this binary.
   topdir <- (<|> (args.topdir <|> Just libdir)) <$> readPath args.ghcDirFile
-  buildPlan <- traverse encodeUtf args.buildPlan
   fields <- fmap join <$> traverse (traverse parseField) args.fields
   packageDb <- readPath args.ghcDbFile
   -- When a module name was specified, we don't read any args because we can't use them when picking @ModSummary@ from
@@ -269,8 +272,9 @@ toGhcArgs args features = do
     binPath = args.binPath,
     tempDir = args.tempDir,
     unit = UnitName . stringToUnitId <$> args.unit,
-    buildPlan,
+    buildPlan = BuildPlanPath . toOsPath <$> args.buildPlan,
     sourceHashes = BuckHashesPath . toOsPath <$> (args.env !? "buck_source_hashes"),
+    incrementalState = IncrementalStatePath . toOsPath <$> args.incrementalState,
     fields,
     moduleTarget,
     ghcOptions = sanitizeGhcArgs ghcArgs ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,

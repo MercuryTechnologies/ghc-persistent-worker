@@ -10,7 +10,6 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import GHC.Unit.Module (ModuleName (..), UnitId)
 import qualified System.File.OsPath as OsPath
-import System.OsPath.Extra (OsPath)
 import Types.Args (BuildPlanField (..))
 import Types.BuildPlan (
   BuildPlan (..),
@@ -23,6 +22,7 @@ import Types.BuildPlan (
   PackageKey (..),
   unionPackageDepsDeep,
   )
+import Types.BuildPlan.Incremental (BuildPlanPath (..))
 import Types.CachedDeps (CachedModule (..), CachedPackageDep (..), JsonFs (..))
 
 --- | Modules available for import downstream.
@@ -113,6 +113,6 @@ assembleFields fields toolchainDeps modules =
     fieldIf key value = if Set.member key fields then Just value else Nothing
 
 -- | Write a JSON file for the given build plan.
-writeBuildPlan :: OsPath -> BuildPlan -> IO ()
-writeBuildPlan path BuildPlan {json} =
+writeBuildPlan :: BuildPlanPath -> BuildPlan -> IO ()
+writeBuildPlan (BuildPlanPath path) BuildPlan {json} =
   OsPath.writeFile path (Aeson.encode json)

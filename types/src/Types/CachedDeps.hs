@@ -25,7 +25,6 @@ import GHC (ModuleName (..))
 import GHC.Data.FastString (FastString, bytesFS, mkFastString, mkFastStringByteString)
 import GHC.Generics (Generic)
 import GHC.Unit (UnitId (..))
-import GHC.Utils.Outputable (showPprUnsafe)
 import System.OsPath.Extra (OsPath, toOsPath)
 
 newtype JsonFs a =
@@ -33,7 +32,7 @@ newtype JsonFs a =
   deriving stock (Eq, Ord)
 
 instance Coercible a FastString => Show (JsonFs a) where
-  show = showPprUnsafe @FastString . coerce
+  show = show @FastString . coerce
 
 jsonFsFromText ::
   Coercible a FastString =>

@@ -3,6 +3,7 @@ module Main where
 import Control.Concurrent (MVar)
 import Control.Exception (SomeException (..), displayException, try)
 import Data.Foldable (traverse_)
+import Data.Functor ((<&>))
 import Internal.Log (dbg, newLogger)
 import Internal.Metadata (proxyMetadata)
 import Internal.State (newState)
@@ -18,15 +19,17 @@ import Types.Log (Log, Logger (..), TraceId (..), newLog)
 
 envFromArgs :: [String] -> IO (Env, MVar Log)
 envFromArgs argv = do
-  sourceHashes <- lookupEnv "buck_source_hashes"
-  buckArgs <- either parseError pure (parseBuckArgs (CommandEnv [("buck_source_hashes", sourceHashes)]) (RequestArgs argv))
+  sourceHashes <- optionalEnv "buck_source_hashes"
+  buckArgs <- either parseError pure (parseBuckArgs (CommandEnv sourceHashes) (RequestArgs argv))
   args <- toGhcArgs buckArgs Nothing
   state <- newState
   log <- newLog (TraceId . show <$> args.unit)
-  pure (Env {log = newLogger log, state, args = args {sourceHashes}}, log)
+  pure (Env {log = newLogger log, state, args}, log)
   where
     parseError msg =
       error ("ghc-proxy: Parsing Buck args failed: " ++ msg)
+
+    optionalEnv key = lookupEnv key <&> foldMap \ value -> [(key, value)]
 
 main :: IO ()
 main = do

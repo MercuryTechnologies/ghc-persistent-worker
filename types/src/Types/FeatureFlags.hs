@@ -9,7 +9,7 @@ data FeatureFlag =
   |
   FeatureInstrument
   |
-  FeatureIncrementalMetadata
+  FeatureIncrementalBuildPlan
   deriving stock (Eq, Show)
 
 -- | Runtime feature flags that control alternative implementations.

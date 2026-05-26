@@ -17,7 +17,20 @@ import Data.Set qualified as Set (insert, member, singleton)
 import Data.Time (getCurrentTime)
 import Data.Traversable (for)
 import Data.Tuple (swap)
-import GHC (DynFlags, GhcException (..), IsBootInterface (..), ModIface, ModIface_ (..), ModLocation (..), Module, ModuleName, mkModule, mkModuleName, moduleName, moduleNameString)
+import GHC (
+  DynFlags,
+  GhcException (..),
+  IsBootInterface (..),
+  ModIface,
+  ModIface_ (..),
+  ModLocation (..),
+  Module,
+  ModuleName,
+  mkModule,
+  mkModuleName,
+  moduleName,
+  moduleNameString,
+  )
 import GHC.Data.Bag (emptyBag)
 import GHC.Data.Maybe (MaybeErr (..))
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hsc_HPT)
@@ -39,7 +52,7 @@ import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..), homeModInf
 import GHC.Unit.Home.PackageTable (HomePackageTable, addHomeModInfoToHpt, lookupHpt)
 import GHC.Unit.Module (moduleNameSlashes)
 import GHC.Unit.Module.Graph (ModuleGraphNode, NodeKey (..))
-import GHC.Unit.Module.Location (addBootSuffix, pattern ModLocation)
+import GHC.Unit.Module.Location (pattern ModLocation, addBootSuffix)
 import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Unit.Module.ModIface (IfaceTopEnv (..), set_mi_top_env)
 import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
@@ -47,7 +60,8 @@ import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO, tryMost)
 import Internal.Cache.Metadata (loadCachedUnit, loadCachedUnits, readParseGHCArgs)
-import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, deps)
+import qualified Internal.Compat.FixedNodes as FixedNodes
+import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode)
 import Internal.Compat.GHC914 (edgeTarget, setExtraDecls)
 import Internal.Log (logTimed)
 import Prelude hiding (log)
@@ -321,8 +335,8 @@ depsFromModuleGraph nodes target =
   where
     children acc key =
       case M.lookup key nodes of
-        Just CompileNode {deps} -> foldl' visit acc (edgeTarget <$> deps)
-        Just FixedNode {deps} -> foldl' visit acc (edgeTarget <$> deps)
+        Just CompileNode {depsCompile} -> foldl' visit acc (edgeTarget <$> depsCompile)
+        Just FixedNode {depsFixed} -> foldl' visit acc (edgeTarget <$> depsFixed)
         _ -> acc
 
     visit (seen, deps) key

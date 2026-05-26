@@ -24,6 +24,7 @@ import Hedgehog (forAll, property, withTests, (===))
 import qualified Hedgehog.Gen as Gen (int)
 import Hedgehog.Range (linear)
 import Internal.BuildPlan (buildPlanForTargets)
+import Internal.Log (newLogger)
 import Prelude hiding (log)
 import System.FilePath ((</>))
 import Test.PackageDb (ModuleSpec (..), UnitSpec (..), moduleSpec)
@@ -33,6 +34,7 @@ import Test.Tasty (TestTree)
 import Test.Tasty.Hedgehog (testProperty)
 import Types.Args (BuildPlanField (..), buildPlanAll)
 import Types.BuildPlan (BuildPlan (..))
+import Types.Log (Logger, newLog)
 
 unit1 :: UnitId
 unit1 = stringToUnitId "unit1"
@@ -57,10 +59,10 @@ unit1Spec numMissingImports =
 fields :: Set BuildPlanField
 fields = Set.fromList (toList buildPlanAll)
 
-runBuildPlan :: NonEmpty Target -> Ghc BuildPlan
-runBuildPlan targets = do
+runBuildPlan :: Logger -> NonEmpty Target -> Ghc BuildPlan
+runBuildPlan logger targets = do
   modifySession (hscUpdateFlags \ d -> d {ghcMode = MkDepend})
-  buildPlanForTargets fields mempty mempty (toList targets)
+  buildPlanForTargets logger fields mempty mempty (toList targets)
 
 -- | Run build plan JSON generation and should get errors from non-existent module imports
 --   The number of errors should be matched with the number of errorneous imports.
@@ -71,8 +73,10 @@ test_buildPlan =
       numMissingImports <- forAll $ Gen.int (linear 1 10)
       tmp <- liftIO tmpResource
       targets <- liftIO $ fileUnitTargets (tmp </> "src") (unit1Spec numMissingImports)
+      log <- liftIO $ newLog Nothing
+      let logger = newLogger log
       numErrs <- transientSession (ghcOptions unit1 []) do
-        catch (runBuildPlan targets >> pure 0) \(SourceError msg) -> do
+        catch (runBuildPlan logger targets >> pure 0) \(SourceError msg) -> do
           let errs = toList (getMessages msg)
           pure (length errs)
       numMissingImports === numErrs

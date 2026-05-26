@@ -11,7 +11,7 @@ import GHC.Paths (libdir)
 import GHC.Unit (UnitId)
 import GHC.Utils.Outputable (showPprUnsafe)
 import System.OsPath.Extra (OsPath, toOsPath)
-import Types.BuildPlan.Incremental (BuckHashesPath)
+import Types.BuildPlan.Incremental (BuckHashesPath, BuildPlanPath, IncrementalStatePath)
 import Types.CachedDeps (CachedBuildPlans, CachedDeps)
 import Types.FeatureFlags (FeatureFlags, defaultFeatureFlags)
 import Types.Target (ModuleTarget)
@@ -93,9 +93,11 @@ data Args =
     binPath :: [OsPath],
     tempDir :: Maybe OsPath,
     unit :: Maybe UnitName,
-    buildPlan :: Maybe OsPath,
+    buildPlan :: Maybe BuildPlanPath,
     -- | The file containing the current source hashes tracked by the external build tool.
     sourceHashes :: Maybe BuckHashesPath,
+    -- | The path for the state file in which the worker stores the hashes of source files for incremental build plans.
+    incrementalState :: Maybe IncrementalStatePath,
     -- | The build plan fields included in the JSON.
     fields :: Maybe (NonEmpty BuildPlanField),
     moduleTarget :: Maybe ModuleTarget,
@@ -120,6 +122,7 @@ emptyArgs env =
     unit = Nothing,
     buildPlan = Nothing,
     sourceHashes = Nothing,
+    incrementalState = Nothing,
     fields = Nothing,
     moduleTarget = Nothing,
     ghcOptions = [],
