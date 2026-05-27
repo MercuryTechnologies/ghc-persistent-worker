@@ -30,3 +30,35 @@ $ cabal run ghc-persistent-worker-server -- --ghc ~/repo/srcc/ghcHEAD/_build/sta
 $ GHC_PERSISTENT_WORKER_SOCKET=/tmp/ghc_server.ipc cabal run ghc-persistent-worker-client -- test/A.hs
 ```
 (optionally, one can set `--package-db (pkg_db_path)`. One can have multiple `--package-db`.)
+
+Cabal Flags
+===========
+
+The project has a few optional features that depend on recent or experimental patches in GHC.
+These can be toggled by specifying corresponding Cabal flags, which enable CPP defines during the build.
+For example, running `cabal build -ffixed-nodes` enables the fixed nodes feature.
+
+* Fixed nodes `-ffixed-nodes`/`-DFIXED_NODES`
+
+  This feature takes advantage of the new lightweight module graph nodes to reduce the time it takes to restore module
+  graphs from the file system cache.
+  Fixed nodes only store the path to a module's interface, rather than requiring the parsed AST like conventional module
+  graph nodes, but can not be used to compile the module.
+  We use this node type when a module and its dependencies haven't been modified since the last build, so it can be
+  expected that it won't be requested for compilation.
+
+* Unit index `-funit-index`/`-DUNIT_INDEX`
+
+  In projects with a large number of units, the performance of unit state initialization degrades substantially, because
+  GHC wasn't designed for this use case.
+  In particular, the package DB files of each unit's dependencies are read from disk unconditionally, even though they
+  are often identical across units.
+  Furthermore, the lookup table that associates module names with the packages that contain them is duplicated with
+  heavy redundancies.
+  In this GHC patch, these operations are abstracted away, allowing us to provide an efficient implementation locally
+  that shares all of this data.
+
+* Downsweep cache `-fdownsweep-cache`/`-DDOWNSWEEP_CACHE`
+
+  This is a simple optimization that allows reusing old module graphs when recomputing a new graph, which we use to
+  provide dependency graphs from our state.
