@@ -1,6 +1,7 @@
 module Internal.BuildPlan.External where
 
-import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Writer (WriterT (..), tell)
 import Data.Functor ((<&>))
 import Data.Map (Map, (!?))
 import qualified Data.Map.Strict as Map
@@ -13,7 +14,7 @@ import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Errors.Types (DriverMessage (..))
 import GHC.Iface.Errors (cannotFindModule)
 import GHC.Iface.Errors.Types (IfaceMessage (Can'tFindInterface), InterfaceLookingFor (LookingForModule))
-import GHC.Types.Error (Messages, singleMessage)
+import GHC.Types.Error (Messages, singleMessage, unionManyMessages)
 import GHC.Types.SrcLoc (SrcSpan (..))
 import GHC.Types.Unique.Map (UniqMap, lookupUniqMap)
 import GHC.Unit (Definite (..), GenModule (..), GenUnit (..))
@@ -27,7 +28,7 @@ import Types.BuildPlan (BuildPlanEnv (..), ModuleKey (..), PackageKey (..), summ
 -- | A lookup table for external modules shared across units.
 type ExternalCache = Map (PkgQual, ModuleName) (Maybe (UnitId, ModuleName))
 
-type ImportCheckM = ExceptT (Messages DriverMessage) IO
+type ImportCheckM = WriterT [Messages DriverMessage] IO
 
 packageName :: UniqMap UnitId PackageKey -> UnitId -> PackageKey
 packageName unitNames unit =
@@ -66,14 +67,18 @@ moduleImport BuildPlanEnv {hsc_env, homeUnitIds} cache (qual, L loc name) =
   maybe cacheMiss cacheHit (cache !? (qual, name))
   where
     -- If the import is cached, use it for the deps directly.
-    cacheHit :: Maybe (UnitId, ModuleName) -> ExceptT (Messages DriverMessage) IO (ExternalCache, Maybe (UnitId, ModuleName))
+    cacheHit :: Maybe (UnitId, ModuleName) -> ImportCheckM (ExternalCache, Maybe (UnitId, ModuleName))
     cacheHit result = pure (cache, result)
 
     -- If the import isn't cached, look it up and add it to the cache and deps.
     -- If it can't be found, return 'Nothing'.
     -- If the imported module is part of the home unit, store and return 'Nothing' to avoid further lookups.
-    cacheMiss :: ExceptT (Messages DriverMessage) IO (ExternalCache, Maybe (UnitId, ModuleName))
-    cacheMiss = found <$> ExceptT (lookupImport hsc_env homeUnitIds qual name loc)
+    cacheMiss :: ImportCheckM (ExternalCache, Maybe (UnitId, ModuleName))
+    cacheMiss = do
+      e <- lift $ lookupImport hsc_env homeUnitIds qual name loc
+      case e of
+        Left msg -> tell [msg] >> pure (cache, Nothing)
+        Right a -> pure (found a)
 
     found :: Maybe (UnitId, ModuleName) -> (ExternalCache, Maybe (UnitId, ModuleName))
     found result = (Map.insert (qual, name) result cache, result)
@@ -101,7 +106,10 @@ unitImports ::
   BuildPlanEnv ->
   [ModSummary] ->
   IO (Either (Messages DriverMessage) (Map ModuleKey (Map UnitId (PackageKey, [ModuleName]))))
-unitImports env summaries =
-  runExceptT do
+unitImports env summaries = do
+  (a, msgs) <- runWriterT do
     (_, ext) <- mapAccumM (moduleImports env) mempty summaries
     pure (Map.fromList ext)
+  if null msgs
+    then pure (Right a)
+    else pure (Left (unionManyMessages msgs))
