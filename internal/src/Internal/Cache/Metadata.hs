@@ -15,12 +15,11 @@ import Data.Foldable (fold, traverse_)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
 import Data.Tuple (swap)
-import qualified GHC
-import GHC (DynFlags (..), IsBootInterface (..), mkModuleGraph, ModuleName)
+import GHC (DynFlags (..), IsBootInterface (..), ModuleName, mkModuleGraph)
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
 import GHC.Driver.Make (ModNodeKeyWithUid (..))
 import GHC.Driver.Session (updatePlatformConstants)
-import GHC.Unit (GenWithIsBoot (..), HomeUnit, UnitDatabase, UnitId (..), UnitState, initUnits)
+import GHC.Unit (GenWithIsBoot (..), HomeUnit, UnitDatabase, UnitId (..), UnitState)
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), updateHug)
 import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
 import GHC.Unit.Home.PackageTable (emptyHomePackageTable)
@@ -73,6 +72,7 @@ import Data.Text.Encoding (decodeUtf8)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
 import GHC.Types.SourceError (throwErrors)
+import Internal.Compat.UnitIndex (initUnits)
 import Internal.Error (eitherMessages, unknownErrors)
 import System.OsPath.Extra (OsPath, fromOsPath)
 
@@ -101,13 +101,9 @@ insertHomeUnit unit dflags dbs unit_state home_unit unit_env = do
     }
 
 -- | Create a new home unit using the supplied 'DynFlags'.
-initHomeUnit :: DynFlags -> GHC.Logger -> UnitId -> UnitEnv -> IO UnitEnv
-initHomeUnit dflags0 logger unit unit_env = do
-#if defined(UNIT_INDEX)
-  (dbs, unit_state, home_unit, mconstants) <- initUnits logger dflags0 unit_env.ue_index Nothing allUnitIds
-#else
-  (dbs, unit_state, home_unit, mconstants) <- initUnits logger dflags0 Nothing allUnitIds
-#endif
+initHomeUnit :: HscEnv -> DynFlags -> UnitId -> UnitEnv -> IO UnitEnv
+initHomeUnit hsc_env dflags0 unit unit_env = do
+  (dbs, unit_state, home_unit, mconstants) <- initUnits hsc_env dflags0 allUnitIds
   dflags1 <- updatePlatformConstants dflags0 mconstants
   insertHomeUnit unit dflags1 dbs unit_state home_unit unit_env
   where
@@ -118,7 +114,7 @@ initHomeUnit dflags0 logger unit unit_env = do
 -- DB arguments for dependencies.
 addHomeUnitTo :: HscEnv -> DynFlags -> IO (HscEnv, UnitId)
 addHomeUnitTo hsc_env dflags = do
-  unit_env <- liftIO $ initHomeUnit dflags hsc_env.hsc_logger unit hsc_env.hsc_unit_env
+  unit_env <- liftIO $ initHomeUnit hsc_env dflags unit hsc_env.hsc_unit_env
   pure (hsc_env {hsc_unit_env = unit_env}, unit)
   where
     unit = dflags.homeUnitId_
