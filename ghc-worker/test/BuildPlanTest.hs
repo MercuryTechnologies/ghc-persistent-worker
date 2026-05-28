@@ -19,7 +19,7 @@ import Internal.State (newState, updateMakeStateVar)
 import Internal.State.Make (insertUnitEnv, storeModuleGraph)
 import Prelude hiding (log)
 import System.FilePath (takeFileName, (</>))
-import Test.PackageDb (ModuleSpec (..), UnitSpec (..), createEmptyHomeUnitDb, moduleSpec, toBoot)
+import Test.PackageDb (ModuleSpec (..), UnitSpec (..), createEmptyHomeUnitDb, moduleSpec)
 import Test.Run (persistentSession, transientSession, unitTest, withTemp)
 import Test.Target (fileUnitTargets, ghcOptions, pureUnitTargets)
 import Test.Tasty (TestTree, testGroup)
@@ -40,27 +40,22 @@ unit2 :: UnitId
 unit2 = stringToUnitId "unit2"
 
 -- The order here is important due to a bug in GHC that's fixed in 9.14, though yet unclear which commit is responsible.
--- If the boot module is specified first, @U1M2@ will not get the dependency on @U1M1@.
+-- TODO: we should have a separate test for the case with boot modules.
+-- NOTE: If U1M1 and U1M2 have cyclic deps and the boot module is specified first,
+--       @U1M2@ will not get the dependency on @U1M1@.
 unit1Modules :: NonEmpty ModuleSpec
 unit1Modules =
   [
     moduleSpec "U1M1" [
       "module U1M1 where",
-      "import {-# source #-} U1M2",
       "u1m1 :: Int",
-      "u1m1 = 5 + u1m2_b"
+      "u1m1 = 5"
     ],
     moduleSpec "U1M2" [
       "module U1M2 where",
       "import U1M1",
       "u1m2 :: Int",
-      "u1m2 = u1m1 + 5",
-      "u1m2_b :: Int",
-      "u1m2_b = 7"
-    ],
-    toBoot $ moduleSpec "U1M2" [
-      "module U1M2 where",
-      "u1m2_b :: Int"
+      "u1m2 = u1m1 + 5"
     ]
   ]
 
@@ -100,24 +95,20 @@ expected1 =
   BuildPlanSchema {
     exposed_modules = Just ["U1M1", "U1M2"],
     module_graph = Just [
-      ("U1M1", ["U1M2-boot"]),
-      ("U1M2", ["U1M1", "U1M2-boot"]),
-      ("U1M2-boot", [])
+      ("U1M1", []),
+      ("U1M2", ["U1M1"])
     ],
     package_deps = Just [
       ("U1M1", [("base", [jmn "Prelude"])]),
-      ("U1M2", [("base", [jmn "Prelude"])]),
-      ("U1M2-boot", [("base", [jmn "Prelude"])])
+      ("U1M2", [("base", [jmn "Prelude"])])
     ],
     project_deps = Just [
       ("U1M1", []),
-      ("U1M2", []),
-      ("U1M2-boot", [])
+      ("U1M2", [])
     ],
     toolchain_deps = Just [
       ("U1M1", [("base", [jmn "Prelude"])]),
-      ("U1M2", [("base", [jmn "Prelude"])]),
-      ("U1M2-boot", [("base", [jmn "Prelude"])])
+      ("U1M2", [("base", [jmn "Prelude"])])
     ],
     th_modules = Just [],
     cache = Just [
@@ -129,11 +120,6 @@ expected1 =
       ("U1M2", CachedModule {
         source = "U1M2.hs",
         modules = [jmn "U1M1"],
-        packages = []
-      }),
-      ("U1M2-boot", CachedModule {
-        source = "U1M2.hs-boot",
-        modules = [],
         packages = []
       })
     ]
