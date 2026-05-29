@@ -11,7 +11,7 @@ import GHC (Ghc)
 import GHC.Driver.Monad (reflectGhc, reifyGhc)
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import GHC.Types.Error (diagnosticCodeNumber)
-import Hedgehog (TestT, evalMaybe, property, test, withTests)
+import Hedgehog (MonadTest, TestT, evalMaybe, property, test, withTests)
 import Hedgehog.Internal.Property (failWith)
 import Internal.Session (runSession, simpleSessionWithDebugLog)
 import Internal.State (newState, newStateWith)
@@ -49,12 +49,12 @@ withTemp name =
   withResource (acquireTemp name) removeDirectoryRecursive
 
 -- | Convenience session runner that prints all log messages to stderr afterwards.
-persistentSession :: MVar WorkerState -> [String] -> Ghc a -> TestT IO a
+persistentSession :: (MonadIO m, MonadTest m) => MVar WorkerState -> [String] -> Ghc a -> m a
 persistentSession state ghcOptions ma =
   evalMaybe =<< liftIO (simpleSessionWithDebugLog state (emptyArgs []) {ghcOptions} ma)
 
 -- | Convenience session runner that creates a one-time use @WorkerState@ prints all log messages to stderr afterwards.
-transientSession :: [String] -> Ghc a -> TestT IO a
+transientSession :: (MonadIO m, MonadTest m) => [String] -> Ghc a -> m a
 transientSession ghcOptions ma = do
   state <- liftIO $ newState False
   persistentSession state ghcOptions ma
