@@ -4,16 +4,15 @@ module Internal.Cache.Metadata where
 
 import Control.Applicative ((<|>))
 import Control.Concurrent (MVar, modifyMVar)
-import Control.Concurrent.Async (forConcurrently)
 import Control.Exception (throwIO)
 import Control.Monad (foldM, (>=>))
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.State.Strict (StateT (..), gets, modify, modifyM)
+import Control.Monad.Trans.State.Strict (StateT (..), modify, modifyM)
 import Data.Aeson (eitherDecodeFileStrict')
 import qualified Data.ByteString as BS
 import Data.Foldable (fold, traverse_)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust)
+import qualified Data.Set as Set
 import Data.Tuple (swap)
 import GHC (DynFlags (..), IsBootInterface (..), ModuleGraph, ModuleName, mkModuleGraph)
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
@@ -28,7 +27,7 @@ import GHC.Utils.Outputable (comma, hcat, ppr, punctuate, quotes, text, (<+>))
 import Internal.Compat.GHC914 (moduleNodeEdge)
 import Internal.DynFlags (buckLocation, parseFlags, setupPath)
 import Internal.DynFlags.Parse (parseDynFlags)
-import Internal.Log (logTimed, logTimedD)
+import Internal.Log (logDebugD, logTimed, logTimedD)
 import Internal.State (updateMakeState)
 import qualified Internal.State.Make as Make
 import Internal.State.Make (insertUnitEnv, storeModuleGraph)
@@ -44,11 +43,10 @@ import Types.CachedDeps (
 import Types.FeatureFlags (FeatureFlags (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
-import Types.State.Make (MakeState (..))
 
 #if defined(FIXED_NODES) || defined(MWB)
 
-import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
+import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_keys)
 
 #else
 
@@ -67,8 +65,12 @@ import System.OsPath.Extra (splitExtension, toOsPath)
 #endif
 
 import Data.ByteString (ByteString)
+import Data.Coerce (coerce)
+import Data.Maybe (catMaybes)
+import Data.Set (Set)
 import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8)
+import Data.Traversable (for)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
 import GHC.Types.SourceError (throwErrors)
@@ -101,10 +103,22 @@ insertHomeUnit unit dflags dbs unit_state home_unit unit_env = do
     }
 
 -- | Create a new home unit using the supplied 'DynFlags'.
-initHomeUnit :: HscEnv -> DynFlags -> UnitId -> UnitEnv -> IO UnitEnv
-initHomeUnit hsc_env dflags0 unit unit_env = do
+-- This allows specifying a set of home units that differ from the currently present units, to allow concurrent cache
+-- restoration.
+initUnitsAndPlatform ::
+  HscEnv ->
+  DynFlags ->
+  Set UnitId ->
+  IO (DynFlags, [UnitDatabase UnitId], UnitState, HomeUnit)
+initUnitsAndPlatform hsc_env dflags0 allUnitIds = do
   (dbs, unit_state, home_unit, mconstants) <- initUnits hsc_env dflags0 allUnitIds
   dflags1 <- updatePlatformConstants dflags0 mconstants
+  pure (dflags1, dbs, unit_state, home_unit)
+
+-- | Create a new home unit using the supplied 'DynFlags'.
+initHomeUnit :: HscEnv -> DynFlags -> UnitId -> UnitEnv -> IO UnitEnv
+initHomeUnit hsc_env dflags0 unit unit_env = do
+  (dflags1, dbs, unit_state, home_unit) <- initUnitsAndPlatform hsc_env dflags0 allUnitIds
   insertHomeUnit unit dflags1 dbs unit_state home_unit unit_env
   where
     allUnitIds = unitEnv_keys (ue_home_unit_graph unit_env)
@@ -114,7 +128,7 @@ initHomeUnit hsc_env dflags0 unit unit_env = do
 -- DB arguments for dependencies.
 addHomeUnitTo :: HscEnv -> DynFlags -> IO (HscEnv, UnitId)
 addHomeUnitTo hsc_env dflags = do
-  unit_env <- liftIO $ initHomeUnit hsc_env dflags unit hsc_env.hsc_unit_env
+  unit_env <- initHomeUnit hsc_env dflags unit hsc_env.hsc_unit_env
   pure (hsc_env {hsc_unit_env = unit_env}, unit)
   where
     unit = dflags.homeUnitId_
@@ -259,12 +273,79 @@ loadCachedUnit logger useFixedNodes hsc_env0 unit (cachedUnit, dflags) =
     modify (updateMakeState (storeModuleGraph graph))
     pure hsc_env2
 
+-- | Intermediate result of the concurrent loading phase.
+data PreparedUnit =
+  PreparedUnit {
+    unitId :: UnitId,
+    dflags :: DynFlags,
+    dbs :: [UnitDatabase UnitId],
+    unitState :: UnitState,
+    homeUnit :: HomeUnit,
+    moduleEntries :: [(JsonFs ModuleName, CachedModule)],
+    buckArgs :: Maybe OsPath
+  }
+
+insertPreparedUnit :: Logger -> FeatureFlags -> HscEnv -> PreparedUnit -> StateT WorkerState IO HscEnv
+insertPreparedUnit logger features hsc_env pu = do
+  logDebugD logger (text "Loading cached unit" <+> quotes (ppr pu.unitId))
+  traverse_ loadCachedArgs pu.buckArgs
+  hsc_env2 <- liftIO do
+    unit_env <- insertHomeUnit pu.unitId pu.dflags pu.dbs pu.unitState pu.homeUnit hsc_env.hsc_unit_env
+    let hsc_env1 = hsc_env {hsc_unit_env = unit_env}
+    pure (hscSetActiveUnitId pu.unitId hsc_env1)
+  modify (updateMakeState (insertUnitEnv hsc_env2))
+  nodes <- liftIO $ traverse (uncurry (loadCachedModule features.fixedNodesCache hsc_env2 pu.unitId)) pu.moduleEntries
+  modify (updateMakeState (storeModuleGraph (mkModuleGraph nodes)))
+  pure hsc_env2
+
+loadCachedBuildPlan ::
+  HscEnv ->
+  DynFlags ->
+  FeatureFlags ->
+  Set UnitId ->
+  CachedBuildPlan ->
+  IO (Maybe PreparedUnit)
+loadCachedBuildPlan hsc_env1 dflags0 features allUnitIds CachedBuildPlan {name = JsonFs unitId, build_plan} = do
+  cachedUnit@CachedUnit {unit_args} <- decodeJsonBuildPlan build_plan
+  for unit_args \ argsFile -> do
+    dflags1 <- readParseGHCArgs features.flagParser hsc_env1 dflags0 argsFile
+    (dflags2, dbs, unitState, homeUnit) <- initUnitsAndPlatform hsc_env1 dflags1 allUnitIds
+    let moduleEntries = Map.toList (fold (cachedUnit.cache <|> cachedUnit.build_plan))
+    pure PreparedUnit {
+      unitId,
+      dflags = dflags2,
+      dbs,
+      unitState,
+      homeUnit,
+      moduleEntries,
+      buckArgs = cachedUnit.unit_buck_args
+    }
+
+-- | Determine the set of build plans that need to be restored from cache because they aren't present in the state's
+-- unit env; as well as the set of unit IDs that will be present after restoration.
+--
+-- Preserves the dependency order of cached units in @missingPlans@.
+compareUnits :: HscEnv -> [CachedBuildPlan] -> (Set UnitId, [CachedBuildPlan])
+compareUnits hsc_env buildPlans =
+  (total, missingPlans)
+  where
+    total = Set.union known (Set.fromList missing)
+
+    missing = coerce [name | CachedBuildPlan {name} <- missingPlans]
+
+    missingPlans = filter planMissing buildPlans
+
+    planMissing CachedBuildPlan {name = JsonFs unit} = not (Set.member unit known)
+
+    known = unitEnv_keys (ue_home_unit_graph hsc_env.hsc_unit_env)
+
 -- | Restore the unit state and module graph for each unit in cache that isn't present in the unit env.
 --
--- Restore the unit env from state because 'initUnits' looks up dependencies.
+-- Phase 1 (concurrent): For each absent unit, decode JSON, parse GHC args, and run 'initUnits'.
+-- This is safe because 'initUnits' only reads DynFlags and package DBs; it doesn't modify the 'UnitEnv'.
+-- We pre-compute the full set of home unit IDs to avoid the sequential dependency.
 --
--- TODO Check if the loader state needs to be restored too – it might be referenced in a closure?
--- Simple memory comparison should do it.
+-- Phase 2 (sequential): Insert prepared units into the 'UnitEnv', build graph nodes, store module graphs.
 loadCachedUnits ::
   Logger ->
   MVar WorkerState ->
@@ -277,23 +358,6 @@ loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) features h
   modifyMVar stateVar \ state -> do
     let hsc_env1 = Make.loadState hsc_env0 state.make
     logTimed logger "Loading cached units" $ fmap swap do
-      buildPlans_with_cunit_and_dflags <-
-        forConcurrently buildPlans \plan@CachedBuildPlan {name = JsonFs uid, build_plan = planFile} -> do
-          let present = isJust (unitEnv_lookup_maybe uid state.make.hug)
-          if present
-            then pure (plan, Nothing)
-            else do
-              cachedUnit@CachedUnit {unit_args} <- liftIO $ decodeJsonBuildPlan planFile
-              mdflags1 <- traverse (readParseGHCArgs features.flagParser hsc_env1 dflags0) unit_args
-              pure (plan, (cachedUnit,) <$> mdflags1)
-      runStateT (foldM ensureBuildPlan hsc_env1 buildPlans_with_cunit_and_dflags) state
-  where
-    ensureBuildPlan hsc_env (CachedBuildPlan {name = JsonFs uid}, mb_cachedUnit_dflags) = do
-      present <- gets \ s -> isJust (unitEnv_lookup_maybe uid s.make.hug)
-      if present
-      then pure hsc_env
-      else do
-        case mb_cachedUnit_dflags of
-          Nothing -> pure hsc_env -- don't we yield error here?
-          Just (cachedUnit, dflags) -> do
-            loadCachedUnit logger features.fixedNodesCache hsc_env uid (cachedUnit, dflags)
+      let (total, missing) = compareUnits hsc_env1 buildPlans
+      prepared <- catMaybes <$> traverse (loadCachedBuildPlan hsc_env1 dflags0 features total) missing
+      runStateT (foldM (insertPreparedUnit logger features) hsc_env1 prepared) state
