@@ -1,6 +1,11 @@
 {-# LANGUAGE PatternSynonyms #-}
 
-module BuildPlanTest where
+--
+-- Create build plan file for an example with multiple units which
+-- has both intra-unit and inter-unit module dependencies
+-- Check make mode and one-shot mode.
+--
+module BuildPlanTest.Test1 where
 
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (toList)

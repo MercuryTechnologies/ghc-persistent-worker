@@ -2,7 +2,7 @@
 
 module Main where
  
-import BuildPlanTest (test_buildPlan)
+import BuildPlanTest.Test1 (test_buildPlan)
 import ProjectBuildTest (test_projectBuild)
 import ResourceTest (test_resources)
 import ScheduleTest (test_sortScheduleOrder)
