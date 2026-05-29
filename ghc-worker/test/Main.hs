@@ -2,7 +2,8 @@
 
 module Main where
  
-import BuildPlanTest.Test1 (test_buildPlan)
+import qualified BuildPlanTest.Test1 (test_buildPlan)
+import qualified BuildPlanTest.Test2 (test_buildPlan)
 import ProjectBuildTest (test_projectBuild)
 import ResourceTest (test_resources)
 import ScheduleTest (test_sortScheduleOrder)
@@ -37,7 +38,8 @@ testsGeneral =
     test_sortScheduleOrder,
     test_projectBuild
   ] <> if fullTest then [
-    test_buildPlan
+    BuildPlanTest.Test1.test_buildPlan,
+    BuildPlanTest.Test2.test_buildPlan
   ] else []
 
 tests :: TestTree
