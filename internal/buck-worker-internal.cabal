@@ -83,6 +83,7 @@ library
                       Internal.DynFlags.Update
                       Internal.Env
                       Internal.Error
+                      Internal.Json
                       Internal.Log
                       Internal.Metadata
                       Internal.Session
