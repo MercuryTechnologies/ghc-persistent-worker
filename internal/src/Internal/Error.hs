@@ -3,11 +3,11 @@ module Internal.Error where
 import Control.Exception (AsyncException (..), Exception (..), IOException, throwIO)
 import qualified Control.Monad.Catch as MC
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import GHC (DynFlags, Ghc, GhcException (..), noSrcSpan, printException)
+import GHC (DynFlags, Ghc, GhcException (..), GhcMonad, getSessionDynFlags, noSrcSpan, printException)
 import GHC.Data.Bag (listToBag)
 import GHC.Data.FastString (mkFastString)
 import GHC.Driver.Config.Diagnostic (initDiagOpts)
-import GHC.Driver.Errors.Types (DriverMessage (..), DriverMessages, GhcMessage)
+import GHC.Driver.Errors.Types (DriverMessage (..), DriverMessages, GhcMessage (..))
 import GHC.Types.Error (
   DiagnosticReason (..),
   Messages,
@@ -132,3 +132,15 @@ unknownErrors ::
   SDoc ->
   DriverMessages
 unknownErrors = unknownMessages ErrorWithoutFlag
+
+-- | Throw a single GHC driver error.
+--
+-- A convenience wrapper around @unknownErrors@ that uses @worker@ as the source location and provides @DynFlags@.
+-- Intended to be the standard interface for reporting errors occurring in worker logic, to be evolved.
+workerError ::
+  GhcMonad m =>
+  SDoc ->
+  m a
+workerError reason = do
+  dflags <- getSessionDynFlags
+  throwErrors (GhcDriverMessage <$> unknownErrors (Just "worker") dflags reason)
