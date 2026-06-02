@@ -9,12 +9,11 @@ module System.OsPath.Extra
   , module OsPathReexport
   ) where
 
-import Data.Aeson (FromJSON (..), ToJSON (..), Value (..), withText)
-import qualified Data.Text as T
 import Control.Exception (Exception, SomeException, throw)
 import Control.Monad.Catch (MonadThrow, throwM)
+import Data.Aeson (FromJSON (..), FromJSONKey, ToJSON (..), ToJSONKey, Value (..), withText)
+import qualified Data.Text as T
 import qualified System.OsPath as OsPath (decodeUtf, encodeUtf)
-
 import System.OsPath as OsPathReexport hiding (decodeUtf, encodeUtf)
 
 data OsPathDecodingException = OsPathDecodingException OsPath SomeException
@@ -52,3 +51,7 @@ instance ToJSON OsPath where
 instance FromJSON OsPath where
   parseJSON = withText "OsPath" $ \t ->
     either (fail . ("FromJSON OsPath: " ++) . show) pure (OsPath.encodeUtf (T.unpack t))
+
+instance ToJSONKey OsPath
+
+instance FromJSONKey OsPath
