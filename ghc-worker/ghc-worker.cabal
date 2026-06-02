@@ -88,7 +88,7 @@ executable ghc-worker
   import: all
   main-is: Main.hs
   hs-source-dirs: app/ghc-worker
-  if os(linux)
+  if os(linux) && arch(x86_64)
       ghc-options: -O2 -threaded "-with-rtsopts=-K512M -I5 -A128M -T -N -xm40000000 -xp"
   else
       ghc-options: -O2 -threaded "-with-rtsopts=-K512M -I5 -A128M -T -N"
