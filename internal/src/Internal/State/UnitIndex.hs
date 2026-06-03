@@ -127,8 +127,8 @@ queryFindOrigin home UnitIndexBackend {providers, visibilities, pluginVisibiliti
 
     (overrides, vis) =
       if plugins
-      then (state.pluginModuleNameProvidersMap, visibilities)
-      else (state.moduleNameProvidersMap, pluginVisibilities)
+      then (state.pluginModuleNameProvidersMap, pluginVisibilities)
+      else (state.moduleNameProvidersMap, visibilities)
 
 queryFindOriginDefault ::
   UnitIndexBackend ->
