@@ -41,6 +41,7 @@ library
     Types.Compat.GHC914
     Types.Env
     Types.FeatureFlags
+    Types.BuildPlan.Incremental
     Types.Grpc
     Types.Instrument
     Types.Log

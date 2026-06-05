@@ -27,6 +27,7 @@ import Types.Args (
   buildPlanKey,
   parseBuildPlanKey,
   )
+import Types.BuildPlan.Incremental (BuckHashesPath (..))
 import Types.Compat.GHC914 (sanitizeGhcArgs)
 import Types.FeatureFlags (FeatureFlags, defaultFeatureFlags)
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
@@ -269,6 +270,7 @@ toGhcArgs args features = do
     tempDir = args.tempDir,
     unit = UnitName . stringToUnitId <$> args.unit,
     buildPlan,
+    sourceHashes = BuckHashesPath . toOsPath <$> (args.env !? "buck_source_hashes"),
     fields,
     moduleTarget,
     ghcOptions = sanitizeGhcArgs ghcArgs ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
