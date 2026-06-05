@@ -36,6 +36,7 @@ library
   exposed-modules:
     Test.Build
     Test.BuildSystem
+    Test.BuckHashes
     Test.Cache
     Test.Data.BuildSystem
     Test.Data.Env
@@ -72,16 +73,19 @@ library
     directory,
     file-io,
     filepath,
+    exceptions,
     extra,
     generic-lens,
     ghc,
     ghc-paths,
+    hashable,
     hedgehog,
-    lens,
-    mtl,
+    monad-control,
     tasty,
     tasty-hedgehog,
     temporary,
     text,
+    transformers,
+    transformers-base,
     time,
     typed-process

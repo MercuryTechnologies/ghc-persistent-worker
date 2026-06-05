@@ -1,10 +1,12 @@
 {-# LANGUAGE CPP #-}
 
 module Main where
- 
+
 import qualified BuildPlanTest.Test1 (test_buildPlan)
 import qualified BuildPlanTest.Test2 (test_buildPlan)
 import FlagParserTest (test_parseBuckArgs)
+import Incremental.BuildTest (test_incrementalBuild)
+import Incremental.FlowTest (test_incrementalFlow)
 import InterfacePathTest (test_interfacePath)
 import ProjectBuildTest (test_projectBuild)
 import ResourceTest (test_resources)
@@ -40,7 +42,11 @@ testsGeneral =
     test_parseBuckArgs,
     test_interfacePath,
     test_sortScheduleOrder,
-    test_projectBuild
+    test_projectBuild,
+    testGroup "incremental metadata" [
+      test_incrementalBuild,
+      test_incrementalFlow
+    ]
   ] <> if fullTest then [
     BuildPlanTest.Test1.test_buildPlan,
     BuildPlanTest.Test2.test_buildPlan

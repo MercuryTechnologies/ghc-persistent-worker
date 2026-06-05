@@ -103,16 +103,22 @@ test-suite ghc-worker-test
     BuildPlanTest.Test1,
     BuildPlanTest.Test2,
     FlagParserTest,
+    Incremental.BuildTest,
+    Incremental.Flow,
+    Incremental.FlowData,
+    Incremental.FlowTest,
     InterfacePathTest,
     ProjectBuildTest,
     ResourceTest,
     ScheduleTest
   ghc-options: -threaded -rtsopts "-with-rtsopts=-N -T"
   build-depends:
+    aeson,
     buck-worker-internal,
     buck-worker-types,
     bytestring,
     containers,
+    directory,
     exceptions,
     extra,
     file-io,
@@ -122,6 +128,8 @@ test-suite ghc-worker-test
     ghc-paths,
     ghc-worker-test-common,
     hedgehog >= 1.5,
+    monad-control,
     tasty,
     tasty-hedgehog,
-    text
+    text,
+    transformers
