@@ -75,7 +75,7 @@ import GHC.Driver.Config.Finder (initFinderOpts)
 import GHC.Types.SourceFile (HscSource (HsSrcFile))
 import GHC.Unit.Finder (addHomeModuleToFinder, mkHomeModLocation)
 import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
-import System.OsPath.Extra (splitExtension, toOsPath)
+import System.OsPath.Extra (splitExtension)
 
 #endif
 
@@ -178,7 +178,7 @@ loadCachedModule useFixedNodes hsc_env unit (JsonFs modName) CachedModule {sourc
       where
         fopts = initFinderOpts (hsc_dflags hsc_env)
         (basename, extension) = splitExtension src
-        location = mkHomeModLocation fopts name (toOsPath basename) (toOsPath extension) HsSrcFile
+        location = mkHomeModLocation fopts name basename extension HsSrcFile
 
     createNodeCompile src = ModuleNodeCompile <$> createNodeLegacy src
 
