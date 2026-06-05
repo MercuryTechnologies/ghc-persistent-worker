@@ -3,7 +3,7 @@
 
 module Types.BuildPlan where
 
-import Data.Aeson (ToJSON (..), ToJSONKey, Value (..))
+import Data.Aeson (FromJSON (..), FromJSONKey, ToJSON (..), ToJSONKey, Value (..))
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
@@ -18,8 +18,8 @@ import GHC.Unit.Module (IsBootInterface (..), ModuleName (..), UnitId (..))
 import GHC.Unit.Module.Graph (ModuleGraph, NodeKey)
 import GHC.Unit.Module.ModSummary (isBootSummary)
 import GHC.Utils.Outputable (Outputable (..), text)
-import Types.CachedDeps (CachedModule, JsonFs (..))
 import System.OsPath.Extra (OsPath)
+import Types.CachedDeps (CachedModule, JsonFs (..))
 
 data Dep =
   Dep {
@@ -34,12 +34,12 @@ data PackageDep =
     modules :: [JsonFs ModuleName]
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON)
+  deriving anyclass (FromJSON, ToJSON)
 
 newtype Preprocessor =
   Preprocessor (Maybe String)
   deriving stock (Eq, Show)
-  deriving newtype (ToJSON)
+  deriving newtype (FromJSON, ToJSON)
 
 -- | The specific representation of a package name used by Buck.
 -- If a unit is a Cabal sublibrary, the key will consist of both names, formatted @package:library@.
@@ -47,7 +47,7 @@ newtype Preprocessor =
 newtype PackageKey =
   PackageKey String
   deriving stock (Eq, Show, Ord)
-  deriving newtype (ToJSON, ToJSONKey, IsString, Semigroup, Monoid)
+  deriving newtype (FromJSON, FromJSONKey, ToJSON, ToJSONKey, IsString, Semigroup, Monoid)
 
 packageKey :: UnitInfo -> PackageKey
 packageKey unit =
@@ -71,14 +71,14 @@ data BuildPlanModule =
     preprocessor :: Preprocessor
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON)
+  deriving anyclass (FromJSON, ToJSON)
 
--- | The specific representation of a module name used by Buck.
+-- | Generalized module name for external build tool consumption.
 -- Boot modules are marked by a @-boot@ suffix, e.g. @Project.App-boot@.
 newtype ModuleKey =
   ModuleKey String
   deriving stock (Eq, Show, Ord)
-  deriving newtype (ToJSON, ToJSONKey, IsString, Semigroup, Monoid)
+  deriving newtype (FromJSON, FromJSONKey, ToJSON, ToJSONKey, IsString, Semigroup, Monoid)
 
 instance Outputable ModuleKey where
   ppr (ModuleKey k) = text k
@@ -105,7 +105,7 @@ summaryModuleKey summary
 newtype PackageDeps =
   PackageDeps { modules :: Map ModuleKey (Map PackageKey [JsonFs ModuleName]) }
   deriving stock (Eq, Show)
-  deriving newtype (ToJSON)
+  deriving newtype (FromJSON, ToJSON)
 
 instance IsList PackageDeps where
   type Item PackageDeps = (ModuleKey, (Map PackageKey [JsonFs ModuleName]))
@@ -131,14 +131,14 @@ data BuildPlanSchema =
     cache :: Maybe (Map ModuleKey CachedModule)
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON)
+  deriving anyclass (FromJSON, ToJSON)
 
 data BuildPlanJson =
   BuildPlanJson {
     legacy :: Maybe (Map ModuleKey BuildPlanModule),
     schema :: BuildPlanSchema
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON BuildPlanJson where
   toJSON BuildPlanJson {..} =
@@ -148,6 +148,12 @@ instance ToJSON BuildPlanJson where
         , Object legacyValues <- toJSON legacyData
         -> Object (values <> legacyValues)
       value -> value
+
+-- | Since the legacy format is merged into the schema when writing, we cannot support it for incremental build plans.
+instance FromJSON BuildPlanJson where
+  parseJSON v = do
+    schema <- parseJSON v
+    pure BuildPlanJson {legacy = Nothing, schema}
 
 -- | The final result of build plan generation.
 data BuildPlan =
