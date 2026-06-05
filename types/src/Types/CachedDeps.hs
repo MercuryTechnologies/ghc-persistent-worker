@@ -19,6 +19,7 @@ import Data.Foldable (toList)
 import Data.Functor.Contravariant (contramap)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
+import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import GHC (ModuleName (..))
@@ -29,7 +30,7 @@ import GHC.Utils.Outputable (showPprUnsafe)
 import System.OsPath.Extra (OsPath, toOsPath)
 
 newtype JsonFs a =
-  JsonFs a
+  JsonFs { raw :: a }
   deriving stock (Eq, Ord)
 
 instance Coercible a FastString => Show (JsonFs a) where
@@ -55,6 +56,9 @@ jsonFsFromString ::
   JsonFs a
 jsonFsFromString =
   JsonFs . coerce . mkFastString
+
+instance Coercible a FastString => IsString (JsonFs a) where
+  fromString = jsonFsFromString
 
 instance Coercible a FastString => FromJSON (JsonFs a) where
   parseJSON = withText "JsonFs" (pure . jsonFsFromText)
