@@ -20,12 +20,26 @@ import GHC.Types.Error (mkUnknownDiagnostic)
 
 #if defined(FIXED_NODES)
 
-import GHC.Unit.Module.Graph (ModuleNodeEdge, ModuleNodeInfo (..))
+import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 
-pattern CompileNode :: [ModuleNodeEdge] -> ModSummary -> ModuleGraphNode
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+
+import GHC.Unit.Module.Graph (ModuleNodeEdge)
+
+type Edge = ModuleNodeEdge
+
+#else
+
+import GHC.Unit.Module.Graph (NodeKey)
+
+type Edge = NodeKey
+
+#endif
+
+pattern CompileNode :: [Edge] -> ModSummary -> ModuleGraphNode
 pattern CompileNode {deps, summary} <- ModuleNode !deps (ModuleNodeCompile !summary)
 
-pattern FixedNode :: [ModuleNodeEdge] -> ModNodeKeyWithUid -> ModLocation -> ModuleGraphNode
+pattern FixedNode :: [Edge] -> ModNodeKeyWithUid -> ModLocation -> ModuleGraphNode
 pattern FixedNode {deps, key, location} <- ModuleNode !deps (ModuleNodeFixed !key !location)
 
 #else
