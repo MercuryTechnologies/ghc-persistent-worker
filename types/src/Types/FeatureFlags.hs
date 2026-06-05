@@ -8,6 +8,8 @@ data FeatureFlag =
   FeatureConcurrentInitUnits
   |
   FeatureInstrument
+  |
+  FeatureIncrementalMetadata
   deriving stock (Eq, Show)
 
 -- | Runtime feature flags that control alternative implementations.
@@ -20,7 +22,9 @@ data FeatureFlags =
     -- | When restoring units from cache, perform as much work as possible concurrently.
     concurrentInitUnits :: Bool,
     -- | Integrated with accompanying monitoring instrument app
-    instrument :: Bool
+    instrument :: Bool,
+    -- | Use incremental metadata (only re-downsweep changed modules).
+    incrementalBuildPlan :: Bool
   }
   deriving stock (Eq, Show)
 
@@ -30,5 +34,6 @@ defaultFeatureFlags =
     fixedNodesCache = True,
     flagParser = False,
     concurrentInitUnits = True,
-    instrument = False
+    instrument = False,
+    incrementalBuildPlan = True
   }

@@ -67,6 +67,7 @@ featureFlagsParser =
         (flagParser, FeatureFlagParser) -> flags {flagParser}
         (concurrentInitUnits, FeatureConcurrentInitUnits) -> flags {concurrentInitUnits}
         (instrument, FeatureInstrument) -> flags {instrument}
+        (incrementalBuildPlan, FeatureIncrementalMetadata) -> flags {incrementalBuildPlan}
 
     flagOption value = do
       flag <- eitherReader \case
@@ -74,6 +75,7 @@ featureFlagsParser =
         "flag-parser" -> Right FeatureFlagParser
         "concurrent-init-units" -> Right FeatureConcurrentInitUnits
         "instrument" -> Right FeatureInstrument
+        "incremental-metadata" -> Right FeatureIncrementalMetadata
         flag -> Left ("Invalid feature flag: " ++ flag)
       pure (value, flag)
 
