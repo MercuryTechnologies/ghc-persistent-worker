@@ -21,13 +21,14 @@ import Types.BuildPlan (
   PackageDep (..),
   PackageDeps (..),
   PackageKey (..),
+  unionPackageDepsDeep,
   )
 import Types.CachedDeps (CachedModule (..), CachedPackageDep (..), JsonFs (..))
 
 --- | Modules available for import downstream.
-fieldExposedModules :: Map ModuleKey BuildPlanModule -> [ModuleKey]
+fieldExposedModules :: Map ModuleKey BuildPlanModule -> Set ModuleKey
 fieldExposedModules =
-  Map.keys
+  Map.keysSet
   .
   Map.filter \ BuildPlanModule {boot} -> not boot
 
@@ -45,11 +46,9 @@ fieldPackageDeps =
     Map.fromList [(name, modules) | PackageDep {name, modules} <- packages]
 
 -- | Modules with TH extensions enabled.
-fieldThModules :: Map ModuleKey BuildPlanModule -> [ModuleKey]
+fieldThModules :: Map ModuleKey BuildPlanModule -> Set ModuleKey
 fieldThModules =
-  coerce
-  .
-  Map.keys
+  Map.keysSet
   .
   Map.filter \ BuildPlanModule {thEnabled} -> thEnabled
 
@@ -96,7 +95,7 @@ assembleFields fields toolchainDeps modules =
     schema = BuildPlanSchema {
       exposed_modules = fieldIf FieldExposedModules (fieldExposedModules modules),
       module_graph = fieldIf FieldModuleGraph (fieldModuleGraph modules),
-      package_deps = fieldIf FieldPackageDeps (toolchainDepsPayload <> projectDeps),
+      package_deps = fieldIf FieldPackageDeps (unionPackageDepsDeep toolchainDepsPayload projectDeps),
       project_deps = fieldIf FieldProjectDeps projectDeps,
       toolchain_deps = fieldIf FieldToolchainDeps toolchainDepsPayload,
       th_modules = fieldIf FieldThModules (fieldThModules modules),

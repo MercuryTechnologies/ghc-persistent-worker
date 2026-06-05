@@ -112,8 +112,13 @@ instance IsList PackageDeps where
   fromList = PackageDeps . fromList
   toList = toList . (.modules)
 
-instance Semigroup PackageDeps where
-  PackageDeps l <> PackageDeps r = PackageDeps (Map.unionWith (<>) l r)
+-- | Merges package deps for the same module, but not the modules in a package dep.
+unionPackageDepsDeep :: PackageDeps -> PackageDeps -> PackageDeps
+unionPackageDepsDeep (PackageDeps l) (PackageDeps r) = PackageDeps (Map.unionWith (<>) l r)
+
+-- | Ignores package deps for the same module in the right operand.
+unionPackageDepsShallow :: PackageDeps -> PackageDeps -> PackageDeps
+unionPackageDepsShallow (PackageDeps l) (PackageDeps r) = PackageDeps (l <> r)
 
 -- | The JSON protocol for communication with Buck.
 -- This is the primary output of a metadata step, used by Buck to compute edges of the build graph, in order to
@@ -122,12 +127,12 @@ instance Semigroup PackageDeps where
 -- See 'Types.Args.BuildPlanField' for an explanation of the fields.
 data BuildPlanSchema =
   BuildPlanSchema {
-    exposed_modules :: Maybe [ModuleKey],
+    exposed_modules :: Maybe (Set ModuleKey),
     module_graph :: Maybe (Map ModuleKey [ModuleKey]),
     package_deps :: Maybe PackageDeps,
     project_deps :: Maybe PackageDeps,
     toolchain_deps :: Maybe PackageDeps,
-    th_modules :: Maybe [ModuleKey],
+    th_modules :: Maybe (Set ModuleKey),
     cache :: Maybe (Map ModuleKey CachedModule)
   }
   deriving stock (Eq, Show, Generic)
