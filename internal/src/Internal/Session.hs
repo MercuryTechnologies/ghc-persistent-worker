@@ -65,6 +65,9 @@ setTempDir dir = updateGlobalFlags \ dflags -> dflags {tmpDir = TempDir (fromOsP
 -- Passes the flags and the unprocessed args to the callback, which usually consist of the file or module names intended
 -- for compilation.
 -- In a Buck compile step these should always be a single path, but in the metadata step they enumerate an entire unit.
+--
+-- TODO Get rid of @prettyPrintGhcErrors@
+-- TODO Why are we popping the log hook here???
 withDynFlags :: Env -> (DynFlags -> [(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
 withDynFlags env prog argv = do
   state <- liftIO $ readMVar env.state
@@ -100,32 +103,49 @@ ensureSession stateVar args =
       hsc_tmpfs <- initTmpFs
       pure hsc_env {hsc_tmpfs}
 
+runGhc :: Session -> Ghc a -> IO a
+runGhc = flip unGhc
+
+initSession :: Env -> IO Session
+initSession Env {args, state, log} = do
+  modifyMVar_ state (setupPath args.binPath)
+  hsc_env <- ensureSession state args
+  session <- Session <$> newIORef hsc_env
+  runGhc session do
+    traverse_ (modifySession . setTempDir) args.tempDir
+    pushLogHookM (const log.ghcAction)
+  pure session
+
+-- TODO Remove signal handler.
+runWithSession ::
+  Env ->
+  Session ->
+  Ghc (Maybe a) ->
+  IO (Maybe a)
+runWithSession Env {..} session prog =
+  runGhc session $ withSignalHandlers do
+    handleExceptions log Nothing prog
+
+cleanupSession :: Session -> IO ()
+cleanupSession session =
+  flip unGhc session do
+    hsc_env <- getSession
+    liftIO $ unless (gopt Opt_KeepTmpFiles (hsc_dflags hsc_env)) do
+      let tmpfs = hsc_tmpfs hsc_env
+          logger = hsc_logger hsc_env
+      cleanTempFiles logger tmpfs
+      cleanTempDirs logger tmpfs
+
 -- | Run a @Ghc@ program to completion with a fresh clone of the base session.
 -- See 'ensureSession' for @reuse@.
 --
 -- Delete all temporary files on completion.
 runSession :: Env -> ([Located String] -> Ghc (Maybe a)) -> IO (Maybe a)
-runSession Env {log, args, state} prog = do
-  modifyMVar_ state (setupPath args.binPath)
-  hsc_env <- ensureSession state args
-  session <- Session <$> newIORef hsc_env
-  finally (run session) (cleanup session)
+runSession env prog = do
+  session <- initSession env
+  finally (runWithSession env session (prog locatedArgs)) (cleanupSession session)
   where
-    run session =
-      flip unGhc session $ withSignalHandlers do
-        traverse_ (modifySession . setTempDir) args.tempDir
-        handleExceptions log Nothing do
-          pushLogHookM (const log.ghcAction)
-          prog (map buckLocation args.ghcOptions)
-
-    cleanup session =
-      flip unGhc session do
-        hsc_env <- getSession
-        liftIO $ unless (gopt Opt_KeepTmpFiles (hsc_dflags hsc_env)) do
-          let tmpfs = hsc_tmpfs hsc_env
-              logger = hsc_logger hsc_env
-          cleanTempFiles logger tmpfs
-          cleanTempDirs logger tmpfs
+    locatedArgs = map buckLocation env.args.ghcOptions
 
 -- | Parse the CLI arguments stored in the 'Env' and run a @Ghc@ program with the resulting 'DynFlags'.
 simpleSession :: Env -> Ghc a -> IO (Maybe a)
