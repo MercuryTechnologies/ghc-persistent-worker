@@ -3,7 +3,7 @@ module BuckProxy.Run where
 import BuckProxy.Orchestration (GhcWorkerCommand (..), WorkerExe (..), WorkerResource (..), proxyServer)
 import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar, readMVar)
 import Control.Exception (throwIO)
-import Control.Monad (unless)
+import Control.Monad (unless, void)
 import Data.Foldable (for_)
 import Data.Map.Strict qualified as Map
 import Options.Applicative (
@@ -26,7 +26,9 @@ import Options.Applicative (
   (<**>),
   )
 import System.OsPath.Extra (toOsPath)
-import System.Process (terminateProcess)
+import System.Posix.Signals (sigKILL, signalProcess)
+import System.Process (waitForProcess)
+import System.Process.Internals (ProcessHandle__ (OpenHandle), withProcessHandle)
 import Types.Orchestration (PrimarySocketName (..), ServerSocketPath (..))
 
 
@@ -87,8 +89,13 @@ run socket CliOptions {command, remain, workerSocket} refHandler
     modifyMVar_ refHandler \_ -> pure do
       unless remain do
         wmap <- readMVar refWorkerMap
-        for_ wmap \resource ->
-          terminateProcess resource.processHandle
+        for_ wmap \resource -> do
+          -- Force to kill the worker process.
+          withProcessHandle resource.processHandle $ \handle -> 
+              case handle of
+                  OpenHandle pid -> signalProcess sigKILL pid
+                  _ -> pure ()
+          void $ waitForProcess resource.processHandle
     proxyServer refWorkerMap cmd socket workerSocket
 
 parseCliArgs :: IO CliOptions

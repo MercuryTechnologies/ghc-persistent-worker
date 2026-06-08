@@ -42,7 +42,8 @@ library
     grapesy ^>=1.0.1,
     optparse-applicative,
     process,
-    text
+    text,
+    unix
 
 executable buck-proxy
   import: all
