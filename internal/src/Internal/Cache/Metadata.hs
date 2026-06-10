@@ -15,7 +15,7 @@ import Data.Foldable (fold, traverse_)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
 import Data.Tuple (swap)
-import GHC (DynFlags (..), IsBootInterface (..), ModuleName, mkModuleGraph)
+import GHC (DynFlags (..), IsBootInterface (..), ModuleGraph, ModuleName, mkModuleGraph)
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
 import GHC.Driver.Make (ModNodeKeyWithUid (..))
 import GHC.Driver.Session (updatePlatformConstants)
@@ -222,6 +222,17 @@ readParseGHCArgs parseFast hsc_env0 dflags0 args_file
     (dflags1, _, _, _) <- parseFlags dflags0 hsc_env0.hsc_logger (buckLocation <$> lines args)
     pure dflags1
 
+loadCachedModules ::
+  Bool ->
+  HscEnv ->
+  UnitId ->
+  CachedUnit ->
+  IO ModuleGraph
+loadCachedModules useFixedNodes hsc_env unit CachedUnit {build_plan, cache} =
+  mkModuleGraph <$> traverse (uncurry (loadCachedModule useFixedNodes hsc_env unit)) modules
+  where
+    modules = Map.toList (fold (cache <|> build_plan))
+
 -- | Restore the unit state and module graph from the external cache.
 --
 -- The cached data consists of a simple list of GHC command line arguments that can recreate the unit state, as well as
@@ -233,15 +244,15 @@ loadCachedUnit ::
   UnitId ->
   (CachedUnit, DynFlags) ->
   StateT WorkerState IO HscEnv
-loadCachedUnit logger useFixedNodes hsc_env0 unit (CachedUnit {build_plan, cache, unit_buck_args}, dflags) =
+loadCachedUnit logger useFixedNodes hsc_env0 unit (cachedUnit, dflags) =
   logTimedD logger (text "Loading cached unit" <+> quotes (ppr unit)) do
-    traverse_ loadCachedArgs unit_buck_args
+    traverse_ loadCachedArgs cachedUnit.unit_buck_args
     hsc_env2 <- liftIO do
       (hsc_env1, _) <- addHomeUnitTo hsc_env0 dflags
       pure (hscSetActiveUnitId unit hsc_env1)
     modify (updateMakeState (insertUnitEnv hsc_env2))
-    nodes <- liftIO $ traverse (uncurry (loadCachedModule useFixedNodes hsc_env2 unit)) (Map.toList (fold (cache <|> build_plan)))
-    modify (updateMakeState (storeModuleGraph (mkModuleGraph nodes)))
+    graph <- liftIO $ loadCachedModules useFixedNodes hsc_env2 unit cachedUnit
+    modify (updateMakeState (storeModuleGraph graph))
     pure hsc_env2
 
 -- | Restore the unit state and module graph for each unit in cache that isn't present in the unit env.
