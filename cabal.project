@@ -40,3 +40,8 @@ source-repository-package
           convention
           stub
           ghc-debug-brick
+
+source-repository-package
+  type: git
+  location: https://github.com/wavewave/flatparse.git
+  tag: b237959eb9c1ec10cd5be4f68c9eb1cf5d3c59ef

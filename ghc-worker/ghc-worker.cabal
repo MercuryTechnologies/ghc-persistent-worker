@@ -118,6 +118,7 @@ test-suite ghc-worker-test
     filepath,
     ghc,
     ghc-boot,
+    ghc-paths,
     ghc-worker-test-common,
     hedgehog >= 1.5,
     tasty,
