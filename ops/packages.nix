@@ -269,6 +269,7 @@
           "containers"
           "directory"
           "extra"
+          "exceptions"
           "file-io"
           "filepath"
           "generic-lens"
@@ -276,12 +277,14 @@
           "ghc-paths"
           "hedgehog"
           "lens"
+          "monad-control"
           "mtl"
           "tasty"
           "tasty-hedgehog"
           "temporary"
           "text"
           "time"
+          "transformers"
           "typed-process"
         ];
         source-dirs = "lib";
