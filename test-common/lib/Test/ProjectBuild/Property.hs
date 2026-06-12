@@ -87,10 +87,11 @@ showResumePlan plan =
       showModuleKey key ++ " <- " ++ intercalate ", " (fmap showModuleKey (Set.toList extra))
 
 showProjectBuild :: ProjectBuild -> String
-showProjectBuild ProjectBuild {schedule, resumeSchedule, resumePlan, initial} =
+showProjectBuild ProjectBuild {schedule, resumeSchedule, resumePlan, initial, incrementalBuildPlan} =
   unlines $
     ["Project: " ++ show unitCount ++ " units, " ++ show moduleCount ++ " modules"
       ++ if errorCount == 0 then "" else " (" ++ show errorCount ++ " error)"
+    , "Incremental metadata: " ++ show incrementalBuildPlan
     ]
     ++ ["", "── first schedule ──"]
     ++ fmap showTask schedule.tasks

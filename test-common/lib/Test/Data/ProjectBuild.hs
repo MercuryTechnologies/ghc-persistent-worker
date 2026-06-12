@@ -57,7 +57,10 @@ data ProjectBuild =
     resumeSchedule :: Schedule TaskKey Component,
 
     -- | All task keys in the schedule, for asserting completed builds.
-    allKeys :: Set TaskKey
+    allKeys :: Set TaskKey,
+
+    -- | When 'True', use incremental metadata (only re-downsweep changed modules).
+    incrementalBuildPlan :: Bool
   }
   deriving stock (Show)
 

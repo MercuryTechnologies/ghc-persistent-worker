@@ -6,7 +6,7 @@ import System.OsPath.Extra (decodeUtf, encodeUtf)
 import Test.Data.Env (SessionEnv (..), TestEnv (..))
 import Test.Run (mkEnv)
 import Test.Tasty (TestTree, withResource)
-import Types.Args (emptyArgs)
+import Types.Args (Args (..), buildPlanNoLegacy, emptyArgs)
 
 -- | Create a new environment for a build test run consisting of two builds.
 --
@@ -33,11 +33,13 @@ newResumeSessionEnv prev = do
   (env, _) <- mkEnv
   pure prev {env, extDepDbs = [], extDeps = mempty}
 
+-- | Create a temporary directory and store it in a 'TestEnv'.
+-- This sets the build plan fields to disable the legacy schema, since that is usually undesirable in tests.
 acquireTestEnv :: IO TestEnv
 acquireTestEnv = do
   tmpBase <- getCanonicalTemporaryDirectory
   rootDir <- encodeUtf =<< createTempDirectory tmpBase "project-build-test"
-  pure TestEnv {rootDir, baseArgs = emptyArgs []}
+  pure TestEnv {rootDir, baseArgs = (emptyArgs []) {fields = Just buildPlanNoLegacy}}
 
 releaseTestEnv :: TestEnv -> IO ()
 releaseTestEnv env = do

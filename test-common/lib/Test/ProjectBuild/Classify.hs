@@ -15,7 +15,7 @@ classifyFirstBuild result = do
   classify "  error" result.hasErrors
 
 classifyProject :: ProjectBuild -> PropertyT IO ()
-classifyProject ProjectBuild {initial = InitialProject {unitCount, moduleCount}} = do
+classifyProject ProjectBuild {initial = InitialProject {unitCount, moduleCount}, incrementalBuildPlan} = do
   label "── project size ──"
   classify "  1 unit" (unitCount == 1)
   classify "  2-3 units" (unitCount >= 2 && unitCount <= 3)
@@ -23,6 +23,8 @@ classifyProject ProjectBuild {initial = InitialProject {unitCount, moduleCount}}
   classify "  1-3 modules" (moduleCount <= 3)
   classify "  4-10 modules" (moduleCount >= 4 && moduleCount <= 10)
   classify "  >10 modules" (moduleCount > 10)
+  classify "  incremental metadata" incrementalBuildPlan
+  classify "  full metadata" (not incrementalBuildPlan)
 
 classifyResume :: ProjectBuild -> BuildResult -> PropertyT IO ()
 classifyResume ProjectBuild {resumePlan, initial = InitialProject {moduleCount}} BuildResult {hasErrors} = do

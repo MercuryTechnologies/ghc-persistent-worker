@@ -7,15 +7,15 @@ import Test.Data.Env (MaxJobs, SessionEnv (..))
 import Test.Resume (cleanResumeArtifacts)
 
 -- | Wire up the handlers that represent actions performed by Buck.
-mkBuildSystem :: MaxJobs -> SessionEnv -> BuildSystem
-mkBuildSystem maxJobs sessionEnv =
+mkBuildSystem :: MaxJobs -> Bool -> SessionEnv -> BuildSystem
+mkBuildSystem maxJobs useIncremental sessionEnv =
   BuildSystem {
     writeCache =
       writeResumeCache sessionEnv,
     runInitialBuild =
-      runSchedule maxJobs (initialStrategy sessionEnv) [],
+      runSchedule maxJobs (initialStrategy sessionEnv useIncremental) [],
     runResumeBuild = \ resumeEnv doFixErrors ->
-      runSchedule maxJobs (resumeStrategy resumeEnv doFixErrors),
+      runSchedule maxJobs (resumeStrategy resumeEnv useIncremental doFixErrors),
     cleanArtifacts =
       cleanResumeArtifacts sessionEnv.tempDir
   }

@@ -125,7 +125,7 @@ writeUnitCache ::
   GenUnit BuildModule ->
   IO CachedBuildPlans
 writeUnitCache env unit = do
-  argsFile <- writeUnitArgs env.tempDir ((metadataArgs env unit).ghcOptions) unit.key
+  argsFile <- writeUnitArgs env.tempDir ((metadataArgs env False unit).ghcOptions) unit.key
   (depUnitsFile, buildPlans) <- writeBuildPlans env.tempDir unit.key (toList unit.depUnits)
   Aeson.encodeFile outFile (cachedUnit buildPlan argsFile depUnitsFile)
   pure buildPlans

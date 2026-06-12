@@ -94,10 +94,12 @@ genProjectBuild conf = do
   (schedule, _) <- genSchedule (initialBuildUnit <$> units)
   (resumeSchedule, resumeGraph) <- genSchedule (resumeBuildUnit <$> units)
   resumePlan <- genResumePlan initial units resumeGraph
+  incrementalBuildPlan <- Gen.bool_
   pure ProjectBuild {
     initial,
     schedule,
     resumeSchedule,
     resumePlan,
-    allKeys = scheduleKeys schedule
+    allKeys = scheduleKeys schedule,
+    incrementalBuildPlan
   }
