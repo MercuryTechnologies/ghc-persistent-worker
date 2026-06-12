@@ -45,6 +45,7 @@ load("@toolchains//:haskell_all.bzl", "haskell_toolchain_all")
     "hashable",
     "hedgehog",
     "lens",
+    "monad-control",
     "mtl",
     "lens-family",
     "optparse-applicative",

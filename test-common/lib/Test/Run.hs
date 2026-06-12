@@ -1,8 +1,10 @@
 module Test.Run where
 
 import Control.Concurrent (MVar)
-import Control.Monad ((<=<))
+import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class (MonadIO (..))
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Control (controlT)
 import Data.Foldable (for_, toList)
 import Data.IORef (IORef, readIORef)
 import Data.List.NonEmpty (nonEmpty)
@@ -12,9 +14,10 @@ import GHC (Ghc)
 import GHC.Driver.Monad (reflectGhc, reifyGhc)
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 import GHC.Types.Error (diagnosticCodeNumber)
-import Hedgehog (MonadTest, TestT, evalMaybe, property, test, withTests, (===))
+import Hedgehog (MonadTest, TestT, annotate, evalMaybe, failure, property, test, withTests, (===))
 import Hedgehog.Internal.Property (failWith)
-import Internal.Session (runSession, simpleSessionWithDebugLog)
+import Internal.Error (handleExceptions)
+import Internal.Session (cleanupSession, initSession, runGhc, simpleSessionWithDebugLog)
 import Internal.State (newState)
 import Numeric.Natural (Natural)
 import Prelude hiding (log)
@@ -46,9 +49,10 @@ assertJust ::
   a ->
   Maybe a ->
   TestT m ()
-assertJust a =
+assertJust a mb =
   withFrozenCallStack do
-    (===) a <=< evalMaybe
+    b <- evalMaybe mb
+    a === b
 
 acquireTemp :: FilePath -> IO FilePath
 acquireTemp name = do
@@ -90,60 +94,140 @@ lowerGhc use =
   reifyGhc \ session ->
     use (flip reflectGhc session)
 
-sessionFailed ::
-  HasCallStack =>
-  TestLog ->
-  TestT IO a
-sessionFailed TestLog {diagnostics, fatal} =
-  withFrozenCallStack do
-    failWith Nothing $ unlines $
-      "The test session failed (returning Nothing)." : diagSection ++ fatalSection
+sessionFailedMessage :: String -> TestLog -> String
+sessionFailedMessage desc TestLog {diagnostics, fatal, messages} =
+  unlines (headline : diagSection ++ fatalSection ++ debugSection)
   where
-    diagSection =
-      section "Diagnostics:" [d.rendered | d <- diagnostics]
+    headline = "The test session '" ++ desc ++ "' failed (returning Nothing)."
 
-    fatalSection =
-      section "Fatal errors:" fatal
+    diagSection = section "Diagnostics:" [d.rendered | d <- diagnostics]
+
+    fatalSection = section "Fatal errors:" fatal
+
+    debugSection = section "Debug messages:" messages
 
     section title msgs =
       if null msgs
       then []
       else "" : title : concat [["", msg] | msg <- msgs]
 
--- | Run a GHC session and fail with a Hedgehog error if the result is 'Nothing', indicating that an exception was
--- thrown.
--- Creates a fresh 'Env' and passes it to the callback.
--- The second argument passed to the callback is a lowering function from 'Ghc' to 'IO', allowing the test to be in 'IO'
--- at the top level and embedding a 'Ghc' program conveniently.
-testSession ::
+sessionFailed ::
   HasCallStack =>
-  (TestLog -> TestT IO ()) ->
-  (Env -> (forall a . Ghc a -> IO a) -> IO (Maybe b)) ->
-  TestT IO b
-testSession checkLog prog = do
-  (result, log) <- liftIO do
-    (env, logVar) <- mkEnv
-    result <- runSession env \ _ -> lowerGhc (prog env)
-    log <- readIORef logVar
-    pure (result, log)
+  String ->
+  TestLog ->
+  TestT IO a
+sessionFailed desc log =
   withFrozenCallStack do
-    checkLog log
-    maybe (sessionFailed log) pure result
+    annotate (sessionFailedMessage desc log)
+    failure
 
 -- | A handler for use with 'testSession' that ensures that only diagnostics were emitted that are present in the given
 -- set of error codes.
 expectDiagnostics ::
+  HasCallStack =>
   Set Natural ->
   TestLog ->
   TestT IO ()
 expectDiagnostics expected TestLog {diagnostics} =
-  for_ (nonEmpty offenders) \ diags ->
-    failWith Nothing $ unlines $ "The test session emitted unexpected diagnostics:" :
-    concat [["", "Code " ++ show code ++ ":", "", msg] | (msg, code) <- toList diags]
+  withFrozenCallStack do
+    for_ (nonEmpty offenders) \ diags ->
+      failWith Nothing $ unlines $ "The test session emitted unexpected diagnostics:" :
+      concat [["", "Code " ++ maybe "<unknown>" show code ++ ":", "", msg] | (msg, code) <- toList diags]
   where
     offenders = [(d.rendered, d.code) | d <- diagnostics, unexpected d.code]
 
     unexpected = maybe False (not . flip Set.member expected . diagnosticCodeNumber)
 
-expectNoDiagnostics :: TestLog -> TestT IO ()
-expectNoDiagnostics = expectDiagnostics []
+expectNoDiagnostics ::
+  HasCallStack =>
+  TestLog ->
+  TestT IO ()
+expectNoDiagnostics =
+  withFrozenCallStack do
+    expectDiagnostics []
+
+checkSessionResult ::
+  HasCallStack =>
+  String ->
+  (TestLog -> TestT IO ()) ->
+  (Maybe a, TestLog) ->
+  TestT IO a
+checkSessionResult desc checkLog (result, log) = do
+  checkLog log
+  annotate (sessionFailedMessage desc log)
+  evalMaybe result
+
+-- | Run a GHC session with a fresh logger and return the result alongside the log.
+testSessionMain ::
+  MVar WorkerState ->
+  Args ->
+  (Env -> TestT Ghc a) ->
+  TestT IO (Maybe a, TestLog)
+testSessionMain state args prog = do
+  (log, logVar) <- liftIO newTestLog
+  let env = Env {log, state, args}
+  session <- liftIO $ initSession env
+  result <- controlT \ lowerTest ->
+    withCleanup session $ runGhc session $ withHandler log do
+      (result, journal) <- lowerTest (prog env)
+      pure (Just <$> result, journal)
+  logOutput <- liftIO $ readIORef logVar
+  pure (result, logOutput)
+  where
+    withHandler log = handleExceptions log (Right Nothing, mempty)
+
+    withCleanup session = flip finally (cleanupSession session)
+
+-- | Parameters for a GHC session run in a test.
+data TestSessionConfig a =
+  TestSessionConfig {
+    -- | Assert properties about the GHC log, like diagnostics.
+    checkLog :: TestLog -> TestT IO (),
+
+    -- | If the test has to prepare the state, it can be provided explicitly.
+    state :: Maybe (MVar WorkerState),
+
+    -- | Args can be customized.
+    args :: Args,
+
+    -- | The full test program.
+    -- 'defTestGhc' provides a simpler signature for conveniece.
+    program :: Env -> TestT Ghc a
+  }
+
+defTest ::
+  (Env -> TestT Ghc a) ->
+  TestSessionConfig a
+defTest program =
+  TestSessionConfig {
+    checkLog = expectNoDiagnostics,
+    state = Nothing,
+    args = emptyArgs [],
+    program
+  }
+
+defTestGhc ::
+  (Env -> Ghc a) ->
+  TestSessionConfig a
+defTestGhc program =
+  defTest (lift . program)
+
+-- | Run a GHC session and fail with a Hedgehog error if the result is 'Nothing', indicating that an exception was
+-- thrown.
+-- Creates an 'Env' from the args and a fresh test log and passes it to the callback.
+--
+-- 'checkLog' may assert properties about the log, like expecting diagnostics.
+--
+-- Note: 'withFrozenCallStack' is used only for the assertion part.
+-- This has the effect that Hedgehog displays the caller's location for assertions in 'checkSessionResult', while
+-- leaving assertions in @prog@ unchanged.
+testSession ::
+  HasCallStack =>
+  String ->
+  TestSessionConfig a ->
+  TestT IO a
+testSession desc conf = do
+  state <- maybe (liftIO newState) pure conf.state
+  result <- testSessionMain state conf.args conf.program
+  withFrozenCallStack do
+    checkSessionResult desc conf.checkLog result
