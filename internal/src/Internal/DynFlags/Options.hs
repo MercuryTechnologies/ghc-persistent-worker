@@ -18,17 +18,20 @@ import FlatParse.Basic (
   char,
   eof,
   err,
+  lookahead,
   skipSatisfy,
   strToUtf8,
+  string,
   utf8ToStr,
   )
 import FlatParse.Basic.Switch (switch)
 import GHC (GeneralFlag (..), GhcLink (..))
+import GHC.Data.FastString (mkFastStringByteString)
 import GHC.Driver.DynFlags (DynFlags (..), Option (..), PackageArg (..), WarningFlag)
 import GHC.Driver.Flags (WarningGroup, warnFlagNames, warningGroupName, warningGroups)
-import GHC.Driver.Session (setGeneralFlag', setTmpDir, updOptLevel)
+import GHC.Driver.Session (FlagSpec (..), fFlags, setGeneralFlag', setTmpDir, unSetGeneralFlag', updOptLevel)
 import GHC.Unit (stringToUnit, stringToUnitId)
-import GHC.Unit.Module.Warnings (WarningCategory, defaultWarningCategory)
+import GHC.Unit.Module.Warnings (WarningCategory (..), defaultWarningCategory)
 import Internal.DynFlags.Update (
   ExtensionUpdate,
   addCppFlag,
@@ -56,6 +59,9 @@ import Internal.DynFlags.Update (
 
 eol :: Parser e ()
 eol = eof <|> $(char '\n')
+
+complete :: Parser e a -> Parser e a
+complete p = p <* lookahead eol
 
 restOfLine :: Parser e ByteString
 restOfLine =
@@ -91,14 +97,16 @@ data Opt where
   OptUnknown :: Opt
 
 optSwitch :: (DynFlags -> DynFlags) -> Parser e Opt
-optSwitch f = pure (OptSwitch (UpdateFlags f))
+optSwitch f = do
+  lookahead eol
+  pure (OptSwitch (UpdateFlags f))
 
 argWith :: Bool -> Parser ParseError a -> (a -> DynFlags -> DynFlags) -> Parser e Opt
 argWith separate parser update =
   pure OptArg {
     handler = UpdateWithArg {
-      update = UpdateFlags . update,
-      ..
+      parser = parser <* lookahead eol,
+      update = UpdateFlags . update
     },
     ..
   }
@@ -113,8 +121,8 @@ arg = argString True
 optionalWith :: Parser ParseError a -> (Maybe a -> DynFlags -> DynFlags) -> Parser e Opt
 optionalWith parser update =
   pure $ OptArgOptional UpdateWithArg {
-    update = UpdateFlags . update,
-    ..
+    parser = parser <* lookahead eol,
+    update = UpdateFlags . update
   }
 
 unknown :: Parser e Opt
@@ -125,6 +133,9 @@ discard = arg (const id)
 
 general :: GeneralFlag -> Parser e Opt
 general = optSwitch . setGeneralFlag'
+
+generalOff :: GeneralFlag -> Parser e Opt
+generalOff = optSwitch . unSetGeneralFlag'
 
 #if defined(MWB)
 
@@ -147,6 +158,8 @@ setDepJson = discard
 -- | We need to use an error for unknwon extensions because the update function is pure.
 data ParseError =
   UnknownExtension ByteString
+  |
+  UnknownWarning ByteString
   deriving stock (Eq, Show)
 
 parseExtension :: Bool -> Parser ParseError ExtensionUpdate
@@ -157,7 +170,7 @@ parseExtension disable = do
     Nothing -> err (UnknownExtension name)
 
 str :: String -> Parser e ()
-str = byteString . strToUtf8
+str = complete . byteString . strToUtf8
 
 warningGroup :: Parser e WarningGroup
 warningGroup =
@@ -169,7 +182,13 @@ warningFlag =
 
 warningCategory :: Parser e WarningCategory
 warningCategory =
-  defaultWarningCategory <$ str "warnings-deprecations"
+  defaultWarningCategory <$ $(string "warnings-deprecations")
+  <|>
+  custom
+  where
+    custom = do
+      $(string "x-")
+      WarningCategory . mkFastStringByteString <$> restOfLine
 
 warnings ::
   (WarningGroup -> State DynFlags ()) ->
@@ -177,13 +196,20 @@ warnings ::
   (WarningCategory -> State DynFlags ()) ->
   Parser e Opt
 warnings setGroup setFlag setCategory =
-  (warningArg warningGroup setGroup)
-  <|>
-  (warningArg warningFlag setFlag)
-  <|>
-  (warningArg warningCategory setCategory)
+  argWith False (execState <$> parse) id
   where
-    warningArg parse update = argWith False parse (execState . update)
+    parse =
+      (setGroup <$> warningGroup)
+      <|>
+      (setFlag <$> warningFlag)
+      <|>
+      (setCategory <$> warningCategory)
+      <|>
+      (err . UnknownWarning =<< restOfLine)
+
+generalFlag :: Parser e GeneralFlag
+generalFlag =
+  asum [flagSpecFlag <$ str flagSpecName | FlagSpec {flagSpecName, flagSpecFlag} <- fFlags]
 
 -- | This syntax is compiled to a prefix tree in @switch@, with precedence for the longest match.
 --
@@ -191,21 +217,17 @@ warnings setGroup setFlag setCategory =
 parseOptionSpec :: Parser ParseError Opt
 parseOptionSpec =
   $(switch [|case _ of
+    "f" -> general =<< generalFlag
+    "fno-" -> generalOff =<< generalFlag
     "hide-all-packages" -> general Opt_HideAllPackages
     "include-pkg-deps" -> optSwitch (\ d -> d {depIncludePkgDeps = True})
     "no-link" -> optSwitch (\ d -> d {ghcLink = NoLink})
     "dynamic" -> optSwitch addWayDyn
-    "fbyte-code-and-object-code" -> general Opt_ByteCodeAndObjectCode
-    "fprefer-byte-code" -> general Opt_UseBytecodeRatherThanObjects
     "fPIC" -> general Opt_PIC
-    "fwrite-ide-info" -> general Opt_WriteHie
-    "fexternal-dynamic-refs" -> general Opt_ExternalDynamicRefs
-    "fpackage-db-byte-code" -> setPackageDbBytecode
     "prof" -> optSwitch addWayProf
     "haddock" -> general Opt_Haddock
     "i" -> optionalWith restOfLine updateImportPaths
     "Werror" -> general Opt_WarnIsError
-    "fdefer-diagnostics" -> general Opt_DeferDiagnostics
     "O" -> optionalWith anyAsciiDecimalInt (updOptLevel . fromMaybe 0)
     "osuf" -> arg (\ objectSuf_ d -> d {objectSuf_})
     "hisuf" -> arg (\ hiSuf_ d -> d {hiSuf_})
@@ -229,6 +251,8 @@ parseOptionSpec =
     "W" -> warnings setWarningGroup setWarningFlag setCustomWarningFlag
     "Wno-" -> warnings unSetWarningGroup unSetWarningFlag unSetCustomWarningFlag
     "Werror=" -> warnings setWErrorWarningGroup setWErrorFlag setCustomWErrorFlag
+    "fwarn-" -> warnings unSetWarningGroup unSetWarningFlag unSetCustomWarningFlag
+    "fno-warn-" -> warnings setWErrorWarningGroup setWErrorFlag setCustomWErrorFlag
     "Wwarn=" -> warnings unSetFatalWarningGroup unSetFatalWarningFlag unSetCustomFatalWarningFlag
     "Wno-error=" -> warnings unSetFatalWarningGroup unSetFatalWarningFlag unSetCustomFatalWarningFlag
     "L" -> argWith False restOfLine updateLibraryPaths

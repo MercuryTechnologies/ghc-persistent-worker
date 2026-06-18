@@ -48,6 +48,9 @@ data Flag =
   -- | An arg passed to @-X@ that isn't present in the extension list.
   FlagUnknownExtension ByteString
   |
+  -- | An arg passed to one of the @-W@ variants that isn't present in any warning set.
+  FlagUnknownWarning ByteString
+  |
   -- | An option that requires an argument was followed by EOF.
   FlagMissingArg ByteString
 
@@ -97,6 +100,7 @@ parseFlag =
   where
     handleError = \case
       UnknownExtension name -> pure (FlagUnknownExtension name)
+      UnknownWarning name -> pure (FlagUnknownWarning name)
 
 parseFlagLine :: Parser ParseError Flag
 parseFlagLine =
@@ -116,6 +120,7 @@ applyFlags dflags flags =
       FlagPositional src -> Left (Right src)
       FlagUnknown name -> flagError "Unrecognised flag:" name
       FlagUnknownExtension name -> flagError "Unknown extension:" name
+      FlagUnknownWarning name -> flagError "Unknown warning:" name
       FlagMissingArg name -> flagError "Missing argument for" name
 
     flagError desc name = Left (Left (unknownError (Just "worker") dflags (desc <+> text (utf8ToStr name))))

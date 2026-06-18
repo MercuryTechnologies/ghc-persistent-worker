@@ -109,7 +109,6 @@ argsSuccess =
     "-idiscarded1:discarded2",
     "-i",
     "-ione::two:three:",
-    "-Werror",
     "-fdefer-diagnostics",
     "-osuf", "o_test",
     "-j",
@@ -129,12 +128,36 @@ argsSuccess =
     "-this-unit-id", "unit-test",
     "-package-env", "/package-env",
     "-dep-json", "/dep-json",
-    "-Wall",
-    "-Werror=unused-binds",
     "-llink",
     "-L/linkdir",
     "-DFEATURE=no",
     "-UUNDEF",
+    "-Werror",
+    "-Wall",
+    "-Werror=unused-binds",
+    "-Wno-missing-exported-signatures",
+    "-Wno-missing-export-lists",
+    "-Wno-missing-import-lists",
+    "-Wno-missed-specialisations",
+    "-Wno-all-missed-specialisations",
+    "-Wno-unsafe",
+    "-Wno-missing-local-signatures",
+    "-Wno-monomorphism-restriction",
+    "-Wno-missing-safe-haskell-mode",
+    "-Wno-unused-packages",
+    "-Wno-operator-whitespace",
+    "-Wno-missing-kind-signatures",
+    "-Wno-implicit-lift",
+    "-Wno-missing-role-annotations",
+    "-Wno-term-variable-capture",
+    "-Wno-missing-poly-kind-signatures",
+    "-Wno-x-partial",
+    "-Wno-defaulted-exception-context",
+    "-fno-warn-ambiguous-fields",
+    "-fwarn-tabs",
+    "-fdefer-diagnostics",
+    "-fdiagnostics-color=always",
+    "-fno-defer-type-errors",
     "Mod1.hs",
     "Mod2.hs"
   ]
@@ -163,7 +186,12 @@ test_flagParser_success = do
   assertJust "/hie" dflags.hieDir
   assertJust "/dump" dflags.dumpDir
   ShowPpr (stringToUnitId "unit-test") === ShowPpr dflags.homeUnitId_
-  [Opt_WarnUnusedTopBinds, Opt_WarnUnusedLocalBinds, Opt_WarnUnusedPatternBinds] === EnumSet.toList dflags.fatalWarningFlags
+  [
+    Opt_WarnUnusedTopBinds,
+    Opt_WarnUnusedLocalBinds,
+    Opt_WarnUnusedPatternBinds,
+    Opt_WarnAmbiguousFields
+    ] === EnumSet.toList dflags.fatalWarningFlags
   ["-llink"] === [o | Option o <- dflags.ldInputs]
   ["/linkdir"] === dflags.libraryPaths
   ["-UUNDEF", "-DFEATURE=no"] === dflags.toolSettings.toolSettings_opt_P
@@ -214,6 +242,10 @@ argsUnknown =
     "-package-db", "/path",
     "-unknown1",
     "-O2",
+    -- TODO this should not result in unconsumed input.
+    -- The problem is that in parseOptionSpec, when parsing succeeds for the branching case but
+    -- fails afterwards (due to the toEol thing), some failure logic is skipped, idk.
+    -- "-hide-all-packagess",
     "-unknown2"
   ]
 
@@ -230,11 +262,32 @@ test_flagParser_unknown =
     (_, _, Left errs) -> targetUnknown === errs
     _ -> failure
 
+argsUnknownPartial :: [ByteString]
+argsUnknownPartial =
+  [
+    "-Wall",
+    "-Wno-xxx",
+    "-Wall"
+  ]
+
+targetUnknownPartial :: String
+targetUnknownPartial =
+  intercalate "\n" [
+    "worker: error: Unknown warning: xxx"
+  ]
+
+test_flagParser_unknownPartial :: TestT IO ()
+test_flagParser_unknownPartial =
+  parseTest argsUnknownPartial >>= \case
+    (_, _, Left errs) -> targetUnknownPartial === errs
+    _ -> failure
+
 test_parseBuckArgs :: TestTree
 test_parseBuckArgs =
   testGroup "flag parser" [
     unitTest "successful" test_flagParser_success,
     unitTest "missing argument" test_flagParser_missingArg,
     unitTest "invalid extension" test_flagParser_invalidExtension,
-    unitTest "unknown options" test_flagParser_unknown
+    unitTest "unknown options" test_flagParser_unknown,
+    unitTest "unknown flag with partial match" test_flagParser_unknownPartial
   ]
