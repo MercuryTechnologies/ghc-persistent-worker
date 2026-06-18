@@ -229,12 +229,17 @@ loadCachedArgs path = do
 ensureNoPositionalArgs :: (DynFlags, [ByteString]) -> Either DriverMessages DynFlags
 ensureNoPositionalArgs = \case
   (dflags, []) -> Right dflags
-  (dflags, args) -> Left (unknownErrors (Just "worker") dflags (argsError args))
+  (dflags, args) ->
+    if allowRedundantSources
+    then Right dflags
+    else Left (unknownErrors (Just "worker") dflags (argsError args))
   where
     argsError args =
       text "Found positional args when restoring unit state from cache:"
       <+>
       hcat (punctuate comma (text . Text.unpack . decodeUtf8 <$> args))
+
+    allowRedundantSources = True
 
 -- | Cached CLI args for a unit.
 --
