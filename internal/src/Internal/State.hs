@@ -5,6 +5,7 @@ module Internal.State where
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, withMVar)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
+import Data.Map.Strict qualified as M
 import GHC (Ghc, emptyMG)
 import GHC.Driver.Monad (modifySessionM, withSession)
 import GHC.Unit.Home.Graph (unitEnv_new)
@@ -21,6 +22,7 @@ newState :: IO (MVar WorkerState)
 newState = do
   initialPath <- lookupEnv "PATH"
   unitIndex <- newUnitIndex
+  let bcoLoadState = M.empty
   newMVar WorkerState {
     path = BinPath {
       initial = toOsPath <$> initialPath,
@@ -32,7 +34,8 @@ newState = do
       moduleGraph = emptyMG,
       hug = unitEnv_new mempty,
       interp = Nothing,
-      unitIndex
+      unitIndex,
+      bcoLoadState
     },
     targetArgs = mempty
   }

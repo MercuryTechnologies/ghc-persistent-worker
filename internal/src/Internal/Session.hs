@@ -202,7 +202,7 @@ withGhcMakeModule ::
   Env ->
   (TargetSpec -> Ghc (Maybe a)) ->
   IO (Maybe a)
-withGhcMakeModule interp target = do
+withGhcMakeModule interp target =
   withGhc \ env srcs run -> do
     dflags0 <- getSessionDynFlags
     ensureNoArgs srcs
@@ -217,7 +217,7 @@ withGhcMakeModule interp target = do
         hsc_env2 <- processArg hsc_env1 (loadHomeUnit env.log env.state dflags0 env.args.features (moduleUnitId target.mod)) env.args.homeUnit
         hsc_env3 <- liftIO $ withMVar env.state \ state -> pure (hscSetModuleGraph state.make.moduleGraph hsc_env2)
         let hsc_env4 = hscSetActiveUnitId (moduleUnitId target.mod) (hsc_env3)
-        processArg hsc_env4 (loadCachedDeps env.log interp) env.args.cachedDeps
+        processArg hsc_env4 (loadCachedDeps env.log env.state interp) env.args.cachedDeps
       initializeSessionPlugins
       let targetSpec
             | interp == Interpreted = TargetModuleInterp target

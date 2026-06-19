@@ -2,7 +2,7 @@
 
 module Internal.Cache.Hpt where
 
-import Control.Concurrent (MVar, modifyMVar)
+import Control.Concurrent (MVar, modifyMVar, newEmptyMVar, putMVar, readMVar)
 import Control.Monad (foldM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State.Strict (StateT (..))
@@ -10,6 +10,7 @@ import Data.Foldable (toList)
 import Data.Function (on)
 import Data.Functor ((<&>))
 import Data.List.NonEmpty (NonEmpty ((:|)), groupBy)
+import Data.Map.Strict qualified as M (insert, lookup)
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Time (getCurrentTime)
 import Data.Traversable (for)
@@ -18,7 +19,7 @@ import GHC (DynFlags, GhcException (..), ModIface, ModIface_ (..), ModLocation (
 import GHC.Data.Bag (emptyBag)
 import GHC.Data.Maybe (MaybeErr (..))
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hsc_HPT)
-import GHC.Driver.Main (initModDetails, initWholeCoreBindings)
+import GHC.Driver.Main (initModDetails)
 import GHC.Driver.Session (targetProfile)
 import GHC.Iface.Binary (CheckHiWay (..), TraceBinIFace (QuietBinIFace), readBinIface)
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
@@ -31,7 +32,7 @@ import GHC.Types.Name.Reader (GlobalRdrEltX (..), Parent (NoParent))
 import GHC.Unit (Definite (..), GenUnit (..), UnitId)
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.Graph (unitEnv_lookup_maybe)
-import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
+import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..), homeModInfoByteCode)
 import GHC.Unit.Home.PackageTable (addHomeModInfoToHpt, lookupHpt)
 import GHC.Unit.Module.Location (pattern ModLocation)
 import GHC.Unit.Module.ModDetails (ModDetails (..))
@@ -48,7 +49,8 @@ import Types.BuckArgs (IsInterpreted (Compiled, Interpreted), decodeJsonArg)
 import Types.CachedDeps (CachedDep (..), CachedDeps (..), CachedUnit (..), JsonFs (..))
 import Types.FeatureFlags (FeatureFlags (..))
 import Types.Log (Logger (..))
-import Types.State (WorkerState)
+import Types.State (WorkerState (make))
+import Types.State.Make (bcoLoadState)
 import System.OsPath.Extra (OsPath, fromOsPath)
 
 #if defined(MWB)
@@ -63,6 +65,43 @@ import GHC.Unit.Module.ModIface (mi_sc_extra_decls, mi_sc_foreign)
 
 #endif
 
+#if defined(MWB)
+
+import GHC.Driver.Main(compileWholeCoreBindings)
+
+-- This is basically initWholeCoreBindings, but strict version and
+-- does not add empty HMI to HPT.
+loadWholeCoreBindings ::
+  HscEnv ->
+  ModIface ->
+  ModDetails ->
+  Linkable ->
+  IO Linkable
+loadWholeCoreBindings hsc_env _iface details (Linkable utc_time this_mod uls) =
+  Linkable utc_time this_mod <$> mapM go uls
+  where
+    go = \case
+      CoreBindings wcb -> do
+        -- we only add byte code objects.
+        (bco, _fos) <- compileWholeCoreBindings hsc_env type_env wcb
+        pure (BCOs bco)
+      l -> pure l
+    type_env = md_types details
+
+#else
+
+import GHC.Driver.Main(initWholeCoreBindings)
+
+loadWholeCoreBindings ::
+  HscEnv ->
+  ModIface ->
+  ModDetails ->
+  Linkable ->
+  IO Linkable
+loadWholeCoreBindings = initWholeCoreBindings
+
+#endif
+
 -- | Load bytecode from an interface.
 -- Used only for modules missing from the current target's HPT when restoring the Buck cache after restarting a build.
 --
@@ -73,7 +112,7 @@ loadCachedByteCode :: HscEnv -> FilePath -> ModIface -> ModDetails -> IO (Maybe 
 loadCachedByteCode hsc_env ifaceFile iface details =
   for core_bindings \ wcb -> do
     linkable <- bcoLinkable [CoreBindings wcb]
-    initWholeCoreBindings hsc_env iface details linkable
+    loadWholeCoreBindings hsc_env iface details linkable
    where
     wcb_mod_location =
       ModLocation {
@@ -113,21 +152,45 @@ loadCachedByteCode hsc_env ifaceFile iface details =
 -- Maybe this could reuse some stuff in @hscRecompStatus@?
 loadCachedDep ::
   Logger ->
+  MVar WorkerState ->
   IsInterpreted ->
   ModuleName ->
   HscEnv ->
   OsPath ->
   IO HscEnv
-loadCachedDep log interp name hsc_env ifaceFile = do
+loadCachedDep log stateVar interp name hsc_env ifaceFile = do
   existing <- lookupHpt hpt name
-  if isJust existing
-  then pure hsc_env
-  else loadHmi
+  case existing of
+    Just hmi ->
+      case homeModInfoByteCode hmi of
+        Just _ -> pure hsc_env
+        Nothing -> loadHmiFromCached
+    Nothing -> loadHmiFromCached
+
   where
+    updateBcoState = do
+      new_lock <- newEmptyMVar
+      modifyMVar stateVar \ state -> do
+        let make = state.make
+            m = make.bcoLoadState
+            mlock = M.lookup name m
+        case mlock of
+          Nothing -> do
+            let m' = M.insert name new_lock m
+                make' = make {bcoLoadState = m'}
+            pure (state {make = make'}, (new_lock, False))
+          Just lock -> pure (state, (lock, True))
+
+    loadHmiFromCached = do
+      (lock, load_already_requested) <- updateBcoState
+      if load_already_requested
+        then readMVar lock >> pure hsc_env
+        else loadHmi >> putMVar lock () >> pure hsc_env
+
     loadHmi = do
       logTimed log ("Loading HPT module from cache: " ++ fromOsPath ifaceFile) do
         hm_iface0 <- loadIface
-        hm_details <- initModDetails hsc_env hm_iface0
+        !hm_details <- initModDetails hsc_env hm_iface0
         homeMod_bytecode <- loadCachedByteCode hsc_env (fromOsPath ifaceFile) hm_iface0 hm_details
         let hm_iface = setExtraDecls Nothing hm_iface0
         let new = HomeModInfo {
@@ -202,11 +265,12 @@ hasUnit uid hsc_env =
 -- restore into the HPT here.
 loadCachedDeps ::
   Logger ->
+  MVar WorkerState ->
   IsInterpreted ->
   HscEnv ->
   CachedDeps ->
   IO HscEnv
-loadCachedDeps log interp hsc_env0 (CachedDeps deps) =
+loadCachedDeps log stateVar interp hsc_env0 (CachedDeps deps) =
   logTimed log "Loading cached deps" do
     hsc_env1 <- foldM loadDepUnit hsc_env0 byUnit
     pure (hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1)
@@ -221,7 +285,7 @@ loadCachedDeps log interp hsc_env0 (CachedDeps deps) =
     loadActiveUnit = foldM loadDep
 
     loadDep hsc_env CachedDep {name = JsonFs name, interfaces = iface :| _} =
-      liftIO (loadCachedDep log interp name hsc_env iface)
+      liftIO (loadCachedDep log stateVar interp name hsc_env iface)
 
     byUnit = groupBy (on (==) (.package)) deps
 

@@ -2,9 +2,12 @@
 
 module Types.State.Make where
 
-import GHC (ModuleGraph)
+import Control.Concurrent.MVar (MVar)
+import GHC (ModuleGraph, ModuleName)
 import GHC.Runtime.Interpreter (Interp)
 import GHC.Unit.Env (HomeUnitGraph)
+-- import Data.IORef (IORef)
+import Data.Map.Strict qualified as M
 
 #if defined(UNIT_INDEX)
 
@@ -38,6 +41,7 @@ data MakeState =
     -- state for consistency.
     interp :: Maybe Interp,
 
-    unitIndex :: UnitIndex
+    unitIndex :: UnitIndex,
 
+    bcoLoadState :: M.Map ModuleName (MVar ())
   }
