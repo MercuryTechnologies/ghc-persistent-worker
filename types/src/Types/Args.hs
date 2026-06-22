@@ -14,6 +14,7 @@ import System.OsPath.Extra (OsPath, toOsPath)
 import Types.CachedDeps (CachedBuildPlans, CachedDeps)
 import Types.FeatureFlags (FeatureFlags, defaultFeatureFlags)
 import Types.Target (ModuleTarget)
+import Types.BuildPlan (ModuleKey)
 
 newtype TargetId = TargetId {string :: String}
   deriving newtype (Show, Eq, Ord)
@@ -96,6 +97,7 @@ data Args =
     fields :: Maybe (NonEmpty BuildPlanField),
     moduleTarget :: Maybe ModuleTarget,
     ghcOptions :: [String],
+    perModuleFlags :: Map ModuleKey [String],
     cachedBuildPlans :: Maybe CachedBuildPlans,
     cachedDeps :: Maybe CachedDeps,
     homeUnit :: Maybe OsPath,
@@ -116,6 +118,7 @@ emptyArgs env =
     fields = Nothing,
     moduleTarget = Nothing,
     ghcOptions = [],
+    perModuleFlags = Map.empty,
     cachedBuildPlans = Nothing,
     cachedDeps = Nothing,
     homeUnit = Nothing,
