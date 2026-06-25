@@ -121,12 +121,14 @@ expected1 =
       ("U1M1", CachedModule {
         source = toOsPath "U1M1.hs",
         modules = [],
-        packages = []
+        packages = [],
+        flags = []
       }),
       ("U1M2", CachedModule {
         source = toOsPath "U1M2.hs",
         modules = [jmn "U1M1"],
-        packages = []
+        packages = [],
+        flags = []
       })
     ]
   }
@@ -159,12 +161,14 @@ expected2 oneshot =
       ("U2M1", CachedModule {
         source = toOsPath "Dummy.hs",
         modules = [],
-        packages = []
+        packages = [],
+        flags = []
       }),
       ("U2M2", CachedModule {
         source = toOsPath "Dummy.hs",
         modules = [jmn "U2M1"],
-        packages = if oneshot then [] else [CachedPackageDep {id = jui "unit1", modules = [jmn "U1M2"]}]
+        packages = if oneshot then [] else [CachedPackageDep {id = jui "unit1", modules = [jmn "U1M2"]}],
+        flags = []
       })
     ]
   }
@@ -172,7 +176,7 @@ expected2 oneshot =
 runBuildPlan :: NonEmpty Target -> Ghc (BuildPlan, HscEnv)
 runBuildPlan targets = do
   modifyActiveUnitFlags \ d -> d {ghcMode = MkDepend}
-  plan <- buildPlanForTargets fields (toList targets)
+  plan <- buildPlanForTargets fields mempty (toList targets)
   hsc_env <- getSession
   pure (plan, hsc_env)
 

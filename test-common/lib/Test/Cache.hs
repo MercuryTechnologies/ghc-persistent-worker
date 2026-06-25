@@ -98,7 +98,8 @@ cachedModule env unit BuildModule {key, deps} =
   CachedModule {
     source = env.sourceDir </> moduleSourcePath key,
     modules = jsonFsFromString . moduleName <$> foldMap toList home,
-    packages = cachedPackageDep <$> packages
+    packages = cachedPackageDep <$> packages,
+    flags = []
   }
   where
     allDeps = Set.toList deps

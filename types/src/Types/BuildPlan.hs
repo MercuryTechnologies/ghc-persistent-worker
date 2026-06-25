@@ -68,7 +68,8 @@ data BuildPlanModule =
     modulesBoot :: [(ModuleKey, JsonFs ModuleName)],
     packages :: [PackageDep],
     thEnabled :: Bool,
-    preprocessor :: Preprocessor
+    preprocessor :: Preprocessor,
+    flags :: [String]
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)

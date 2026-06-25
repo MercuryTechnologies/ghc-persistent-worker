@@ -60,7 +60,7 @@ fields = Set.fromList (toList buildPlanAll)
 runBuildPlan :: NonEmpty Target -> Ghc BuildPlan
 runBuildPlan targets = do
   modifySession (hscUpdateFlags \ d -> d {ghcMode = MkDepend})
-  buildPlanForTargets fields (toList targets)
+  buildPlanForTargets fields mempty (toList targets)
 
 -- | Run build plan JSON generation and should get errors from non-existent module imports
 --   The number of errors should be matched with the number of errorneous imports.

@@ -60,11 +60,12 @@ fieldCache =
   fmap basic
   where
     -- TODO do we need boot deps here?
-    basic BuildPlanModule {source, modules, packages} =
+    basic BuildPlanModule {source, modules, packages, flags} =
       CachedModule {
         source,
         modules = (snd <$> modules),
-        packages = [CachedPackageDep {id = dep.id, modules = dep.modules} | dep <- packages]
+        packages = [CachedPackageDep {id = dep.id, modules = dep.modules} | dep <- packages],
+        flags
       }
 
 fieldLegacy ::
