@@ -24,6 +24,7 @@ import Data.Text.Encoding (decodeUtf8)
 import Data.Traversable (for)
 import Data.Tuple (swap)
 import GHC (DynFlags (..), IsBootInterface (..), ModuleGraph, ModuleName, mkModuleGraph)
+import qualified GHC as GHC
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (..))
 import GHC.Driver.Make (ModNodeKeyWithUid (..), summariseFile)
@@ -144,7 +145,7 @@ decodeJsonBuildPlan =
 -- If GHC has fixed module graph nodes, those are constructed; otherwise we have to call 'summariseFile' to create a
 -- full node, which parses the module.
 loadCachedModule :: Bool -> HscEnv -> UnitId -> JsonFs ModuleName -> CachedModule -> IO ModuleGraphNode
-loadCachedModule useFixedNodes hsc_env unit (JsonFs modName) CachedModule {source, modules, packages} = do
+loadCachedModule useFixedNodes hsc_env unit (JsonFs modName) CachedModule {source, modules, packages, flags} = do
   node <- createNode source modName
   pure (ModuleNode (moduleNodeEdge <$> (homeDeps ++ packageDeps)) node)
   where
@@ -191,7 +192,15 @@ loadCachedModule useFixedNodes hsc_env unit (JsonFs modName) CachedModule {sourc
 
     createNodeLegacy src = do
       summResult <- summariseFile hsc_env (DefiniteHomeUnit unit Nothing) mempty (fromOsPath src) Nothing Nothing
-      eitherMessages GhcDriverMessage summResult
+      summary <- eitherMessages GhcDriverMessage summResult
+
+      -- Apply per-module GHC flags.
+      (dflags', _, _) <- GHC.parseDynamicFlags
+          hsc_env.hsc_logger
+          (GHC.ms_hspp_opts summary)
+          (map GHC.noLoc flags)
+      pure summary {GHC.ms_hspp_opts = dflags'}
+
 
 -- | Restore non-GHC state from the Buck cache.
 -- Command line arguments interpreted directly by the worker aren't part of the unit args, but they can yet influence
