@@ -43,7 +43,7 @@ import GHC.Utils.Error (isEmptyMessages)
 import Internal.BuildPlan.External (packageName, unitImports)
 import Internal.BuildPlan.Json (assembleFields)
 import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, deps, downsweepCompat, key, summary)
-import Internal.Compat.GHC914 (edgeTarget)
+import Internal.Compat.GHC914 (edgeTarget, mapMGM)
 import Internal.Error (eitherMessages)
 import System.FilePath (splitExtension)
 import System.OsPath.Extra (toOsPath)
@@ -313,6 +313,24 @@ useNoBackend hsc_env =
   let dflags = hsc_dflags hsc_env
    in hsc_env { hsc_dflags = dflags {backend = noBackend}}
 
+-- | Add the per-module flags to each module's 'ms_hspp_opts' in the module graph.
+addPerModuleFlagsToModuleGraph
+  :: GhcMonad m => Map.Map ModuleKey [String] -> ModuleGraph -> m ModuleGraph
+addPerModuleFlagsToModuleGraph perModuleFlags mg0 =
+  if Map.null perModuleFlags then
+    pure mg0
+  else do
+    hsc_env <- getSession
+    liftIO $ flip mapMGM mg0 $ \summary ->
+      case Map.lookup (summaryModuleKey summary) perModuleFlags of
+        Just flags -> do
+          (dflags, _, _) <- GHC.parseDynamicFlags
+             hsc_env.hsc_logger
+             (GHC.ms_hspp_opts summary)
+             (map GHC.noLoc flags)
+          pure summary {GHC.ms_hspp_opts = dflags}
+        _ -> pure summary
+
 buildPlanForTargets ::
   GhcMonad m =>
   Set BuildPlanField ->
@@ -321,7 +339,8 @@ buildPlanForTargets ::
   m BuildPlan
 buildPlanForTargets fields perModuleFlags targets = do
   GHC.setTargets targets
-  (errs, graph) <- withSession (liftIO . downsweepWithCache . useNoBackend)
+  (errs, graph0) <- withSession (liftIO . downsweepWithCache . useNoBackend)
+  graph <- addPerModuleFlagsToModuleGraph perModuleFlags graph0
   let msgs = unionManyMessages errs
   unless (isEmptyMessages msgs) $ throwErrors (fmap GhcDriverMessage msgs)
   hsc_env <- getSession
