@@ -4,6 +4,7 @@ module Main where
  
 import qualified BuildPlanTest.Test1 (test_buildPlan)
 import qualified BuildPlanTest.Test2 (test_buildPlan)
+import FlagParserTest (test_parseBuckArgs)
 import ProjectBuildTest (test_projectBuild)
 import ResourceTest (test_resources)
 import ScheduleTest (test_sortScheduleOrder)
@@ -35,6 +36,7 @@ fullTest = False
 testsGeneral :: [TestTree]
 testsGeneral =
   [
+    test_parseBuckArgs,
     test_sortScheduleOrder,
     test_projectBuild
   ] <> if fullTest then [
