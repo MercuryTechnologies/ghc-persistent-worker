@@ -219,6 +219,7 @@ parseOptionSpec =
   $(switch [|case _ of
     "f" -> general =<< generalFlag
     "fno-" -> generalOff =<< generalFlag
+    "fobject-determinism" -> general Opt_ObjectDeterminism
     "hide-all-packages" -> general Opt_HideAllPackages
     "include-pkg-deps" -> optSwitch (\ d -> d {depIncludePkgDeps = True})
     "no-link" -> optSwitch (\ d -> d {ghcLink = NoLink})

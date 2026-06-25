@@ -158,6 +158,7 @@ argsSuccess =
     "-fdefer-diagnostics",
     "-fdiagnostics-color=always",
     "-fno-defer-type-errors",
+    "-fobject-determinism",
     "Mod1.hs",
     "Mod2.hs"
   ]
