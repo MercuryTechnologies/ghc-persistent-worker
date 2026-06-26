@@ -135,6 +135,9 @@ instance FromJSON CachedModule where
         (Nothing, Just _) -> fail "No 'source' and 'sources' does not contain exactly one element"
         (Nothing, Nothing) -> fail "Neither 'source' nor 'sources'"
 
+-- | The fields of this type need to be kept compatible with those of
+-- 'Types.BuildPlan.BuildPlanSchema'. See the documentation of BuildPlanSchema
+-- for details.
 data CachedUnit =
   CachedUnit {
     build_plan :: Maybe (Map (JsonFs ModuleName) CachedModule),

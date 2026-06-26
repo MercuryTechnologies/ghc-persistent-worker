@@ -19,7 +19,7 @@ import GHC.Unit.Module.Graph (ModuleGraph, NodeKey)
 import GHC.Unit.Module.ModSummary (isBootSummary)
 import GHC.Utils.Outputable (Outputable (..), text)
 import System.OsPath.Extra (OsPath)
-import Types.CachedDeps (CachedModule, JsonFs (..))
+import Types.CachedDeps (CachedModule, CachedUnit (..), JsonFs (..))
 
 data Dep =
   Dep {
@@ -126,6 +126,9 @@ unionPackageDepsShallow (PackageDeps l) (PackageDeps r) = PackageDeps (l <> r)
 -- invalidate build artifacts when local modules or external dependencies change.
 --
 -- See 'Types.Args.BuildPlanField' for an explanation of the fields.
+--
+-- Note that 'Types.CachedDeps.CachedUnit' is used to decode the JSON produced
+-- with this schema, so the fields in both types need to be kept compatible.
 data BuildPlanSchema =
   BuildPlanSchema {
     exposed_modules :: Maybe (Set ModuleKey),
@@ -138,6 +141,28 @@ data BuildPlanSchema =
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
+
+-- | A function to enroll the type-checker in checking that the fields of
+-- 'CachedUnit' and 'BuildPlanSchema' are compatible for JSON decoding.
+--
+-- See 'BuildPlanSchema' for details.
+_compatCachedUnitBuildPlanSchema :: CachedUnit -> BuildPlanSchema -> ()
+_compatCachedUnitBuildPlanSchema cu bps =
+    () `const` asTypeOf (fmap (Map.mapKeys compatCacheKeys) cuCache) bpsCache
+  where
+    -- Compile-time check: If the programmer changes the name of the field
+    -- ChachedUnit.cache, or BuildPlanSchema.cache, this pattern matches will
+    -- need to be updated. The programmer is responsible for ensuring that the
+    -- names are the same for both fields.
+    CachedUnit {cache = cuCache} = cu
+    BuildPlanSchema {cache = bpsCache} = bps
+
+    -- Compile-time check: If the programmer changes the type of
+    -- CachedUnit.cache or BuildPlanSchema.cache, this type signature will need
+    -- to be updated. The programmer is responsible for making sure that the
+    -- argument and the result have JSON representations that are compatible.
+    compatCacheKeys :: JsonFs ModuleName -> ModuleKey
+    compatCacheKeys = undefined
 
 data BuildPlanJson =
   BuildPlanJson {
