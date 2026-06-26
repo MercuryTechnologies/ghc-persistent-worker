@@ -194,6 +194,8 @@ loadCachedArgs path = do
     Right args -> modifyM (setupPath args.cachedBinPath)
     Left err -> liftIO $ throwIO (userError err)
 
+-- | Ensure there are no positional args that are remaining and not parsed yet up to this point.
+--   If exists, error with Left case.
 ensureNoPositionalArgs :: (DynFlags, [ByteString]) -> Either DriverMessages DynFlags
 ensureNoPositionalArgs = \case
   (dflags, []) -> Right dflags
@@ -216,7 +218,9 @@ readParseGHCArgs ::
 readParseGHCArgs parseFast hsc_env0 dflags0 args_file
   | parseFast = do
     args <- BS.readFile (fromOsPath args_file)
-    either (throwErrors . fmap GhcDriverMessage) pure (ensureNoPositionalArgs =<< parseDynFlags dflags0 args)
+    -- TODO: for correctness, we may need to ensure there are no positional args left
+    -- by ensureNoPositionalArgs, but this needs to be adjusted with client implementation.
+    either (throwErrors . fmap GhcDriverMessage) pure (fst <$> parseDynFlags dflags0 args)
   | otherwise = do
     args <- readFile (fromOsPath args_file)
     (dflags1, _, _, _) <- parseFlags dflags0 hsc_env0.hsc_logger (buckLocation <$> lines args)
