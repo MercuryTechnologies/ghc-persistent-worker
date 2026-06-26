@@ -119,6 +119,7 @@ argsSuccess =
     "-XNoViewPatterns",
     "-XPatternSynonyms",
     "-XNoFlexibleContexts",
+    "-XScopedTypeVariables",
     "-XGHC2021",
     "-odir", "/o",
     "-hidir", "/hi",
@@ -173,7 +174,7 @@ test_flagParser_success = do
   assert (Opt_DictsStrict `elem` EnumSet.toList dflags.generalFlags)
   ["one", "two", "three"] === dflags.importPaths
   "o_test" === dflags.objectSuf_
-  [Off FlexibleContexts, On PatternSynonyms, Off ViewPatterns, On ViewPatterns] === dflags.extensions
+  [On ExplicitForAll, On ScopedTypeVariables, Off FlexibleContexts, On PatternSynonyms, Off ViewPatterns, On ViewPatterns] === dflags.extensions
   case dflags.packageDBFlags of
     [PackageDB ref1, PackageDB ref2] -> do
       dbRef "/path2" === DbRef ref1

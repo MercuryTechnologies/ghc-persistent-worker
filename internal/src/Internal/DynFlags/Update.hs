@@ -33,6 +33,7 @@ import GHC.Driver.DynFlags (
   )
 import GHC.Driver.Flags (WarningFlag, WarningGroup, warningGroupFlags, warningGroupIncludesExtendedWarnings)
 import GHC.Driver.Session (
+  impliedXFlags,
   wopt_set,
   wopt_set_all_custom,
   wopt_set_all_fatal_custom,
@@ -132,12 +133,21 @@ resolveExtension name disable =
   <|>
   (SetExtension disable <$> extensionMap !? name)
 
+setExtensionFlag', unSetExtensionFlag' :: Extension -> DynFlags -> DynFlags
+setExtensionFlag' f dflags = foldr ($) (xopt_set dflags f) deps
+  where
+    deps = [ if turn_on then setExtensionFlag'   d
+                        else unSetExtensionFlag' d
+           | (f', turn_on, d) <- impliedXFlags, f' == f ]
+
+unSetExtensionFlag' f dflags = xopt_unset dflags f
+
 updateExtension :: ExtensionUpdate -> DynFlags -> DynFlags
 updateExtension = \case
   SetLanguage language ->
     flip lang_set (Just language)
   SetExtension disable extension ->
-    flip (if disable then xopt_unset else xopt_set) extension
+    (if disable then flip xopt_unset else setExtensionFlag') extension
 
 -- TODO This does not parse renamings
 addExpose :: DynFlags -> String -> PackageArg -> DynFlags
