@@ -6,7 +6,7 @@ import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, withMVar
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
 import Data.Map.Strict qualified as M
-import GHC (Ghc, emptyMG)
+import GHC (Ghc, emptyMG, HscEnv)
 import GHC.Driver.Monad (modifySessionM, withSession)
 import GHC.Unit.Home.Graph (unitEnv_new)
 import Internal.Debug (showHugShort, showModGraph)
@@ -58,16 +58,17 @@ updateMakeStateVar var f = modifyMakeState var (\ s -> pure (f s, ()))
 withState ::
   Logger ->
   MVar WorkerState ->
+  ((WorkerState, HscEnv) -> IO (WorkerState, HscEnv)) ->
   Ghc a ->
   Ghc a
-withState logger stateVar prog = do
+withState logger stateVar setup prog = do
   modifySessionM restore
   prog <* withSession store
   where
     restore hsc_env =
       liftIO $ modifyMVar stateVar \ state -> do
         let (make, hsc_env1) = Make.loadStateCompile hsc_env state.make
-        pure (state {make}, hsc_env1)
+        setup (state {make}, hsc_env1)
 
     store hsc_env =
       liftIO $ modifyMVar_ stateVar \ state -> do

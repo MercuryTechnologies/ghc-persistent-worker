@@ -2,7 +2,7 @@
 
 module Internal.Cache.Hpt where
 
-import Control.Concurrent (MVar, modifyMVar, newEmptyMVar, putMVar, readMVar)
+import Control.Concurrent (newEmptyMVar, putMVar, readMVar)
 import Control.Monad (foldM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State.Strict (StateT (..))
@@ -45,13 +45,13 @@ import Internal.Cache.Metadata (loadCachedUnit, loadCachedUnits, readParseGHCArg
 import Internal.Compat.GHC914 (setExtraDecls)
 import Internal.Log (logTimed)
 import Prelude hiding (log)
+import System.OsPath.Extra (OsPath, fromOsPath)
 import Types.BuckArgs (IsInterpreted (Compiled, Interpreted), decodeJsonArg)
 import Types.CachedDeps (CachedDep (..), CachedDeps (..), CachedUnit (..), JsonFs (..))
 import Types.FeatureFlags (FeatureFlags (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState (make))
 import Types.State.Make (bcoLoadState)
-import System.OsPath.Extra (OsPath, fromOsPath)
 
 #if defined(MWB)
 
@@ -152,46 +152,44 @@ loadCachedByteCode hsc_env ifaceFile iface details =
 -- Maybe this could reuse some stuff in @hscRecompStatus@?
 loadCachedDep ::
   Logger ->
-  MVar WorkerState ->
   IsInterpreted ->
   ModuleName ->
-  HscEnv ->
+  (WorkerState, HscEnv) ->
   OsPath ->
-  IO HscEnv
-loadCachedDep log stateVar interp name hsc_env ifaceFile = do
+  IO (WorkerState, HscEnv)
+loadCachedDep log interp name (state0, hsc_env0) ifaceFile = do
   existing <- lookupHpt hpt name
   case existing of
     Just hmi ->
       case homeModInfoByteCode hmi of
-        Just _ -> pure hsc_env
+        Just _ -> pure (state0, hsc_env0)
         Nothing -> loadHmiFromCached
     Nothing -> loadHmiFromCached
 
   where
     updateBcoState = do
       new_lock <- newEmptyMVar
-      modifyMVar stateVar \ state -> do
-        let make = state.make
-            m = make.bcoLoadState
-            mlock = M.lookup name m
-        case mlock of
-          Nothing -> do
-            let m' = M.insert name new_lock m
-                make' = make {bcoLoadState = m'}
-            pure (state {make = make'}, (new_lock, False))
-          Just lock -> pure (state, (lock, True))
+      let make = state0.make
+          m = make.bcoLoadState
+          mlock = M.lookup name m
+      case mlock of
+        Nothing -> do
+          let m' = M.insert name new_lock m
+              make' = make {bcoLoadState = m'}
+          pure (state0 {make = make'}, (new_lock, False))
+        Just lock -> pure (state0, (lock, True))
 
     loadHmiFromCached = do
-      (lock, load_already_requested) <- updateBcoState
+      (state1, (lock, load_already_requested)) <- updateBcoState
       if load_already_requested
-        then readMVar lock >> pure hsc_env
-        else loadHmi >> putMVar lock () >> pure hsc_env
+        then readMVar lock >> pure (state1, hsc_env0)
+        else loadHmi >> putMVar lock () >> pure (state1, hsc_env0)
 
     loadHmi = do
       logTimed log ("Loading HPT module from cache: " ++ fromOsPath ifaceFile) do
         hm_iface0 <- loadIface
-        !hm_details <- initModDetails hsc_env hm_iface0
-        homeMod_bytecode <- loadCachedByteCode hsc_env (fromOsPath ifaceFile) hm_iface0 hm_details
+        !hm_details <- initModDetails hsc_env0 hm_iface0
+        homeMod_bytecode <- loadCachedByteCode hsc_env0 (fromOsPath ifaceFile) hm_iface0 hm_details
         let hm_iface = setExtraDecls Nothing hm_iface0
         let new = HomeModInfo {
           hm_iface,
@@ -199,11 +197,11 @@ loadCachedDep log stateVar interp name hsc_env ifaceFile = do
           hm_details
         }
         addHomeModInfoToHpt new hpt
-        pure hsc_env
+        pure hsc_env0
 
     -- @readIface@ needs the dflags only for platform/ways, so we don't need the unit dflags
     loadIface =
-      ifaceResult =<< readIface' (hsc_dflags hsc_env) (hsc_NC hsc_env) (toModule name) (fromOsPath ifaceFile)
+      ifaceResult =<< readIface' (hsc_dflags hsc_env0) (hsc_NC hsc_env0) (toModule name) (fromOsPath ifaceFile)
 
     -- NOTE: We use this custom version of readIface to ignore the hi way (i.e. CheckHiWay -> IgnoreHiWay)
     readIface' dflags name_cache wanted_mod file_path = do
@@ -248,9 +246,9 @@ loadCachedDep log stateVar interp name hsc_env ifaceFile = do
 
     toModule = mkModule (RealUnit (Definite uid))
 
-    uid = hscActiveUnitId hsc_env
+    uid = hscActiveUnitId hsc_env0
 
-    hpt = hsc_HPT hsc_env
+    hpt = hsc_HPT hsc_env0
 
 hasUnit :: UnitId -> HscEnv -> Bool
 hasUnit uid hsc_env =
@@ -265,51 +263,46 @@ hasUnit uid hsc_env =
 -- restore into the HPT here.
 loadCachedDeps ::
   Logger ->
-  MVar WorkerState ->
   IsInterpreted ->
-  HscEnv ->
+  (WorkerState, HscEnv) ->
   CachedDeps ->
-  IO HscEnv
-loadCachedDeps log stateVar interp hsc_env0 (CachedDeps deps) =
+  IO (WorkerState, HscEnv)
+loadCachedDeps log interp (state0, hsc_env0) (CachedDeps deps) =
   logTimed log "Loading cached deps" do
-    hsc_env1 <- foldM loadDepUnit hsc_env0 byUnit
-    pure (hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1)
+    (state1, hsc_env1) <- foldM loadDepUnit (state0, hsc_env0) byUnit
+    pure (state1, hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1)
   where
     -- If the unit isn't present in the unit env, it wasn't built by a worker, since it would have been loaded in the
     -- metadata restoration step.
-    loadDepUnit hsc_env mods@(CachedDep {package = JsonFs uid} :| _) =
+    loadDepUnit (state, hsc_env) mods@(CachedDep {package = JsonFs uid} :| _) =
       if hasUnit uid hsc_env
-      then loadActiveUnit (hscSetActiveUnitId uid hsc_env) (toList mods)
-      else pure hsc_env
+      then loadActiveUnit (state, hscSetActiveUnitId uid hsc_env) (toList mods)
+      else pure (state, hsc_env)
 
     loadActiveUnit = foldM loadDep
 
-    loadDep hsc_env CachedDep {name = JsonFs name, interfaces = iface :| _} =
-      liftIO (loadCachedDep log stateVar interp name hsc_env iface)
+    loadDep (state, hsc_env) CachedDep {name = JsonFs name, interfaces = iface :| _} =
+      liftIO (loadCachedDep log interp name (state, hsc_env) iface)
 
     byUnit = groupBy (on (==) (.package)) deps
 
 loadHomeUnit ::
   Logger ->
-  MVar WorkerState ->
   DynFlags ->
   FeatureFlags ->
   UnitId ->
-  HscEnv ->
+  (WorkerState, HscEnv) ->
   OsPath ->
-  IO HscEnv
-loadHomeUnit log stateVar dflags0 features unit hsc_env0 path
+  IO (WorkerState, HscEnv)
+loadHomeUnit log dflags0 features unit (state0, hsc_env0) path
   | hasUnit unit hsc_env0
-  = pure hsc_env0
+  = pure (state0, hsc_env0)
   | otherwise
   = do
     cachedUnit@CachedUnit {unit_args} <- decodeJsonArg "--home-unit" path
-    hsc_env1 <- fmap (fromMaybe hsc_env0) $ for cachedUnit.dep_units \ file -> do
+    (state1, hsc_env1) <- fmap (fromMaybe (state0, hsc_env0)) $ for cachedUnit.dep_units \ file -> do
       deps <- decodeJsonArg "--home-unit" file
-      loadCachedUnits log stateVar dflags0 deps features hsc_env0
+      loadCachedUnits log dflags0 deps features (state0, hsc_env0)
     dflags <- maybe (pure dflags0) (readParseGHCArgs features.flagParser hsc_env1 dflags0) unit_args
-
-    modifyMVar stateVar $
-      logTimed log "Loading cached home unit" .
-      fmap swap .
-      runStateT (loadCachedUnit log features.fixedNodesCache hsc_env1 unit (cachedUnit, dflags))
+    logTimed log "Loading cached home unit" $ fmap swap do
+      runStateT (loadCachedUnit log features.fixedNodesCache hsc_env1 unit (cachedUnit, dflags)) state1

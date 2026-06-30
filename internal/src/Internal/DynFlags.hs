@@ -87,8 +87,8 @@ initDynFlags dflags0 logger fileish_args dynamicFlagWarnings = do
 
 -- For TargetModuleInterp, we set the backend to be interpreter and targetAllowObjCode to be False.
 -- This sets mi_top_env, which is essential for loading module in the interpreter in the later session.
-mkTargetAsInterpreted :: HscEnv -> GHC.Module -> HscEnv
-mkTargetAsInterpreted hsc_env modu =
+mkTargetAsInterpreted :: GHC.Module -> HscEnv -> HscEnv
+mkTargetAsInterpreted modu hsc_env =
   let tgt = GHC.Target {
         GHC.targetId = GHC.TargetModule (GHC.moduleName modu),
         GHC.targetAllowObjCode = False,
