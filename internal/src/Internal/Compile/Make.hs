@@ -35,9 +35,9 @@ import Internal.Debug (pprModuleFull)
 import Internal.DynFlags (mkTargetAsInterpreted)
 import Internal.Error (eitherMessages, noteGhc)
 import Internal.Log (logTimedD)
+import System.OsPath.Extra (fromOsPath)
 import Types.Log (Logger (..))
 import Types.Target (ModuleTarget (..), Target (..), TargetSpec (..))
-import System.OsPath.Extra (fromOsPath)
 
 #if FIXED_NODES
 
@@ -146,7 +146,7 @@ compileModuleWithDepsInHpt logger target =
     hmi <- liftIO do
       summary <- ensureSummary logger hsc_env target
       let hsc_env'
-            | TargetModuleInterp _ <- target = mkTargetAsInterpreted hsc_env (ms_mod summary)
+            | TargetModuleInterp _ <- target = mkTargetAsInterpreted (ms_mod summary) hsc_env
             | otherwise = hsc_env
       result <- compileOne hsc_env' (forceRecomp summary) 1 100000 Nothing (HomeModLinkable Nothing Nothing)
       cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env') (hsc_tmpfs hsc_env') summary.ms_hspp_opts

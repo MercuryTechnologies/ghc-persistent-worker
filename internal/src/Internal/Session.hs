@@ -2,9 +2,9 @@
 
 module Internal.Session where
 
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, readMVar, withMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, readMVar)
 import Control.Exception (finally)
-import Control.Monad (unless)
+import Control.Monad (foldM, unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
 import Data.IORef (newIORef)
@@ -25,7 +25,7 @@ import GHC (
   )
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
 import GHC.Driver.Main (initHscEnv)
-import GHC.Driver.Monad (Session (Session), modifySession, modifySessionM, unGhc)
+import GHC.Driver.Monad (Session (Session), modifySession, unGhc)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located)
 import GHC.Unit (moduleUnitId)
@@ -49,6 +49,7 @@ import Internal.Error (handleExceptions)
 import Internal.Log (logDebugD)
 import Internal.State (withState)
 import Prelude hiding (log)
+import System.OsPath.Extra (OsPath, fromOsPath, toOsPath)
 import Types.Args (Args (..))
 import Types.BuckArgs (IsInterpreted (Interpreted))
 import Types.Env (Env (..))
@@ -56,7 +57,7 @@ import Types.Log (Logger (..))
 import Types.State (Options (..), WorkerState (..))
 import Types.State.Make (MakeState (..))
 import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
-import System.OsPath.Extra (OsPath, fromOsPath, toOsPath)
+import Data.Function ((&))
 
 setTempDir :: OsPath -> HscEnv -> HscEnv
 setTempDir dir = updateGlobalFlags \ dflags -> dflags {tmpDir = TempDir (fromOsPath dir)}
@@ -209,12 +210,12 @@ withGhcSource cacheWrapper =
 -- | Like @withGhcSource@, using the make cache handler @withCacheMake@.
 withGhcMakeSource :: Env -> (Target -> Ghc (Maybe a)) -> IO (Maybe a)
 withGhcMakeSource =
-  withGhcSource (const withState)
+  withGhcSource \ _ logger stateVar ma -> withState logger stateVar pure ma
 
 -- | Run a GHC session with multiple home unit support for a module target.
 --
--- Before compilation, ensure that the session's home package tables contain the module's dependencies, restoring them
--- from cache if necessary.
+-- Before compilation, ensure that the module's home unit is present in the session's unit state and the session's home
+-- package tables contain the module's dependencies, restoring them from cache if necessary.
 -- Since this mode does not process any new command line arguments, we set the active home unit manually.
 withGhcMakeModule ::
   IsInterpreted ->
@@ -227,22 +228,33 @@ withGhcMakeModule interp target =
     dflags0 <- getSessionDynFlags
     ensureNoArgs srcs
     logDebugD env.log (text "Compiling module target" <+> ppr target)
-    withState env.log env.state do
-      -- TODO use foldM or something instead
-      modifySessionM \ hsc_env0 -> do
-        let hsc_env1
-              | interp == Interpreted = mkTargetAsInterpreted hsc_env0 target.mod
-              | otherwise = hsc_env0
-
-        hsc_env2 <- processArg hsc_env1 (loadHomeUnit env.log env.state dflags0 env.args.features (moduleUnitId target.mod)) env.args.homeUnit
-        hsc_env3 <- liftIO $ withMVar env.state \ state -> pure (hscSetModuleGraph state.make.moduleGraph hsc_env2)
-        let hsc_env4 = hscSetActiveUnitId (moduleUnitId target.mod) (hsc_env3)
-        processArg hsc_env4 (loadCachedDeps env.log env.state interp) env.args.cachedDeps
+    withState env.log env.state (setup env dflags0) do
       initializeSessionPlugins
-      let targetSpec
-            | interp == Interpreted = TargetModuleInterp target
-            | otherwise = TargetModule target
-      run targetSpec
+      run (targetSpec target)
   where
-    processArg :: HscEnv -> (HscEnv -> a -> IO HscEnv) -> Maybe a -> Ghc HscEnv
-    processArg hsc_env f arg = fromMaybe hsc_env <$> traverse (liftIO . f hsc_env) arg
+    setup env dflags0 (state0, hsc_env0) =
+      foldM @[] (&) (state0, hsc_env0) [
+        pure . fmap setTarget,
+        restoreCachedHomeUnit env dflags0,
+        setSessionModuleGraph,
+        setActiveUnit,
+        restoreCachedModules env
+      ]
+
+    restoreCachedHomeUnit env dflags0 =
+      maybeArg env.args.homeUnit $
+      loadHomeUnit env.log dflags0 env.args.features (moduleUnitId target.mod)
+
+    setSessionModuleGraph (state, hsc_env) = pure (state, hscSetModuleGraph state.make.moduleGraph hsc_env)
+
+    setActiveUnit (state, hsc_env) = pure (state, hscSetActiveUnitId (moduleUnitId target.mod) hsc_env)
+
+    restoreCachedModules env =
+      maybeArg env.args.cachedDeps (loadCachedDeps env.log interp)
+
+    maybeArg :: Maybe a -> (b -> a -> IO b) -> b -> IO b
+    maybeArg arg f z = fromMaybe z <$> traverse (liftIO . f z) arg
+
+    (targetSpec, setTarget)
+      | Interpreted <- interp = (TargetModuleInterp, mkTargetAsInterpreted target.mod)
+      | otherwise = (TargetModule, id)

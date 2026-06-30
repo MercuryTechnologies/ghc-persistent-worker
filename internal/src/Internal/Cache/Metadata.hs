@@ -3,7 +3,7 @@
 module Internal.Cache.Metadata where
 
 import Control.Applicative ((<|>))
-import Control.Concurrent (MVar, getNumCapabilities, modifyMVar)
+import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (forConcurrently)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Exception (bracket_, throwIO)
@@ -356,18 +356,16 @@ processConcurrent f plans = do
 -- Phase 2 (sequential): Insert prepared units into the 'UnitEnv', build graph nodes, store module graphs.
 loadCachedUnits ::
   Logger ->
-  MVar WorkerState ->
   DynFlags ->
   CachedBuildPlans ->
   FeatureFlags ->
-  HscEnv ->
-  IO HscEnv
-loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) features hsc_env0 = do
-  modifyMVar stateVar \ state -> do
-    let hsc_env1 = Make.loadState hsc_env0 state.make
-    logTimed logger "Loading cached units" $ fmap swap do
-      let (total, missing) = compareUnits hsc_env1 buildPlans
-      prepared <- catMaybes <$> traverser (loadCachedBuildPlan hsc_env1 dflags0 features total) missing
-      runStateT (foldM (insertPreparedUnit logger features) hsc_env1 prepared) state
+  (WorkerState, HscEnv) ->
+  IO (WorkerState, HscEnv)
+loadCachedUnits logger dflags0 (CachedBuildPlans buildPlans) features (state0, hsc_env0) = do
+  let hsc_env1 = Make.loadState hsc_env0 state0.make
+  logTimed logger "Loading cached units" $ fmap swap do
+    let (total, missing) = compareUnits hsc_env1 buildPlans
+    prepared <- catMaybes <$> traverser (loadCachedBuildPlan hsc_env1 dflags0 features total) missing
+    runStateT (foldM (insertPreparedUnit logger features) hsc_env1 prepared) state0
   where
     traverser = if features.concurrentInitUnits then processConcurrent else traverse

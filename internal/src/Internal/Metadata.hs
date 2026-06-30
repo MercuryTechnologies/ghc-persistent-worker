@@ -2,7 +2,7 @@
 
 module Internal.Metadata where
 
-import Control.Concurrent (readMVar)
+import Control.Concurrent (readMVar, modifyMVar)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT (..))
@@ -153,7 +153,8 @@ computeMetadata env = do
     () <- MaybeT $ runSession env \ _ -> do
       dflags <- getSessionDynFlags
       for_ env.args.cachedBuildPlans \ bp ->
-        withSession (liftIO . loadCachedUnits env.log env.state dflags bp env.args.features)
+        withSession \ hsc_env ->
+          liftIO $ modifyMVar env.state \ state -> loadCachedUnits env.log dflags bp env.args.features (state, hsc_env)
       pure (Just ())
     logTimed env.log "Computing module graph" do
       MaybeT $ runSession env $ withDynFlags env \ dflags srcs -> do
