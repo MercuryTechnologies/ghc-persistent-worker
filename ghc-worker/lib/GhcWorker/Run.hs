@@ -68,11 +68,13 @@ featureFlagsParser =
       flip foldl' defaultFeatureFlags \ flags -> \case
         (fixedNodesCache, FeatureFixedNodesCache) -> flags {fixedNodesCache}
         (flagParser, FeatureFlagParser) -> flags {flagParser}
+        (concurrentInitUnits, FeatureConcurrentInitUnits) -> flags {concurrentInitUnits}
 
     flagOption value = do
       flag <- eitherReader \case
         "fixed-nodes-cache" -> Right FeatureFixedNodesCache
         "flag-parser" -> Right FeatureFlagParser
+        "concurrent-init-units" -> Right FeatureConcurrentInitUnits
         flag -> Left ("Invalid feature flag: " ++ flag)
       pure (value, flag)
 

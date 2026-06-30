@@ -3,21 +3,32 @@
 module Internal.Cache.Metadata where
 
 import Control.Applicative ((<|>))
-import Control.Concurrent (MVar, modifyMVar)
-import Control.Exception (throwIO)
+import Control.Concurrent (MVar, getNumCapabilities, modifyMVar)
+import Control.Concurrent.Async (forConcurrently)
+import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
+import Control.Exception (bracket_, throwIO)
 import Control.Monad (foldM, (>=>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State.Strict (StateT (..), modify, modifyM)
 import Data.Aeson (eitherDecodeFileStrict')
+import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import Data.Coerce (coerce)
 import Data.Foldable (fold, traverse_)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (catMaybes)
+import Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Text as Text
+import Data.Text.Encoding (decodeUtf8)
+import Data.Traversable (for)
 import Data.Tuple (swap)
 import GHC (DynFlags (..), IsBootInterface (..), ModuleGraph, ModuleName, mkModuleGraph)
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
-import GHC.Driver.Make (ModNodeKeyWithUid (..))
+import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (..))
+import GHC.Driver.Make (ModNodeKeyWithUid (..), summariseFile)
 import GHC.Driver.Session (updatePlatformConstants)
+import GHC.Types.SourceError (throwErrors)
 import GHC.Unit (GenWithIsBoot (..), HomeUnit, UnitDatabase, UnitId (..), UnitState)
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), updateHug)
 import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
@@ -25,12 +36,15 @@ import GHC.Unit.Home.PackageTable (emptyHomePackageTable)
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
 import GHC.Utils.Outputable (comma, hcat, ppr, punctuate, quotes, text, (<+>))
 import Internal.Compat.GHC914 (moduleNodeEdge)
+import Internal.Compat.UnitIndex (initUnits)
 import Internal.DynFlags (buckLocation, parseFlags, setupPath)
 import Internal.DynFlags.Parse (parseDynFlags)
+import Internal.Error (eitherMessages, unknownErrors)
 import Internal.Log (logDebugD, logTimed, logTimedD)
 import Internal.State (updateMakeState)
 import qualified Internal.State.Make as Make
 import Internal.State.Make (insertUnitEnv, storeModuleGraph)
+import System.OsPath.Extra (OsPath, fromOsPath)
 import Types.BuckArgs (CachedBuckArgs (..), parseCachedBuckArgs)
 import Types.CachedDeps (
   CachedBuildPlan (..),
@@ -63,20 +77,6 @@ import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 import System.OsPath.Extra (splitExtension, toOsPath)
 
 #endif
-
-import Data.ByteString (ByteString)
-import Data.Coerce (coerce)
-import Data.Maybe (catMaybes)
-import Data.Set (Set)
-import qualified Data.Text as Text
-import Data.Text.Encoding (decodeUtf8)
-import Data.Traversable (for)
-import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (..))
-import GHC.Driver.Make (summariseFile)
-import GHC.Types.SourceError (throwErrors)
-import Internal.Compat.UnitIndex (initUnits)
-import Internal.Error (eitherMessages, unknownErrors)
-import System.OsPath.Extra (OsPath, fromOsPath)
 
 -- | Add a fresh 'HomeUnitEnv' to the home unit graph using the supplied unit state and dependencies.
 insertHomeUnit ::
@@ -339,6 +339,14 @@ compareUnits hsc_env buildPlans =
 
     known = unitEnv_keys (ue_home_unit_graph hsc_env.hsc_unit_env)
 
+-- | Process build plans concurrently, limiting the number of threads to the number of CPUs.
+processConcurrent :: (CachedBuildPlan -> IO (Maybe PreparedUnit)) -> [CachedBuildPlan] -> IO [Maybe PreparedUnit]
+processConcurrent f plans = do
+  threads <- getNumCapabilities
+  sem <- newQSem threads
+  forConcurrently plans \ plan ->
+    bracket_ (waitQSem sem) (signalQSem sem) (f plan)
+
 -- | Restore the unit state and module graph for each unit in cache that isn't present in the unit env.
 --
 -- Phase 1 (concurrent): For each absent unit, decode JSON, parse GHC args, and run 'initUnits'.
@@ -359,5 +367,7 @@ loadCachedUnits logger stateVar dflags0 (CachedBuildPlans buildPlans) features h
     let hsc_env1 = Make.loadState hsc_env0 state.make
     logTimed logger "Loading cached units" $ fmap swap do
       let (total, missing) = compareUnits hsc_env1 buildPlans
-      prepared <- catMaybes <$> traverse (loadCachedBuildPlan hsc_env1 dflags0 features total) missing
+      prepared <- catMaybes <$> traverser (loadCachedBuildPlan hsc_env1 dflags0 features total) missing
       runStateT (foldM (insertPreparedUnit logger features) hsc_env1 prepared) state
+  where
+    traverser = if features.concurrentInitUnits then processConcurrent else traverse
