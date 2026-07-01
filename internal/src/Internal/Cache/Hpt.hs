@@ -154,15 +154,16 @@ loadCachedDep ::
   Logger ->
   IsInterpreted ->
   ModuleName ->
-  (WorkerState, HscEnv) ->
+  HscEnv ->
+  WorkerState ->
   OsPath ->
-  IO (WorkerState, HscEnv)
-loadCachedDep log interp name (state0, hsc_env0) ifaceFile = do
+  IO WorkerState
+loadCachedDep log interp name hsc_env0 state0 ifaceFile = do
   existing <- lookupHpt hpt name
   case existing of
     Just hmi ->
       case homeModInfoByteCode hmi of
-        Just _ -> pure (state0, hsc_env0)
+        Just _ -> pure state0
         Nothing -> loadHmiFromCached
     Nothing -> loadHmiFromCached
 
@@ -182,8 +183,8 @@ loadCachedDep log interp name (state0, hsc_env0) ifaceFile = do
     loadHmiFromCached = do
       (state1, (lock, load_already_requested)) <- updateBcoState
       if load_already_requested
-        then readMVar lock >> pure (state1, hsc_env0)
-        else loadHmi >> putMVar lock () >> pure (state1, hsc_env0)
+        then readMVar lock >> pure state1
+        else loadHmi >> putMVar lock () >> pure state1
 
     loadHmi = do
       logTimed log ("Loading HPT module from cache: " ++ fromOsPath ifaceFile) do
@@ -197,7 +198,6 @@ loadCachedDep log interp name (state0, hsc_env0) ifaceFile = do
           hm_details
         }
         addHomeModInfoToHpt new hpt
-        pure hsc_env0
 
     -- @readIface@ needs the dflags only for platform/ways, so we don't need the unit dflags
     loadIface =
@@ -276,13 +276,15 @@ loadCachedDeps log interp (state0, hsc_env0) (CachedDeps deps) =
     -- metadata restoration step.
     loadDepUnit (state, hsc_env) mods@(CachedDep {package = JsonFs uid} :| _) =
       if hasUnit uid hsc_env
-      then loadActiveUnit (state, hscSetActiveUnitId uid hsc_env) (toList mods)
+      then do
+        let hsc_env' = hscSetActiveUnitId uid hsc_env
+        (,hsc_env') <$> loadActiveUnit hsc_env' state (toList mods)
       else pure (state, hsc_env)
 
-    loadActiveUnit = foldM loadDep
+    loadActiveUnit hsc_env = foldM (loadDep hsc_env)
 
-    loadDep (state, hsc_env) CachedDep {name = JsonFs name, interfaces = iface :| _} =
-      liftIO (loadCachedDep log interp name (state, hsc_env) iface)
+    loadDep hsc_env state CachedDep {name = JsonFs name, interfaces = iface :| _} =
+      liftIO (loadCachedDep log interp name hsc_env state iface)
 
     byUnit = groupBy (on (==) (.package)) deps
 
