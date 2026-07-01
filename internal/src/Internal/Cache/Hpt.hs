@@ -3,8 +3,8 @@
 module Internal.Cache.Hpt where
 
 import Control.Concurrent (MVar, newEmptyMVar, putMVar, readMVar)
-import Control.Concurrent.Async (mapConcurrently_)
-import Control.Monad (foldM)
+import Control.Concurrent.Async (forConcurrently_)
+import Control.Monad (foldM, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State.Strict (StateT (..), execStateT, get, put)
 import Data.Foldable (for_, toList, traverse_)
@@ -157,7 +157,7 @@ data ModuleLoadState =
 prepareHmiLoader ::
   HomePackageTable ->
   ModuleName ->
-  StateT WorkerState IO ModuleLoadState
+  StateT (WorkerState, HscEnv) IO ModuleLoadState
 prepareHmiLoader hpt name = do
   existing <- liftIO (lookupHpt hpt name)
   case existing of
@@ -169,7 +169,7 @@ prepareHmiLoader hpt name = do
   where
     updateBcoState = do
       new_lock <- liftIO newEmptyMVar
-      s <- get
+      (s, hsc_env) <- get
       let make = s.make
           m = make.bcoLoadState
           mlock = M.lookup name m
@@ -177,7 +177,7 @@ prepareHmiLoader hpt name = do
         Nothing -> do
           let m' = M.insert name new_lock m
               make' = make {bcoLoadState = m'}
-          put s {make = make'}
+          put (s {make = make'}, hsc_env)
           pure (RequestHi new_lock)
         Just lock -> pure (Waiting lock)
 
@@ -296,26 +296,47 @@ loadCachedDeps ::
   IO (WorkerState, HscEnv)
 loadCachedDeps log interp (state0, hsc_env0) (CachedDeps deps) =
   logTimed log "Loading cached deps" do
-    (state1, hsc_env1) <- foldM loadDepUnit (state0, hsc_env0) byUnit
+    (mod_planss, (state1, hsc_env1)) <- runStateT (traverse loadDepUnit byUnit) (state0, hsc_env0)
+    let mod_plans = concat mod_planss
+    loadBCO hsc_env1 mod_plans
     pure (state1, hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1)
   where
     -- If the unit isn't present in the unit env, it wasn't built by a worker, since it would have been loaded in the
     -- metadata restoration step.
-    loadDepUnit (state, hsc_env) mods@(CachedDep {package = JsonFs uid} :| _) =
+    loadDepUnit ::
+      NonEmpty CachedDep ->
+      StateT (WorkerState, HscEnv) IO [(UnitId, ModuleName, OsPath, ModuleLoadState)]
+    loadDepUnit mods@(CachedDep {package = JsonFs uid} :| _) = do
+      (state, hsc_env) <- get
       if hasUnit uid hsc_env
       then do
         let hsc_env' = hscSetActiveUnitId uid hsc_env
-        (,hsc_env') <$> loadActiveUnit hsc_env' state (toList mods)
-      else pure (state, hsc_env)
+        put (state, hsc_env')
+        loadActiveUnit uid (toList mods)
+      else pure []
 
-    loadActiveUnit :: HscEnv -> WorkerState -> [CachedDep] -> IO WorkerState
-    loadActiveUnit hsc_env state mods =
-      flip execStateT state do
-        mod_plans <- traverse (prepareDep hsc_env) mods
-        -- liftIO $ mapConcurrently_ (loadDep hsc_env) mod_plans
-        liftIO $ for_ mod_plans \ (name, iface, mod_load_state) -> do
-          mod_load_state' <- loadCachedDep log interp hsc_env name iface mod_load_state
-          loadCachedDep log interp hsc_env name iface mod_load_state'
+    loadActiveUnit ::
+      UnitId ->
+      [CachedDep] ->
+      StateT (WorkerState, HscEnv) IO [(UnitId, ModuleName, OsPath, ModuleLoadState)]
+    loadActiveUnit uid mods = do
+      (state, hsc_env) <- get
+      mod_plans <- traverse (prepareDep hsc_env) mods
+
+      -- interfaces are loaded sequentially.
+      mod_plans' <- logTimed log ("Loading cached deps unit " ++ showPprUnsafe uid ++ " (interface)") $ liftIO $
+        for mod_plans \ (name, iface, mod_load_state) -> do
+          !mod_load_state' <- loadCachedDep log interp hsc_env name iface mod_load_state
+          pure (uid, name, iface, mod_load_state')
+
+      pure mod_plans'
+
+    loadBCO hsc_env mod_plans =
+      -- BCOs are loaded in parallel.
+      logTimed log "Loading cached deps (BCO)" $ liftIO $
+        forConcurrently_ mod_plans \ (uid, name, iface, mod_load_state) -> do
+          let hsc_env' = hscSetActiveUnitId uid hsc_env
+          void $ loadCachedDep log interp hsc_env' name iface mod_load_state
 
     prepareDep hsc_env CachedDep {name = JsonFs name, interfaces = iface :| _} = do
       mod_load_state <- prepareHmiLoader (hsc_HPT hsc_env) name
