@@ -24,6 +24,7 @@ import System.OsPath.Extra (encodeUtf, fromOsPath, takeDirectory)
 import System.OsString (dropWhileEnd, unsafeFromChar)
 import qualified System.OsString as OsString
 import System.Process (ProcessHandle, getProcessExitCode)
+import Types.FeatureFlags (FeatureFlags (..))
 import Types.Grpc (CommandEnv, RequestArgs (..))
 import Types.Orchestration (
   InstrumentSocketPath (..),
@@ -43,10 +44,6 @@ data CreateMethods where
     createInstrumentation :: (CommandEnv -> RequestArgs -> IO ()) -> IO (instrumentSocket, Methods IO (ProtobufMethodsOf Instrument)),
     createGhc :: Maybe instrumentSocket -> IO (CommandEnv -> RequestArgs -> IO (), Methods IO (ProtobufMethodsOf Worker))
   } -> CreateMethods
-
-newtype FeatureInstrument =
-  FeatureInstrument { flag :: Bool }
-  deriving stock (Eq, Show)
 
 -- | Start a gRPC server that dispatches requests to GHC handlers.
 runLocalGhc ::
@@ -124,12 +121,12 @@ waitForCentralGhc proc socket = do
     dbg "Spawned process for the GHC server exited after starting up."
 
 -- | Run a GHC server synchronously.
-runCentralGhcSpawned :: CreateMethods -> FeatureInstrument -> ServerSocketPath -> IO ()
-runCentralGhcSpawned methods featureInstrument socket =
+runCentralGhcSpawned :: CreateMethods -> FeatureFlags -> ServerSocketPath -> IO ()
+runCentralGhcSpawned methods features socket =
   runCentralGhc methods primaryFile socket instrumentSocket
   where
     instrumentSocket =
-      if featureInstrument.flag
+      if features.instrument
       then Just (instrumentSocketIn dir)
       else Nothing
 

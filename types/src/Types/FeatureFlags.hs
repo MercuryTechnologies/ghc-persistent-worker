@@ -6,6 +6,8 @@ data FeatureFlag =
   FeatureFlagParser
   |
   FeatureConcurrentInitUnits
+  |
+  FeatureInstrument
   deriving stock (Eq, Show)
 
 -- | Runtime feature flags that control alternative implementations.
@@ -16,7 +18,9 @@ data FeatureFlags =
     -- | Use the custom flatparse-based flag parser instead of GHC's 'parseDynamicFlags'.
     flagParser :: Bool,
     -- | When restoring units from cache, perform as much work as possible concurrently.
-    concurrentInitUnits :: Bool
+    concurrentInitUnits :: Bool,
+    -- | Integrated with accompanying monitoring instrument app
+    instrument :: Bool
   }
   deriving stock (Eq, Show)
 
@@ -25,5 +29,6 @@ defaultFeatureFlags =
   FeatureFlags {
     fixedNodesCache = True,
     flagParser = False,
-    concurrentInitUnits = True
+    concurrentInitUnits = True,
+    instrument = False
   }

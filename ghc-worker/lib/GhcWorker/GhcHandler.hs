@@ -3,14 +3,15 @@
 module GhcWorker.GhcHandler where
 
 import Common.Grpc (GrpcHandler (..))
-import Control.Concurrent (MVar, modifyMVar_)
+import Control.Concurrent (MVar)
 import Control.Exception (throwIO, try)
+#ifdef __DEBUG__
 import Control.Monad (when)
+#endif
 import Control.Monad.IO.Class (liftIO)
 import Data.Coerce (coerce)
 import Data.Functor ((<&>))
 import Data.Int (Int32)
-import Data.Map qualified as Map
 #ifdef GHC_DEBUG
 import GHC.Debug.Stub (withGhcDebugUnix)
 #endif
@@ -19,7 +20,6 @@ import GHC.Driver.DynFlags (GhcMode (..))
 import GHC.Driver.Monad (reflectGhc, reifyGhc)
 import GhcWorker.CompileResult (CompileResult (..), writeResult)
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
-import GhcWorker.Orchestration (FeatureInstrument (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Compile.Make (compileModuleWithDepsInHpt)
 #ifdef GHC_DEBUG
@@ -75,9 +75,8 @@ dispatch ::
   Hooks ->
   Env ->
   BuckArgs ->
-  (TargetSpec -> IO FeatureInstrument) ->
   IO (Int32, Maybe TargetSpec)
-dispatch hooks env args targetCallback =
+dispatch hooks env args =
   case args.mode of
     Just ModeCompile -> do
       compile >>= \case
@@ -107,15 +106,13 @@ dispatch hooks env args targetCallback =
     withTarget f (target :: TargetSpec) =
       reifyGhc $ \session -> do
         env.log.setTarget target
-        instrument <- targetCallback target
 #ifdef GHC_DEBUG
         let path = debugSocketPath target
-        (if instrument.flag then withGhcDebugUnix path else id) $
-#else
-        do
-          let _ = instrument  -- suppress unused variable warning
-#endif
+        (if env.args.features.instrument then withGhcDebugUnix path else id) $
           reflectGhc (f target) session <&> fmap \ r -> (r, target)
+#else
+        reflectGhc (f target) session <&> fmap \ r -> (r, target)
+#endif
 
 processResult ::
   Hooks ->
@@ -153,10 +150,9 @@ ghcHandler ::
   -- | first req lock hack
   MVar WorkerState ->
   FeatureFlags ->
-  FeatureInstrument ->
   Maybe TraceId ->
   InstrumentedHandler
-ghcHandler state features instrument traceId =
+ghcHandler state features traceId =
   InstrumentedHandler \ hooks -> GrpcHandler \ commandEnv argv -> do
     log <- newLogger <$> newLog traceId
     result <- try do
@@ -164,11 +160,7 @@ ghcHandler state features instrument traceId =
       args <- toGhcArgs buckArgs (Just features)
       log.debug (unlines (coerce argv))
       let env = Env {log, state, args = args}
-      dispatch hooks env buckArgs \ target -> do
-        when instrument.flag do
-          modifyMVar_ state \ st ->
-            pure $ st {targetArgs = Map.insert target (commandEnv, argv) st.targetArgs}
-        pure instrument
+      dispatch hooks env buckArgs
     processResult hooks log state result
   where
     parseError msg =
