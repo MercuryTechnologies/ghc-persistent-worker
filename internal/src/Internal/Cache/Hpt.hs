@@ -3,10 +3,11 @@
 module Internal.Cache.Hpt where
 
 import Control.Concurrent (MVar, newEmptyMVar, putMVar, readMVar)
+import Control.Concurrent.Async (mapConcurrently_)
 import Control.Monad (foldM)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.State.Strict (StateT (..), get, put)
-import Data.Foldable (toList)
+import Control.Monad.Trans.State.Strict (StateT (..), execStateT, get, put)
+import Data.Foldable (for_, toList, traverse_)
 import Data.Function (on)
 import Data.Functor ((<&>))
 import Data.List.NonEmpty (NonEmpty ((:|)), groupBy)
@@ -39,7 +40,7 @@ import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Unit.Module.ModIface (IfaceTopEnv (..), set_mi_top_env)
 import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
 import GHC.Utils.Misc (modificationTimeIfExists)
-import GHC.Utils.Outputable (ppr, ($+$))
+import GHC.Utils.Outputable (ppr, showPprUnsafe, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO, tryMost)
 import Internal.Cache.Metadata (loadCachedUnit, loadCachedUnits, readParseGHCArgs)
 import Internal.Compat.GHC914 (setExtraDecls)
@@ -147,9 +148,11 @@ loadCachedByteCode hsc_env ifaceFile iface details =
 data ModuleLoadState =
   Loaded
   |
-  InProgress (MVar ())
+  Waiting (MVar ())
   |
-  RequestNow (MVar ())
+  RequestHi (MVar ())
+  |
+  RequestBCO (MVar ()) HomeModInfo
 
 prepareHmiLoader ::
   HomePackageTable ->
@@ -175,8 +178,8 @@ prepareHmiLoader hpt name = do
           let m' = M.insert name new_lock m
               make' = make {bcoLoadState = m'}
           put s {make = make'}
-          pure (RequestNow new_lock)
-        Just lock -> pure (InProgress lock)
+          pure (RequestHi new_lock)
+        Just lock -> pure (Waiting lock)
 
 -- | If the given module name is missing from the HPT, load the given interface from disk and store it in the module's
 -- 'HomeModInfo'.
@@ -192,25 +195,36 @@ loadCachedDep ::
   ModuleName ->
   OsPath ->
   ModuleLoadState ->
-  IO ()
+  IO ModuleLoadState
 loadCachedDep log interp hsc_env name ifaceFile mod_load_state =
   case mod_load_state of
-    Loaded -> pure ()
-    InProgress lock -> readMVar lock
-    RequestNow lock -> loadHmi >> putMVar lock ()
+    Loaded -> pure Loaded
+    Waiting lock -> readMVar lock >> pure Loaded
+    RequestHi lock -> loadHmiOnlyInterface >>= \ hmi -> pure (RequestBCO lock hmi)
+    RequestBCO lock hmi -> loadHmiFull hmi >> putMVar lock () >> pure Loaded
   where
-    loadHmi = do
-      logTimed log ("Loading HPT module from cache: " ++ fromOsPath ifaceFile) do
-        hm_iface0 <- loadIface
-        !hm_details <- initModDetails hsc_env hm_iface0
-        homeMod_bytecode <- loadCachedByteCode hsc_env (fromOsPath ifaceFile) hm_iface0 hm_details
-        let hm_iface = setExtraDecls Nothing hm_iface0
-        let new = HomeModInfo {
+    loadHmiOnlyInterface = do
+      logTimed log ("Loading HPT module from cache (interface): " ++ fromOsPath ifaceFile) do
+        hm_iface <- loadIface
+        !hm_details <- initModDetails hsc_env hm_iface
+        let hmi = HomeModInfo {
           hm_iface,
+          hm_linkable = HomeModLinkable {homeMod_object = Nothing, homeMod_bytecode = Nothing},
+          hm_details
+        }
+        addHomeModInfoToHpt hmi hpt
+        pure hmi
+
+    loadHmiFull hmi@HomeModInfo {hm_iface, hm_details} = do
+      logTimed log ("Loading HPT module from cache (BCO): " ++ fromOsPath ifaceFile) do
+        homeMod_bytecode <- loadCachedByteCode hsc_env (fromOsPath ifaceFile) hm_iface hm_details
+        let hm_iface' = setExtraDecls Nothing hm_iface
+        let hmi' = HomeModInfo {
+          hm_iface = hm_iface',
           hm_linkable = HomeModLinkable {homeMod_object = Nothing, homeMod_bytecode},
           hm_details
         }
-        addHomeModInfoToHpt new hpt
+        addHomeModInfoToHpt hmi' hpt
 
     -- @readIface@ needs the dflags only for platform/ways, so we don't need the unit dflags
     loadIface =
@@ -294,12 +308,18 @@ loadCachedDeps log interp (state0, hsc_env0) (CachedDeps deps) =
         (,hsc_env') <$> loadActiveUnit hsc_env' state (toList mods)
       else pure (state, hsc_env)
 
-    loadActiveUnit hsc_env = foldM (loadDep hsc_env)
+    loadActiveUnit :: HscEnv -> WorkerState -> [CachedDep] -> IO WorkerState
+    loadActiveUnit hsc_env state mods =
+      flip execStateT state do
+        mod_plans <- traverse (prepareDep hsc_env) mods
+        -- liftIO $ mapConcurrently_ (loadDep hsc_env) mod_plans
+        liftIO $ for_ mod_plans \ (name, iface, mod_load_state) -> do
+          mod_load_state' <- loadCachedDep log interp hsc_env name iface mod_load_state
+          loadCachedDep log interp hsc_env name iface mod_load_state'
 
-    loadDep hsc_env state CachedDep {name = JsonFs name, interfaces = iface :| _} = do
-      (mod_load_state, state') <- runStateT (prepareHmiLoader (hsc_HPT hsc_env) name) state
-      loadCachedDep log interp hsc_env name iface mod_load_state
-      pure state'
+    prepareDep hsc_env CachedDep {name = JsonFs name, interfaces = iface :| _} = do
+      mod_load_state <- prepareHmiLoader (hsc_HPT hsc_env) name
+      pure (name, iface, mod_load_state)
 
     byUnit = groupBy (on (==) (.package)) deps
 
