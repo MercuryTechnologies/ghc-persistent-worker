@@ -216,13 +216,14 @@ prepareHmiLoader hpt name = do
 -- Maybe this could reuse some stuff in @hscRecompStatus@?
 loadCachedDep ::
   Logger ->
+  FeatureFlags ->
   IsInterpreted ->
   HscEnv ->
   ModuleName ->
   OsPath ->
   ModuleLoadState ->
   IO ModuleLoadState
-loadCachedDep log interp hsc_env name ifaceFile mod_load_state =
+loadCachedDep log features interp hsc_env name ifaceFile mod_load_state =
   case mod_load_state of
     Loaded -> pure Loaded
     Waiting lock -> readMVar lock >> pure Loaded
@@ -243,8 +244,11 @@ loadCachedDep log interp hsc_env name ifaceFile mod_load_state =
 
     loadHmiFull HomeModInfo {hm_iface, hm_details} = do
       logTimed log ("Loading HPT module from cache (BCO): " ++ fromOsPath ifaceFile) do
-        homeMod_bytecode <- loadCachedByteCode hsc_env (fromOsPath ifaceFile) hm_iface hm_details
-        let hm_iface' = setExtraDecls Nothing hm_iface
+        homeMod_bytecode <-
+          if features.lazyByteCode
+          then pure Nothing
+          else loadCachedByteCode hsc_env (fromOsPath ifaceFile) hm_iface hm_details
+        let hm_iface' = (if features.lazyByteCode then id else setExtraDecls Nothing) hm_iface
         let hmi' = HomeModInfo {
           hm_iface = hm_iface',
           hm_linkable = HomeModLinkable {homeMod_object = Nothing, homeMod_bytecode},
@@ -369,11 +373,12 @@ depsFromModuleGraph nodes target =
 -- module, assuming its deps to be available to the compiler.
 loadCachedDeps ::
   Logger ->
+  FeatureFlags ->
   IsInterpreted ->
   (WorkerState, HscEnv) ->
   CachedDeps ->
   IO (WorkerState, HscEnv)
-loadCachedDeps log interp (state0, hsc_env0) (CachedDeps deps) =
+loadCachedDeps log features interp (state0, hsc_env0) (CachedDeps deps) =
   logTimed log "Loading cached deps" do
     (state1, hsc_env1) <- foldM loadDepUnit (state0, hsc_env0) byUnit
     pure (state1, hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1)
@@ -392,8 +397,8 @@ loadCachedDeps log interp (state0, hsc_env0) (CachedDeps deps) =
       flip execStateT state do
         mod_plans <- traverse (prepareDep hsc_env) mods
         liftIO $ for_ mod_plans \ (name, iface, mod_load_state) -> do
-          mod_load_state' <- loadCachedDep log interp hsc_env name iface mod_load_state
-          loadCachedDep log interp hsc_env name iface mod_load_state'
+          mod_load_state' <- loadCachedDep log features interp hsc_env name iface mod_load_state
+          loadCachedDep log features interp hsc_env name iface mod_load_state'
 
     prepareDep hsc_env CachedDep {name = JsonFs name, package = JsonFs uid} = do
       mod_load_state <- prepareHmiLoader (hsc_HPT hsc_env) name
