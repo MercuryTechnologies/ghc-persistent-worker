@@ -7,6 +7,7 @@ import Control.Exception (finally)
 import Control.Monad (foldM, unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
+import Data.Function ((&))
 import Data.IORef (newIORef)
 import Data.Maybe (fromMaybe)
 import GHC (
@@ -48,6 +49,7 @@ import Internal.Env (withDebugLog)
 import Internal.Error (handleExceptions)
 import Internal.Log (logDebugD)
 import Internal.State (withState)
+import Internal.State.Linkables (installLinkables)
 import Prelude hiding (log)
 import System.OsPath.Extra (OsPath, fromOsPath, toOsPath)
 import Types.Args (Args (..))
@@ -57,7 +59,6 @@ import Types.Log (Logger (..))
 import Types.State (Options (..), WorkerState (..))
 import Types.State.Make (MakeState (..))
 import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
-import Data.Function ((&))
 
 setTempDir :: OsPath -> HscEnv -> HscEnv
 setTempDir dir = updateGlobalFlags \ dflags -> dflags {tmpDir = TempDir (fromOsPath dir)}
@@ -94,12 +95,16 @@ withGhcInSession env prog =
 -- On subsequent calls, return the session cached in the 'WorkerState'.
 --
 -- Create a new @TmpFs@ to avoid keeping old entries around after Buck deletes the directories.
-ensureSession :: MVar WorkerState -> Args -> IO HscEnv
-ensureSession stateVar args =
-  modifyMVar stateVar \ state -> do
-    newEnv <- maybe (initHscEnv args.topdir) prepReused state.baseSession
+ensureSession :: Env -> IO HscEnv
+ensureSession env =
+  modifyMVar env.state \ state -> do
+    newEnv <- maybe new prepReused state.baseSession
     pure (state {baseSession = Just newEnv}, newEnv)
   where
+    new = do
+      hsc_env <- initHscEnv env.args.topdir
+      pure (installLinkables env.log env.state hsc_env)
+
     prepReused hsc_env = do
       hsc_tmpfs <- initTmpFs
       pure hsc_env {hsc_tmpfs}
@@ -108,9 +113,9 @@ runGhc :: Session -> Ghc a -> IO a
 runGhc = flip unGhc
 
 initSession :: Env -> IO Session
-initSession Env {args, state, log} = do
+initSession env@Env {args, state, log} = do
   modifyMVar_ state (setupPath args.binPath)
-  hsc_env <- ensureSession state args
+  hsc_env <- ensureSession env
   session <- Session <$> newIORef hsc_env
   runGhc session do
     traverse_ (modifySession . setTempDir) args.tempDir
@@ -251,7 +256,7 @@ withGhcMakeModule interp target =
 
     -- When the dependency closure is not provided with --dep-modules, compute it from the module graph.
     restoreCachedModules env (state, hsc_env) =
-      liftIO (loadCachedDeps env.log interp (state, hsc_env) deps)
+      liftIO (loadCachedDeps env.log env.args.features interp (state, hsc_env) deps)
       where
         deps = fromMaybe (depsFromModuleGraph state.make.moduleGraphNodes target.mod) env.args.cachedDeps
 
