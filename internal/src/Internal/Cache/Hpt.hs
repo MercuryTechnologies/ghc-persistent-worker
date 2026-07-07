@@ -9,6 +9,7 @@ import Control.Monad.Trans.State.Strict (StateT (..), execStateT, get, put)
 import Data.Foldable (for_, toList)
 import Data.Function (on)
 import Data.Functor ((<&>))
+import Data.List (isSuffixOf)
 import Data.List.NonEmpty (NonEmpty ((:|)), groupBy)
 import Data.Map.Strict qualified as M (insert, lookup)
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
@@ -20,7 +21,7 @@ import GHC.Data.Bag (emptyBag)
 import GHC.Data.Maybe (MaybeErr (..))
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hsc_HPT)
 import GHC.Driver.Main (initModDetails)
-import GHC.Driver.Session (targetProfile)
+import GHC.Driver.Session (dynHiSuf_, dynamicNow, hiDir, hiSuf_, targetProfile)
 import GHC.Iface.Binary (CheckHiWay (..), TraceBinIFace (QuietBinIFace), readBinIface)
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
 import GHC.Iface.Errors.Types (ReadInterfaceError (..))
@@ -34,7 +35,8 @@ import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.Graph (unitEnv_lookup_maybe)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..), homeModInfoByteCode)
 import GHC.Unit.Home.PackageTable (HomePackageTable, addHomeModInfoToHpt, lookupHpt)
-import GHC.Unit.Module.Location (pattern ModLocation)
+import GHC.Unit.Module (moduleNameSlashes)
+import GHC.Unit.Module.Location (addBootSuffix, pattern ModLocation)
 import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Unit.Module.ModIface (IfaceTopEnv (..), set_mi_top_env)
 import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
@@ -45,7 +47,8 @@ import Internal.Cache.Metadata (loadCachedUnit, loadCachedUnits, readParseGHCArg
 import Internal.Compat.GHC914 (setExtraDecls)
 import Internal.Log (logTimed)
 import Prelude hiding (log)
-import System.OsPath.Extra (OsPath, fromOsPath)
+import System.FilePath ((<.>), (</>))
+import System.OsPath.Extra (OsPath, fromOsPath, toOsPath)
 import Types.BuckArgs (IsInterpreted (Compiled, Interpreted), decodeJsonArg)
 import Types.CachedDeps (CachedDep (..), CachedDeps (..), CachedUnit (..), JsonFs (..))
 import Types.FeatureFlags (FeatureFlags (..))
@@ -280,12 +283,39 @@ hasUnit :: UnitId -> HscEnv -> Bool
 hasUnit uid hsc_env =
   isJust $ unitEnv_lookup_maybe uid hsc_env.hsc_unit_env.ue_home_unit_graph
 
+-- | The canonical path of a home unit module's interface file, derived from the unit's flags and the module name:
+--
+-- > hidir </> module name with dots replaced by slashes <.> hisuf
+--
+-- Example, with @-hidir out -hisuf dyn_hi@:
+--
+-- > Data.Vector      -> out/Data/Vector.dyn_hi
+-- > Data.Vector-boot -> out/Data/Vector.dyn_hi-boot
+--
+-- This path is a contract between the worker and callers.
+canonicalInterfacePath :: DynFlags -> ModuleName -> Maybe OsPath
+canonicalInterfacePath dflags name =
+  hiDir dflags <&> \ dir ->
+    mkBoot (toOsPath (dir </> plainName <.> hiSuf))
+  where
+    hiSuf
+      | dynamicNow dflags = dynHiSuf_ dflags
+      | otherwise = hiSuf_ dflags
+
+    (plainName, mkBoot) = case stripSuffix "-boot" (moduleNameSlashes name) of
+      Just plain -> (plain, addBootSuffix)
+      Nothing -> (moduleNameSlashes name, id)
+
+    stripSuffix suf str
+      | suf `isSuffixOf` str = Just (take (length str - length suf) str)
+      | otherwise = Nothing
+
 -- | Load all dependencies of the current module from the Buck cache into the HPT if they don't exist.
 --
 -- When the make worker is killed by Buck at the end of a build, and the user subsequently changes some code and starts
 -- a new build, the state (the current HPT) is initially empty, since Buck immediately tries to compile the changed
 -- module, assuming its deps to be available to the compiler.
--- A JSON file provides 'CachedDeps' to the worker, containing all interface paths for the current home unit, which we
+-- A JSON file provides 'CachedDeps' to the worker, naming all dependency modules for the current home unit, which we
 -- restore into the HPT here.
 loadCachedDeps ::
   Logger ->
@@ -315,9 +345,15 @@ loadCachedDeps log interp (state0, hsc_env0) (CachedDeps deps) =
           mod_load_state' <- loadCachedDep log interp hsc_env name iface mod_load_state
           loadCachedDep log interp hsc_env name iface mod_load_state'
 
-    prepareDep hsc_env CachedDep {name = JsonFs name, interfaces = iface :| _} = do
+    prepareDep hsc_env CachedDep {name = JsonFs name, package = JsonFs uid} = do
       mod_load_state <- prepareHmiLoader (hsc_HPT hsc_env) name
+      iface <- maybe (missingHiDir uid name) pure (canonicalInterfacePath (hsc_dflags hsc_env) name)
       pure (name, iface, mod_load_state)
+
+    missingHiDir uid name =
+      liftIO $ throwGhcExceptionIO $
+        PprProgramError "loadCachedDeps: unit has no -hidir set, cannot derive interface path" $
+          ppr uid $+$ ppr name
 
     byUnit = groupBy (on (==) (.package)) deps
 

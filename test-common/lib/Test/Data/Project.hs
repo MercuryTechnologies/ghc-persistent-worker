@@ -135,7 +135,7 @@ data ModuleCache =
     -- | The home unit's build plan and arguments.
     cachedUnit :: OsPath,
 
-    -- | The interfaces of the dependency closure across the project.
+    -- | The modules of the dependency closure across the project.
     -- Decoded outside of worker handlers, so no JSON file.
     cachedDeps :: CachedDeps
   }

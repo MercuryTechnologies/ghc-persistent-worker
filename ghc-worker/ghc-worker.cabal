@@ -103,6 +103,7 @@ test-suite ghc-worker-test
     BuildPlanTest.Test1,
     BuildPlanTest.Test2,
     FlagParserTest,
+    InterfacePathTest,
     ProjectBuildTest,
     ResourceTest,
     ScheduleTest

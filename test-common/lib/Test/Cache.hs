@@ -12,7 +12,7 @@ import Data.Set (Set)
 import GHC.Unit.Types (UnitId (..))
 import Language.Haskell.Syntax.Module.Name (ModuleName (..))
 import System.Directory.OsPath (createDirectoryIfMissing)
-import System.OsPath.Extra (OsPath, fromOsPath, osp, toOsPath, (<.>), (</>))
+import System.OsPath.Extra (OsPath, fromOsPath, osp, (</>))
 import Test.Build (metadataArgs)
 import Test.Data.Env (SessionEnv (..))
 import Test.Data.Project (
@@ -27,7 +27,7 @@ import Test.Data.Project (
   UnitKey,
   )
 import Test.Data.Scheduler (Schedule (..), Task (..))
-import Test.Path (cachedUnitPath, moduleName, moduleSourcePath, unitCacheDir, unitName, unitOutputDir)
+import Test.Path (cachedUnitPath, moduleName, moduleSourcePath, unitCacheDir, unitName)
 import Types.Args (Args (..))
 import Types.CachedDeps (
   CachedBuildPlan (..),
@@ -137,7 +137,7 @@ writeUnitCache env unit = do
 --
 -- Although compile steps do have to decode JSON files for the home unit build plan, that file is written in
 -- 'writeUnitCache', since it's a single file used by each module.
--- So this only returns the path to that file, alongside the paths to all dependency interfaces in 'CachedDeps', which
+-- So this only returns the path to that file, alongside the names of all dependency modules in 'CachedDeps', which
 -- is decoded in "Types.BuckArgs", so we can pass it as data.
 moduleCache ::
   SessionEnv ->
@@ -150,16 +150,12 @@ moduleCache env key deps =
     mkCachedDep dc =
       CachedDep {
         name = jsonFsFromString (moduleName dc),
-        package = jsonFsFromString (unitName dc.unit),
-        interfaces = interfacePath dc :| []
+        package = jsonFsFromString (unitName dc.unit)
       }
 
     unitPath = env.tempDir </> cachedUnitPath key.unit
 
     depKeys = [m | TaskCompile m <- Set.toList deps]
-
-    interfacePath dc =
-      env.tempDir </> unitOutputDir dc.unit </> toOsPath (moduleName dc) <.> [osp|dyn_hi|]
 
 -- | Bundle a build task with its associated cache data for the resume build.
 cacheTask ::
