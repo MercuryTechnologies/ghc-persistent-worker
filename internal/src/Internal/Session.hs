@@ -33,7 +33,7 @@ import GHC.Utils.Logger (getLogger)
 import GHC.Utils.Outputable (ppr, text, (<+>))
 import GHC.Utils.Panic (panic, pprPanic)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
-import Internal.Cache.Hpt (loadCachedDeps, loadHomeUnit)
+import Internal.Cache.Hpt (depsFromModuleGraph, loadCachedDeps, loadHomeUnit)
 import Internal.Compat.GHC914 (hscSetModuleGraph)
 import Internal.DynFlags (
   buckLocation,
@@ -249,8 +249,11 @@ withGhcMakeModule interp target =
 
     setActiveUnit (state, hsc_env) = pure (state, hscSetActiveUnitId (moduleUnitId target.mod) hsc_env)
 
-    restoreCachedModules env =
-      maybeArg env.args.cachedDeps (loadCachedDeps env.log interp)
+    -- When the dependency closure is not provided with --dep-modules, compute it from the module graph.
+    restoreCachedModules env (state, hsc_env) =
+      liftIO (loadCachedDeps env.log interp (state, hsc_env) deps)
+      where
+        deps = fromMaybe (depsFromModuleGraph state.make.moduleGraph target.mod) env.args.cachedDeps
 
     maybeArg :: Maybe a -> (b -> a -> IO b) -> b -> IO b
     maybeArg arg f z = fromMaybe z <$> traverse (liftIO . f z) arg

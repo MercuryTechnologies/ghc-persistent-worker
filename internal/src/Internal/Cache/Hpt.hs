@@ -11,16 +11,18 @@ import Data.Function (on)
 import Data.Functor ((<&>))
 import Data.List (isSuffixOf)
 import Data.List.NonEmpty (NonEmpty ((:|)), groupBy)
-import Data.Map.Strict qualified as M (insert, lookup)
+import Data.Map.Strict qualified as M (fromList, insert, lookup)
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
+import Data.Set qualified as Set (insert, member, singleton)
 import Data.Time (getCurrentTime)
 import Data.Traversable (for)
 import Data.Tuple (swap)
-import GHC (DynFlags, GhcException (..), ModIface, ModIface_ (..), ModLocation (..), ModuleName, mkModule)
+import GHC (DynFlags, GhcException (..), IsBootInterface (..), ModIface, ModIface_ (..), ModLocation (..), Module, ModuleGraph, ModuleName, mkModule, mkModuleName, moduleName, moduleNameString)
 import GHC.Data.Bag (emptyBag)
 import GHC.Data.Maybe (MaybeErr (..))
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hsc_HPT)
 import GHC.Driver.Main (initModDetails)
+import GHC.Driver.Make (ModNodeKeyWithUid (..))
 import GHC.Driver.Session (dynHiSuf_, dynamicNow, hiDir, hiSuf_, targetProfile)
 import GHC.Iface.Binary (CheckHiWay (..), TraceBinIFace (QuietBinIFace), readBinIface)
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
@@ -30,12 +32,13 @@ import GHC.Types.Avail (AvailInfo (..))
 import GHC.Types.Name (nameOccName)
 import GHC.Types.Name.Occurrence (mkOccEnv)
 import GHC.Types.Name.Reader (GlobalRdrEltX (..), Parent (NoParent))
-import GHC.Unit (Definite (..), GenUnit (..), UnitId)
+import GHC.Unit (Definite (..), GenUnit (..), GenWithIsBoot (..), UnitId, moduleUnitId)
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.Graph (unitEnv_lookup_maybe)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..), homeModInfoByteCode)
 import GHC.Unit.Home.PackageTable (HomePackageTable, addHomeModInfoToHpt, lookupHpt)
 import GHC.Unit.Module (moduleNameSlashes)
+import GHC.Unit.Module.Graph (NodeKey (..), mgModSummaries', mkNodeKey)
 import GHC.Unit.Module.Location (addBootSuffix, pattern ModLocation)
 import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Unit.Module.ModIface (IfaceTopEnv (..), set_mi_top_env)
@@ -44,7 +47,8 @@ import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO, tryMost)
 import Internal.Cache.Metadata (loadCachedUnit, loadCachedUnits, readParseGHCArgs)
-import Internal.Compat.GHC914 (setExtraDecls)
+import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, deps)
+import Internal.Compat.GHC914 (edgeTarget, setExtraDecls)
 import Internal.Log (logTimed)
 import Prelude hiding (log)
 import System.FilePath ((<.>), (</>))
@@ -310,13 +314,41 @@ canonicalInterfacePath dflags name =
       | suf `isSuffixOf` str = Just (take (length str - length suf) str)
       | otherwise = Nothing
 
+-- | Compute the transitive dependency closure of a given module from the module graph, in dependency postorder.
+depsFromModuleGraph :: ModuleGraph -> Module -> CachedDeps
+depsFromModuleGraph graph target =
+  CachedDeps (reverse (snd (children (Set.singleton targetKey, []) targetKey)))
+  where
+    children acc key =
+      case M.lookup key nodes of
+        Just CompileNode {deps} -> foldl' visit acc (edgeTarget <$> deps)
+        Just FixedNode {deps} -> foldl' visit acc (edgeTarget <$> deps)
+        _ -> acc
+
+    visit (seen, deps) key
+      | Set.member key seen = (seen, deps)
+      | otherwise =
+          let (seen', deps') = children (Set.insert key seen, deps) key
+          in (seen', maybe deps' (: deps') (cachedDep key))
+
+    cachedDep = \case
+      NodeKey_Module (ModNodeKeyWithUid (GWIB name isBoot) uid) ->
+        Just CachedDep {name = JsonFs (bootName isBoot name), package = JsonFs uid}
+      _ ->
+        Nothing
+
+    bootName IsBoot name = mkModuleName (moduleNameString name ++ "-boot")
+    bootName NotBoot name = name
+
+    nodes = M.fromList [(mkNodeKey node, node) | node <- mgModSummaries' graph]
+
+    targetKey = NodeKey_Module (ModNodeKeyWithUid (GWIB (moduleName target) NotBoot) (moduleUnitId target))
+
 -- | Load all dependencies of the current module from the Buck cache into the HPT if they don't exist.
 --
 -- When the make worker is killed by Buck at the end of a build, and the user subsequently changes some code and starts
 -- a new build, the state (the current HPT) is initially empty, since Buck immediately tries to compile the changed
 -- module, assuming its deps to be available to the compiler.
--- A JSON file provides 'CachedDeps' to the worker, naming all dependency modules for the current home unit, which we
--- restore into the HPT here.
 loadCachedDeps ::
   Logger ->
   IsInterpreted ->
