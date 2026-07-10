@@ -4,12 +4,15 @@ module Internal.Compat.GHC914 where
 
 import GHC (Located, ModIface, ModSummary, ModuleGraph, ModuleName, PkgQual)
 import GHC.Driver.Env (HscEnv (..))
+import qualified GHC.Driver.Session as GHC
 import GHC.Iface.Syntax (IfaceBindingX, IfaceMaybeRhs, IfaceTopBndrInfo)
-import GHC.Unit.Module.Graph (ModuleGraphNode(..), NodeKey)
+import GHC.LanguageExtensions (Extension)
+import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
 import Data.Functor ((<&>))
+import GHC.Driver.Flags (OnOff (..))
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Module.Graph
     (ModuleNodeEdge, ModuleNodeInfo(..), edgeTargetKey, mkNormalEdge, mgMapM)
@@ -41,6 +44,14 @@ mapMGM :: (ModSummary -> IO ModSummary) -> ModuleGraph -> IO ModuleGraph
 mapMGM f = mgMapM $ \mni -> case mni of
   ModuleNodeCompile ms -> ModuleNodeCompile <$> f ms
   _ -> pure mni
+
+impliedXFlags :: [(Extension, Bool, Extension)]
+impliedXFlags =
+  [compat ext dep | (ext, dep) <- GHC.impliedXFlags]
+  where
+    compat ext = \case
+      On dep -> (ext, True, dep)
+      Off dep -> (ext, False, dep)
 
 #else
 
@@ -110,5 +121,8 @@ mapMGM f mg = do
   pure mg { mg_mss = mgns }
 
 #endif
+
+impliedXFlags :: [(Extension, Bool, Extension)]
+impliedXFlags = GHC.impliedXFlags
 
 #endif

@@ -33,7 +33,6 @@ import GHC.Driver.DynFlags (
   )
 import GHC.Driver.Flags (WarningFlag, WarningGroup, warningGroupFlags, warningGroupIncludesExtendedWarnings)
 import GHC.Driver.Session (
-  impliedXFlags,
   wopt_set,
   wopt_set_all_custom,
   wopt_set_all_fatal_custom,
@@ -52,6 +51,7 @@ import GHC.LanguageExtensions (Extension)
 import GHC.Platform.Ways (Way (..), addWay, wayGeneralFlags, wayUnsetGeneralFlags)
 import GHC.Settings (ToolSettings (..))
 import GHC.Unit.Module.Warnings (WarningCategory)
+import Internal.Compat.GHC914 (impliedXFlags)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
