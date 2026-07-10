@@ -43,8 +43,9 @@ import GHC.Utils.Error (isEmptyMessages)
 import GHC.Utils.Misc (ordNub)
 import Internal.BuildPlan.External (packageName, unitImports)
 import Internal.BuildPlan.Json (assembleFields, mergePackageDeps)
-import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, deps, downsweepCompat, key, summary)
-import Internal.Compat.GHC914 (edgeTarget, mapMGM)
+import qualified Internal.Compat.FixedNodes as FixedNodes
+import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, downsweepCompat)
+import Internal.Compat.GHC914 (edgeTarget, hscModuleGraph, mapMGM)
 import Internal.Error (eitherMessages)
 import Internal.ValidateNames (validateModuleNames)
 import System.FilePath (splitExtension)
@@ -304,7 +305,7 @@ downsweepWithCache :: HscEnv -> IO ([DriverMessages], ModuleGraph)
 #if defined(DOWNSWEEP_CACHE)
 
 downsweepWithCache hsc_env = do
-  let cachedGraph = hsc_env.hsc_mod_graph
+  let cachedGraph = hscModuleGraph hsc_env
   downsweepCompat hsc_env (mgModSummaries cachedGraph) (Just cachedGraph) [] True
 
 #else
