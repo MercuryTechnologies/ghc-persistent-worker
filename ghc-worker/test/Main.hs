@@ -5,6 +5,7 @@ module Main where
 import qualified BuildPlanTest.Test1 (test_buildPlan)
 import qualified BuildPlanTest.Test2 (test_buildPlan)
 import BuildThTest (test_buildTh)
+import ByteCodeCacheTest (test_evictBySize, test_touchNoEviction)
 import DepFilesTest (test_depFiles)
 import FlagParserTest (test_parseBuckArgs)
 import InterfacePathTest (test_interfacePath)
@@ -21,6 +22,7 @@ import Test.Tasty (
   defaultMainWithIngredients,
   dependentTestGroup,
   includingOptions,
+  testGroup,
   )
 
 -- | Some tests require our GHC patches.
@@ -36,6 +38,19 @@ fullTest = False
 
 #endif
 
+-- | The bytecode cache is only populated when GHC provides the @hsc_linkables@ hook.
+byteCodeCacheTests :: [TestTree]
+
+#if defined(LINKABLES)
+
+byteCodeCacheTests = [test_touchNoEviction, test_evictBySize]
+
+#else
+
+byteCodeCacheTests = []
+
+#endif
+
 testsGeneral :: [TestTree]
 testsGeneral =
   [
@@ -45,7 +60,11 @@ testsGeneral =
     test_sortScheduleOrder,
     test_projectBuild,
     test_buildTh
-  ] <> if fullTest then [
+  ]
+  <>
+  byteCodeCacheTests
+  <>
+  if fullTest then [
     BuildPlanTest.Test1.test_buildPlan,
     BuildPlanTest.Test2.test_buildPlan
   ] else []

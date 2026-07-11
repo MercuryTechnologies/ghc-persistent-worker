@@ -31,6 +31,14 @@ enableLazyByteCode testEnv =
     }
   }
 
+enableByteCodeCacheLimit :: Int -> TestEnv -> TestEnv
+enableByteCodeCacheLimit limit testEnv =
+  testEnv {
+    baseArgs = testEnv.baseArgs {
+      features = testEnv.baseArgs.features {lazyByteCodeCacheLimit = Just limit}
+    }
+  }
+
 envLoader :: Env -> IO (Maybe Loader)
 envLoader env = do
   readMVar env.state <&> \ WorkerState {make = MakeState {interp = mb_interp}} ->
