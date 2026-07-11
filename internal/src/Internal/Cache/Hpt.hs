@@ -3,19 +3,17 @@
 module Internal.Cache.Hpt where
 
 import Control.Concurrent (MVar, newEmptyMVar, putMVar, readMVar)
-import Control.Monad (foldM)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.State.Strict (StateT (..), execStateT, get, put)
+import Control.Monad.Trans.State.Strict (StateT (..), get, put)
 import Data.Foldable (for_, toList)
 import Data.Function (on)
 import Data.Functor ((<&>))
 import Data.List (isSuffixOf)
 import Data.List.NonEmpty (NonEmpty ((:|)), groupBy)
-import Data.Map.Strict qualified as M (fromList, insert, lookup)
+import Data.Map.Strict qualified as M (insert, lookup)
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
-import Data.Set qualified as Set (insert, member, singleton)
 import Data.Time (getCurrentTime)
-import Data.Traversable (for)
+import Data.Traversable (for, mapAccumM)
 import Data.Tuple (swap)
 import GHC (DynFlags, GhcException (..), IsBootInterface (..), ModIface, ModIface_ (..), ModLocation (..), Module, ModuleGraph, ModuleName, mkModule, mkModuleName, moduleName, moduleNameString)
 import GHC.Data.Bag (emptyBag)
@@ -38,7 +36,7 @@ import GHC.Unit.Home.Graph (unitEnv_lookup_maybe)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..), homeModInfoByteCode)
 import GHC.Unit.Home.PackageTable (HomePackageTable, addHomeModInfoToHpt, lookupHpt)
 import GHC.Unit.Module (moduleNameSlashes)
-import GHC.Unit.Module.Graph (NodeKey (..), mgModSummaries', mkNodeKey)
+import GHC.Unit.Module.Graph (NodeKey (..), mgReachable, mkNodeKey)
 import GHC.Unit.Module.Location (addBootSuffix, pattern ModLocation)
 import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Unit.Module.ModIface (IfaceTopEnv (..), set_mi_top_env)
@@ -47,8 +45,7 @@ import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO, tryMost)
 import Internal.Cache.Metadata (loadCachedUnit, loadCachedUnits, readParseGHCArgs)
-import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, deps)
-import Internal.Compat.GHC914 (edgeTarget, setExtraDecls)
+import Internal.Compat.GHC914 (setExtraDecls)
 import Internal.Log (logTimed)
 import Prelude hiding (log)
 import System.FilePath ((<.>), (</>))
@@ -314,23 +311,13 @@ canonicalInterfacePath dflags name =
       | suf `isSuffixOf` str = Just (take (length str - length suf) str)
       | otherwise = Nothing
 
--- | Compute the transitive dependency closure of a given module from the module graph, in dependency postorder.
-depsFromModuleGraph :: ModuleGraph -> Module -> CachedDeps
+-- | Compute the transitive dependency closure of a given module from the module graph.
+depsFromModuleGraph :: ModuleGraph -> Module -> IO CachedDeps
 depsFromModuleGraph graph target =
-  CachedDeps (reverse (snd (children (Set.singleton targetKey, []) targetKey)))
+  case mgReachable graph targetKey of
+    Just closure -> pure (CachedDeps (mapMaybe (cachedDep . mkNodeKey) closure))
+    Nothing -> throwGhcExceptionIO (PprProgramError "depsFromModuleGraph: module missing from the module graph" (ppr target))
   where
-    children acc key =
-      case M.lookup key nodes of
-        Just CompileNode {deps} -> foldl' visit acc (edgeTarget <$> deps)
-        Just FixedNode {deps} -> foldl' visit acc (edgeTarget <$> deps)
-        _ -> acc
-
-    visit (seen, deps) key
-      | Set.member key seen = (seen, deps)
-      | otherwise =
-          let (seen', deps') = children (Set.insert key seen, deps) key
-          in (seen', maybe deps' (: deps') (cachedDep key))
-
     cachedDep = \case
       NodeKey_Module (ModNodeKeyWithUid (GWIB name isBoot) uid) ->
         Just CachedDep {name = JsonFs (bootName isBoot name), package = JsonFs uid}
@@ -339,8 +326,6 @@ depsFromModuleGraph graph target =
 
     bootName IsBoot name = mkModuleName (moduleNameString name ++ "-boot")
     bootName NotBoot name = name
-
-    nodes = M.fromList [(mkNodeKey node, node) | node <- mgModSummaries' graph]
 
     targetKey = NodeKey_Module (ModNodeKeyWithUid (GWIB (moduleName target) NotBoot) (moduleUnitId target))
 
@@ -357,25 +342,24 @@ loadCachedDeps ::
   IO (WorkerState, HscEnv)
 loadCachedDeps log interp (state0, hsc_env0) (CachedDeps deps) =
   logTimed log "Loading cached deps" do
-    (state1, hsc_env1) <- foldM loadDepUnit (state0, hsc_env0) byUnit
+    ((state1, hsc_env1), unit_plans) <- mapAccumM planUnit (state0, hsc_env0) byUnit
+    let mod_plans = concat unit_plans
+    mod_plans' <- for mod_plans \ (hsc_env, name, iface, mod_load_state) -> do
+      mod_load_state' <- loadCachedDep log interp hsc_env name iface mod_load_state
+      pure (hsc_env, name, iface, mod_load_state')
+    for_ mod_plans' \ (hsc_env, name, iface, mod_load_state) ->
+      loadCachedDep log interp hsc_env name iface mod_load_state
     pure (state1, hscSetActiveUnitId (hscActiveUnitId hsc_env0) hsc_env1)
   where
     -- If the unit isn't present in the unit env, it wasn't built by a worker, since it would have been loaded in the
     -- metadata restoration step.
-    loadDepUnit (state, hsc_env) mods@(CachedDep {package = JsonFs uid} :| _) =
+    planUnit (state, hsc_env) mods@(CachedDep {package = JsonFs uid} :| _) =
       if hasUnit uid hsc_env
       then do
         let hsc_env' = hscSetActiveUnitId uid hsc_env
-        (,hsc_env') <$> loadActiveUnit hsc_env' state (toList mods)
-      else pure (state, hsc_env)
-
-    loadActiveUnit :: HscEnv -> WorkerState -> [CachedDep] -> IO WorkerState
-    loadActiveUnit hsc_env state mods =
-      flip execStateT state do
-        mod_plans <- traverse (prepareDep hsc_env) mods
-        liftIO $ for_ mod_plans \ (name, iface, mod_load_state) -> do
-          mod_load_state' <- loadCachedDep log interp hsc_env name iface mod_load_state
-          loadCachedDep log interp hsc_env name iface mod_load_state'
+        (plans, state') <- runStateT (traverse (prepareDep hsc_env') (toList mods)) state
+        pure ((state', hsc_env'), [(hsc_env', name, iface, mod_load_state) | (name, iface, mod_load_state) <- plans])
+      else pure ((state, hsc_env), [])
 
     prepareDep hsc_env CachedDep {name = JsonFs name, package = JsonFs uid} = do
       mod_load_state <- prepareHmiLoader (hsc_HPT hsc_env) name
