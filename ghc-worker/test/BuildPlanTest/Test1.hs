@@ -176,7 +176,7 @@ expected2 oneshot =
 runBuildPlan :: NonEmpty Target -> Ghc (BuildPlan, HscEnv)
 runBuildPlan targets = do
   modifyActiveUnitFlags \ d -> d {ghcMode = MkDepend}
-  plan <- buildPlanForTargets fields mempty (toList targets)
+  plan <- buildPlanForTargets fields mempty mempty (toList targets)
   hsc_env <- getSession
   pure (plan, hsc_env)
 

@@ -69,6 +69,7 @@ data BuckArgs =
     moduleName :: Maybe String,
     depModules :: Maybe String,
     depUnits :: Maybe String,
+    depUnitsStatic :: Maybe String,
     homeUnit :: Maybe OsPath,
     workerTargetId :: Maybe TargetId,
     pluginDb :: Maybe String,
@@ -104,6 +105,7 @@ emptyBuckArgs env =
     moduleName = Nothing,
     depModules = Nothing,
     depUnits = Nothing,
+    depUnitsStatic = Nothing,
     homeUnit = Nothing,
     workerTargetId = Nothing,
     pluginDb = Nothing,
@@ -133,6 +135,7 @@ options =
     withArg "--buck2-packagedb-dep" \ z a -> z {buck2PackageDbDep = Just a},
     withArg "--dep-modules" \ z a -> z {depModules = Just a},
     withArg "--dep-units" \ z a -> z {depUnits = Just a},
+    withArg "--dep-units-static" \ z a -> z {depUnitsStatic = Just a},
     withOsPathArg "--home-unit" \ z a -> z {homeUnit = Just a},
     withArg "--extra-env-key" \ z a -> z {envKey = Just a},
     withArgErr "--extra-env-value" \ z a -> addEnv z a,
@@ -241,6 +244,7 @@ toGhcArgs :: BuckArgs -> Maybe FeatureFlags -> IO Args
 toGhcArgs args features = do
   cachedDeps <- traverse (decodeJsonArg "--dep-modules" . toOsPath) args.depModules
   cachedBuildPlans <- traverse (decodeJsonArg "--dep-units" . toOsPath) args.depUnits
+  staticBuildPlans <- traverse (decodeJsonArg "--dep-units-static" . toOsPath) args.depUnitsStatic
   -- Buck specifies @-B@, which can be used to include more packages in the global package DB.
   -- While this is done by @ghcWithPackages@ from nixpkgs, it is likely redundant, but doesn't hurt.
   -- In any case, we default to @libdir@ from @ghc-paths@, which returns the directory in the distribution used by the
@@ -270,6 +274,7 @@ toGhcArgs args features = do
     ghcOptions = sanitizeGhcArgs ghcArgs ++ foldMap packageDbArg packageDb ++ foldMap packageDbArg args.buck2PackageDb,
     perModuleFlags,
     cachedBuildPlans,
+    staticBuildPlans,
     cachedDeps,
     homeUnit = args.homeUnit,
     isBinary = args.isBinary,

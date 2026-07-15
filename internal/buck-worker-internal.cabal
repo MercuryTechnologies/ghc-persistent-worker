@@ -86,6 +86,7 @@ library
                       Internal.Json
                       Internal.Log
                       Internal.Metadata
+                      Internal.Metadata.Static
                       Internal.Session
                       Internal.State
                       Internal.State.Make
