@@ -10,6 +10,7 @@ import Data.Foldable (for_)
 import Data.List.NonEmpty (NonEmpty, toList)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe, isJust)
+import Data.Set (Set)
 import qualified Data.Set as Set
 import GHC (
   DynFlags (..),
@@ -30,15 +31,18 @@ import Internal.BuildPlan.Json (writeBuildPlan)
 import Internal.Cache.Metadata (addHomeUnitTo, loadCachedUnits)
 import Internal.DynFlags (updateActiveUnitFlags)
 import Internal.Log (logTimed)
+import Internal.Metadata.Static (prepareStaticSession)
 import Internal.Session (runSession, withDynFlags, withGhcInSession)
 import Internal.State (updateMakeStateVar)
 import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
 import Internal.State.Stats (logMemStats)
+import Internal.State.UnitIndex (restoreUnitIndex)
 import System.Directory (createDirectoryIfMissing)
 import qualified System.File.OsPath as OsPath
 import System.OsPath.Extra (OsPath, toOsPath)
 import Types.Args (Args (..), BuildPlanField, buildPlanAll)
 import Types.BuildPlan (BuildPlan (..), ModuleKey)
+import Types.CachedDeps (CachedBuildPlans)
 import Types.Env (Env (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
@@ -90,9 +94,31 @@ prepareMetadataSession env dflags = do
   unless env.args.isBinary storeNewUnit
   pure unit
   where
-    setActiveUnit unit = modifySession (hscUpdateLoggerFlags . hscSetActiveUnitId unit)
-
     storeNewUnit = withSession \ hsc_env -> liftIO $ updateMakeStateVar env.state (insertUnitEnv hsc_env)
+
+setActiveUnit :: UnitId -> Ghc ()
+setActiveUnit unit = modifySession (hscUpdateLoggerFlags . hscSetActiveUnitId unit)
+
+-- | Initialize the home unit env for a metadata request whose dependency units were provided statically.
+--
+-- Dependency units are made visible as external packages through a synthetic package database.
+prepareStaticMetadataSession :: Env -> CachedBuildPlans -> DynFlags -> Ghc (UnitId, Set UnitId)
+prepareStaticMetadataSession env plans dflags = do
+  state <- liftIO $ readMVar env.state
+  modifySession (restoreUnitIndex state.make)
+  hsc_env0 <- getSession
+  (hsc_env1, staticUnits) <- liftIO (prepareStaticSession plans hsc_env0)
+  setSession hsc_env1
+  unit <- addHomeUnit dflags
+  setActiveUnit unit
+  pure (unit, staticUnits)
+
+-- | Whether the unit's state should not be persisted after its metadata step.
+--
+-- Binaries have no consumers in other units' metadata steps.
+-- The module graph computed against static dependency units must not leak into the shared state.
+transientUnit :: Env -> Bool
+transientUnit env = env.args.isBinary || isJust env.args.staticBuildPlans
 
 resolveDepJson :: HscEnv -> Maybe OsPath -> Ghc OsPath
 resolveDepJson hsc_env path =
@@ -123,14 +149,15 @@ writeMetadata ::
   Maybe OsPath ->
   Maybe (NonEmpty BuildPlanField) ->
   Map ModuleKey [String] ->
+  Set UnitId ->
   [String] ->
   Ghc ModuleGraph
-writeMetadata path fieldSelection perModuleFlags srcs = do
+writeMetadata path fieldSelection perModuleFlags staticUnits srcs = do
   withTempSession metadataTempSession do
     hsc_env <- getSession
     writeLegacyMakefile hsc_env
     depJson <- resolveDepJson hsc_env path
-    plan <- buildPlanForSources fields perModuleFlags srcs
+    plan <- buildPlanForSources fields perModuleFlags staticUnits srcs
     liftIO $ writeBuildPlan depJson plan
     pure plan.graph
   where
@@ -158,12 +185,12 @@ computeMetadata env = do
       pure (Just ())
     logTimed env.log "Computing module graph" do
       MaybeT $ runSession env $ withDynFlags env \ dflags srcs -> do
-        unit <- prepareMetadataSession env dflags
+        (unit, staticUnits) <- prepareSession dflags
         let target = TargetUnit (UnitTarget unit)
         liftIO $ env.log.setTarget target
-        module_graph <- writeMetadata env.args.buildPlan env.args.fields env.args.perModuleFlags (fst <$> srcs)
+        module_graph <- writeMetadata env.args.buildPlan env.args.fields env.args.perModuleFlags staticUnits (fst <$> srcs)
         liftIO do
-          unless env.args.isBinary $
+          unless (transientUnit env) $
             updateMakeStateVar env.state (storeModuleGraph module_graph)
           for_ dflags.stubDir \ stubdir -> do
             env.log.debug ("Creating stubdir: " ++ stubdir)
@@ -171,10 +198,17 @@ computeMetadata env = do
         pure (Just target)
   logMemStats "after metadata" env.log
   pure (isJust res, res)
+  where
+    prepareSession dflags =
+      case env.args.staticBuildPlans of
+        Just plans -> prepareStaticMetadataSession env plans dflags
+        Nothing -> do
+          unit <- prepareMetadataSession env dflags
+          pure (unit, mempty)
 
 -- | Simplified metadata computation for the proxy executable.
 -- Skips cache restoration and persistent worker state, directly computing and writing the build plan.
 proxyMetadata :: Env -> IO Bool
 proxyMetadata env =
   fmap isJust $ runSession env $ withGhcInSession env \ srcs ->
-    Just () <$ writeMetadata env.args.buildPlan env.args.fields env.args.perModuleFlags (fst <$> srcs)
+    Just () <$ writeMetadata env.args.buildPlan env.args.fields env.args.perModuleFlags mempty (fst <$> srcs)

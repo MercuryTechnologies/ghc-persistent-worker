@@ -40,8 +40,9 @@ import GHC.Unit.Module.Graph (
   )
 import GHC.Unit.Module.ModSummary (ModSummary (..), isBootSummary, msHsFilePath, ms_mod_name, ms_unitid)
 import GHC.Utils.Error (isEmptyMessages)
+import GHC.Utils.Misc (ordNub)
 import Internal.BuildPlan.External (packageName, unitImports)
-import Internal.BuildPlan.Json (assembleFields)
+import Internal.BuildPlan.Json (assembleFields, mergePackageDeps)
 import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, deps, downsweepCompat, key, summary)
 import Internal.Compat.GHC914 (edgeTarget)
 import Internal.Error (eitherMessages)
@@ -277,19 +278,25 @@ buildPlanModules ::
   (GhcMonad m) =>
   Set BuildPlanField ->
   Map ModuleKey [String] ->
+  Set UnitId ->
   HscEnv ->
   ModuleGraph ->
   m BuildPlanJson
-buildPlanModules fields perModuleFlags hsc_env graph = do
-  toolchainDeps <-
-    if includeToolchainDeps
+buildPlanModules fields perModuleFlags staticUnits hsc_env graph = do
+  externalDeps <-
+    if includeExternalDeps
     then eitherMessages GhcDriverMessage =<< liftIO (unitImports env (fst <$> modules))
     else pure []
-  assembleFields fields toolchainDeps . Map.fromList <$> liftIO (traverse (buildPlanModule env perModuleFlags) modules)
+  let parts = Map.partitionWithKey (\ unit _ -> Set.member unit staticUnits) <$> externalDeps
+      staticDeps = fmap (fmap ordNub) . fst <$> parts
+      toolchainDeps = snd <$> parts
+  bpModules <- Map.fromList <$> liftIO (traverse (buildPlanModule env perModuleFlags) modules)
+  pure (assembleFields fields toolchainDeps (mergePackageDeps staticDeps bpModules))
   where
     (env, modules) = buildPlanEnv hsc_env graph
 
-    includeToolchainDeps = FieldToolchainDeps `elem` fields || FieldPackageDeps `elem` fields
+    includeExternalDeps =
+      FieldToolchainDeps `elem` fields || FieldPackageDeps `elem` fields || not (Set.null staticUnits)
 
 downsweepWithCache :: HscEnv -> IO ([DriverMessages], ModuleGraph)
 
@@ -317,23 +324,25 @@ buildPlanForTargets ::
   GhcMonad m =>
   Set BuildPlanField ->
   Map ModuleKey [String] ->
+  Set UnitId ->
   [Target] ->
   m BuildPlan
-buildPlanForTargets fields perModuleFlags targets = do
+buildPlanForTargets fields perModuleFlags staticUnits targets = do
   GHC.setTargets targets
   (errs, graph) <- withSession (liftIO . downsweepWithCache . useNoBackend)
   let msgs = unionManyMessages errs
   unless (isEmptyMessages msgs) $ throwErrors (fmap GhcDriverMessage msgs)
   hsc_env <- getSession
-  json <- buildPlanModules fields perModuleFlags hsc_env graph
+  json <- buildPlanModules fields perModuleFlags staticUnits hsc_env graph
   pure BuildPlan {graph, json}
 
 buildPlanForSources ::
   GhcMonad m =>
   Set BuildPlanField ->
   Map ModuleKey [String] ->
+  Set UnitId ->
   [FilePath] ->
   m BuildPlan
-buildPlanForSources fields perModuleFlags srcs = do
+buildPlanForSources fields perModuleFlags staticUnits srcs = do
   targets <- for srcs \ src -> GHC.guessTarget src Nothing Nothing
-  buildPlanForTargets fields perModuleFlags targets
+  buildPlanForTargets fields perModuleFlags staticUnits targets

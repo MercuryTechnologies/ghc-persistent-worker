@@ -68,16 +68,17 @@ fieldCache =
         flags
       }
 
-fieldLegacy ::
+-- | Append externally resolved package deps to each module.
+mergePackageDeps ::
   Map ModuleKey (Map UnitId (PackageKey, [ModuleName])) ->
   Map ModuleKey BuildPlanModule ->
   Map ModuleKey BuildPlanModule
-fieldLegacy =
+mergePackageDeps =
   Map.merge dropMissing preserveMissing (zipWithMatched combine)
   where
-    combine _ deps BuildPlanModule {..} = BuildPlanModule {packages = packages ++ toolchainDeps deps, ..}
+    combine _ deps BuildPlanModule {..} = BuildPlanModule {packages = packages ++ packageDeps deps, ..}
 
-    toolchainDeps deps =
+    packageDeps deps =
       [
         PackageDep {id = JsonFs unit, name, modules = coerce modules}
         | (unit, (name, modules)) <- Map.toList deps
@@ -92,7 +93,7 @@ assembleFields ::
   BuildPlanJson
 assembleFields fields toolchainDeps modules =
   BuildPlanJson {
-    legacy = fieldIf FieldLegacy (fieldLegacy toolchainDeps modules),
+    legacy = fieldIf FieldLegacy (mergePackageDeps toolchainDeps modules),
     schema = BuildPlanSchema {
       exposed_modules = fieldIf FieldExposedModules (fieldExposedModules modules),
       module_graph = fieldIf FieldModuleGraph (fieldModuleGraph modules),
