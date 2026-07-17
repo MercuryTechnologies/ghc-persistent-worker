@@ -20,7 +20,7 @@ import qualified GHC.Data.ShortText as ST
 import GHC.Unit (GenericUnitInfo (..), PackageId (..), PackageName (..), UnitDatabase (..), UnitInfo)
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Finder (initFinderCache)
-import GHC.Unit.State (UnitIndex (..), newUnitIndex)
+import GHC.Unit.State (UnitIndex (..))
 import System.OsPath.Extra (fromOsPath, toOsPath)
 import Types.CachedDeps (CachedBuildPlan (..), JsonFs (..))
 
@@ -40,10 +40,9 @@ prepareStaticSession :: CachedBuildPlans -> HscEnv -> IO (HscEnv, Set UnitId)
 prepareStaticSession plans hsc_env = do
   units <- readStaticUnits plans
   hsc_FC <- initFinderCache
-  basic <- newUnitIndex
   let
     shared = hsc_env.hsc_unit_env.ue_index
-    index = basic {
+    index = shared {
       readDatabases = \ logger unit cfg -> do
         dbs <- shared.readDatabases logger unit cfg
         pure (dbs ++ [staticUnitDatabase units])
