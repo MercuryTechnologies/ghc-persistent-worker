@@ -128,6 +128,20 @@ in {
     buildInputs = pkgs: [pkgs.zlib pkgs.snappy pkgs.protobuf];
   };
 
+  envs.test-ext-deps = let
+
+    testExtDeps = import ./test-ext-deps.nix {
+      inherit (config) pkgs;
+      inherit lib;
+      ghc = build.envs.dev.toolchain.packages.ghc;
+    };
+
+  in defaultEnv [] // {
+    expose.shell = true;
+    env.resource_test_ext_deps = "${testExtDeps}";
+    buildInputs = pkgs: [pkgs.zlib];
+  };
+
   # Use GHC 9.8 for `cabal-install` and other build tools because:
   # - If we used the same GHC as the build (i.e. MWB branch), any time the GHC changes, Cabal would be rebuilt, which
   #   is time-consuming.
