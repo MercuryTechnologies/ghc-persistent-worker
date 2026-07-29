@@ -30,10 +30,12 @@
           "deepseq"
           "directory"
           "filepath"
+          "file-io"
           "ghc"
           "ghc-debug-stub"
           "grapesy"
           "optparse-applicative"
+          "os-string"
           "process"
           "text"
         ];
@@ -52,6 +54,7 @@
           "bytestring"
           "containers"
           "directory"
+          "exceptions"
           "extra"
           "filepath"
           "ghc"
@@ -222,10 +225,12 @@
           "aeson"
           "binary"
           "containers"
+          "exceptions"
           "filepath"
           "ghc"
           "ghc-paths"
           "optparse-applicative"
+          "os-string"
           "split"
           "text"
         ];
@@ -352,7 +357,7 @@
       when = [
         {
           condition = "flag(mwb)";
-          cpp-options = ["-DMWB" "-DUNIT_INDEX" "-DDOWNSWEEP_CACHE"];
+          cpp-options = ["-DMWB" "-DUNIT_INDEX" "-DDOWNSWEEP_CACHE" "-DFIXED_NODES"];
         }
         {
           condition = "flag(downsweep-cache)";

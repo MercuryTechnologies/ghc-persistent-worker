@@ -23,22 +23,13 @@
 
     compilers = {
 
-      # Roughly the GHC used by MWB.
-      mwb-26-04.source.build = {
-        url = "https://gitlab.haskell.org/ghc/ghc";
+      mwb-26-07.source.build = {
+        url = "https://github.com/MercuryTechnologies/ghc";
         version = "9.10.1";
         flavour = "release+split_sections+ipe";
-        rev = "cd00672d9eb50cdad53d37499c93b0b022efe21a";
-        hash = "sha256-Kzo23TE8Mgk7lesLXkodkbmqa0Mt9rpV7N5MwBMO5eY=";
-      };
-
-      # Some as `mwb-26-04`, but with fixed nodes.
-      mwb-26-04-fixed.source.build = {
-        url = "https://gitlab.haskell.org/ghc/ghc";
-        version = "9.10.1";
-        flavour = "release+split_sections+ipe";
-        rev = "debb34edd90921c93f4c8fe67cbb30615951e843";
-        hash = "sha256-OfH9kwzJMRFHS1rGzUZhEYEKnh1PLnc94xBL9MrnS0M=";
+        # branch: mercury-ghc9101-20260729-with-haddock
+        rev = "b88dbe7199178fa0991c489df1e84e1006ae01ee";
+        hash = "sha256-xEO44bnUDu+oTsS0Er4dfV1PooTvGOqYYVsGtPsWZe4=";
       };
 
       ghc914.nixpkgs = "ghc914";

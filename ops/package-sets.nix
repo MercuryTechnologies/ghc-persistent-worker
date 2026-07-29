@@ -30,7 +30,7 @@
     ghc-worker = notest;
   };
 
-  overrides2604 = {hackage, force, source, self, ...}: {
+  overrides2607 = {hackage, force, source, self, ...}: {
     auto-update = hackage "0.2.6" "0sp25j3fcgmfr2zv1ccg1id1iynj3azinjg23g0vy1m1m7gnmkzi";
     crypton-asn1-encoding = hackage "0.10.0" "0h4cxk9yz2xgmx0kl3gg9lixhnhvxqk85gvkwldp0mlfm3mgccvm";
     crypton-asn1-parse = hackage "0.10.0" "0dsyslbb9a3f6wj0na52qc7iimjs9xljhi6wjfch61nb9m33l1kb";
@@ -83,7 +83,7 @@
 
   defaultEnv = extra: {
     hls.enable = lib.mkForce false;
-    package-set.extends = "mwb-26-04";
+    package-set.extends = "mwb-26-07";
     overrides = commonOverrides ["mwb" "unit-index" "downsweep-cache"] ++ [ipeOverrides] ++ extra;
   };
 
@@ -98,23 +98,16 @@ in {
   };
 
   envs.dev = defaultEnv [] // {
-    package-set.extends = "mwb-26-04";
+    package-set.extends = "mwb-26-07";
     buildInputs = pkgs: [pkgs.zlib pkgs.snappy pkgs.protobuf build.envs.dev.toolchain.packages.proto-lens-protoc];
     ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX"];
   };
 
   envs.min = defaultEnv [];
 
-  envs.mwb-26-04 = defaultEnv [buckBinOverrides] // {
+  envs.mwb-26-07 = defaultEnv [buckBinOverrides] // {
     expose.scoped = true;
     ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX"];
-  };
-
-  envs.mwb-26-04-fixed = defaultEnv [buckBinOverrides] // {
-    expose.scoped = true;
-    package-set.extends = "mwb-26-04-fixed";
-    overrides = commonOverrides ["mwb" "unit-index" "downsweep-cache" "fixed-nodes"] ++ [buckBinOverrides ipeOverrides];
-    ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX" "-DFIXED_NODES"];
   };
 
   envs.profiled = defaultEnv [({notest, ...}: { ghc-worker = notest; ghc-server = notest; })];
@@ -158,32 +151,19 @@ in {
     tls = hackage "2.2.2" "1arnw38a3x70264sags3yrq4c01nfcy17sjq3ycasfb2yq6fiflm";
   };
 
-  package-sets.mwb-26-04 = {
-    compiler = "mwb-26-04";
-    overrides = overrides2604;
-  };
-
-  package-sets.mwb-26-04-fixed = {
-    extends = "mwb-26-04";
-    compiler = "mwb-26-04-fixed";
-
-    overrides = api@{hackage, force, source, notest, nodoc, nobench, ...}: let
-
-      reduce = pkg: nodoc (nobench (notest pkg));
-
-      github = {owner ? "tek", repo, rev, hash, path ? ""}:
-        reduce (source.sub (config.pkgs.fetchFromGitHub { inherit owner repo rev hash; }) path);
-
-    in overrides2604 api // {
+  package-sets.mwb-26-07 = {
+    compiler = "mwb-26-07";
+    overrides = api@{hackage, force, notest, ...}: let
+      github = mkGithub api;
+    in overrides2607 api // {
       doctest = github {
         repo = "doctest";
-        rev = "f6f0ea80314ae97a550229c95b15333566c35fe0";
-        hash = "sha256-R3HKHj6+btPodhOyeW50xvZwFqF1IaN3+6dHN9KLjmw=";
+        owner = "wavewave";
+        # branch: wavewave/0_22_6_fixed_nodes
+        rev = "b2bc53a1ebbb2fa48ca1c6b49cfaad8eea8beabc";
+        hash = "sha256-qdhfA+AkaB/IZsmeQOfsfZyuPxnY8bbYwO/yHcmjzak=";
       };
-
-      ghc-server = notest nodoc;
     };
-
   };
 
   package-sets.ghc914 = {
@@ -222,13 +202,13 @@ in {
   };
 
   envs.hls-db = {
-    package-set.extends = "mwb-26-04";
+    package-set.extends = "mwb-26-07";
   };
 
   commands.hls.env = "hls-db";
 
   envs.hls = {
-    package-set.extends = "mwb-26-04";
+    package-set.extends = "mwb-26-07";
 
     overrides = api@{hackage, fast, force, unbreak, nobench, notest, source, modify, hsLibC, disable, drv, ghcOption, self, ...}: let
 
@@ -270,8 +250,10 @@ in {
       directory-ospath-streaming = hackage "0.3" "0m0v200mgmkizm3l6pw9x9gvqx9xancgsal4z1pb7hi2pgrj0w0d";
       doctest = github {
         repo = "doctest";
-        rev = "f6f0ea80314ae97a550229c95b15333566c35fe0";
-        hash = "sha256-R3HKHj6+btPodhOyeW50xvZwFqF1IaN3+6dHN9KLjmw=";
+        owner = "wavewave";
+        # branch: wavewave/0_22_6_fixed_nodes
+        rev = "b2bc53a1ebbb2fa48ca1c6b49cfaad8eea8beabc";
+        hash = "sha256-qdhfA+AkaB/IZsmeQOfsfZyuPxnY8bbYwO/yHcmjzak=";
       };
       doctest-parallel = self.doctest;
       fourmolu = drv null;
