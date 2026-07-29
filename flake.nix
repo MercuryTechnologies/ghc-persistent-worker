@@ -32,6 +32,15 @@
         hash = "sha256-xEO44bnUDu+oTsS0Er4dfV1PooTvGOqYYVsGtPsWZe4=";
       };
 
+      mwb-26-07-linkables.source.build = {
+        url = "https://github.com/MercuryTechnologies/ghc";
+        version = "9.10.1";
+        flavour = "release+split_sections+ipe";
+        # branch: wavewave/mercury-ghc9101-linkdeps-with-haddock
+        rev = "12f09f8fb619b443ce6da1275dcf41699f5157c3";
+        hash = "sha256-sUOd6NZXgrnEhWjgfo74OajjS7llJH94FGFXAjvegBE=";
+      };
+
       ghc914.nixpkgs = "ghc914";
 
     };

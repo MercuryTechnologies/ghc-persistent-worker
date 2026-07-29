@@ -85,6 +85,7 @@
     hls.enable = lib.mkForce false;
     package-set.extends = "mwb-26-07";
     overrides = commonOverrides ["mwb" "unit-index" "downsweep-cache"] ++ [ipeOverrides] ++ extra;
+    ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX"];
   };
 
   mkGithub = {force, source, nodoc, ...}: {owner ? "tek", repo, rev, hash, path ? ""}:
@@ -100,14 +101,21 @@ in {
   envs.dev = defaultEnv [] // {
     package-set.extends = "mwb-26-07";
     buildInputs = pkgs: [pkgs.zlib pkgs.snappy pkgs.protobuf build.envs.dev.toolchain.packages.proto-lens-protoc];
-    ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX"];
+    ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX" "-DFIXED_NODES"];
   };
 
   envs.min = defaultEnv [];
 
-  envs.mwb-26-07 = defaultEnv [buckBinOverrides] // {
+  envs.mwb-26-07-linkables = defaultEnv [] // {
     expose.scoped = true;
-    ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX"];
+    package-set.extends = "mwb-26-07-linkables";
+    overrides = commonOverrides ["mwb" "unit-index" "downsweep-cache" "linkables"] ++ [buckBinOverrides ipeOverrides];
+    ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX" "-DFIXED_NODES"];
+  };
+
+  envs.mwb-26-07 = defaultEnv [] // {
+    expose.scoped = true;
+    package-set.extends = "mwb-26-07";
   };
 
   envs.profiled = defaultEnv [({notest, ...}: { ghc-worker = notest; ghc-server = notest; })];
@@ -163,6 +171,21 @@ in {
     grpc-spec = force;
     http2-tls = force (hackage "0.4.9" "06sw9z3qbsw70phh0fngpa3drg8sdrxiszjlf2i7wxyl04l3n6i4");
     tls = hackage "2.2.2" "1arnw38a3x70264sags3yrq4c01nfcy17sjq3ycasfb2yq6fiflm";
+  };
+
+  package-sets.mwb-26-07-linkables = {
+    extends = "mwb-26-07";
+    compiler = "mwb-26-07-linkables";
+    overrides = api@{hackage, force, source, notest, nodoc, nobench, ...}: let
+
+      github = mkGithub api;
+    in overrides2607 api // {
+      doctest = github {
+        repo = "doctest";
+        rev = "f6f0ea80314ae97a550229c95b15333566c35fe0";
+        hash = "sha256-R3HKHj6+btPodhOyeW50xvZwFqF1IaN3+6dHN9KLjmw=";
+      };
+    };
   };
 
   package-sets.mwb-26-07 = {

@@ -352,6 +352,12 @@
           default = false;
         };
 
+        linkables = {
+          description = "GHC contains the patch for abstract getLinkDeps";
+          manual = true;
+          default = false;
+        };
+
       };
 
       when = [
@@ -370,6 +376,10 @@
         {
           condition = "flag(fixed-nodes) || impl(ghc >= 9.14)";
           cpp-options = ["-DFIXED_NODES"];
+        }
+        {
+          condition = "flag(linkables)";
+          cpp-options = ["-DLINKABLES"];
         }
       ];
 
