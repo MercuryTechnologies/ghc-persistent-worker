@@ -4,7 +4,7 @@
 
   serverPkg = build.packages.min.ghc-server.package;
 
-  # Prebuilt ext dep packages for the mwb-26-04-fixed GHC, used by profiling apps.
+  # Prebuilt ext dep packages for the mwb-26-04-linkables GHC, used by profiling apps.
   fixedExtDeps = import ./test-ext-deps.nix {
     inherit (config) pkgs;
     inherit lib;

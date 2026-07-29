@@ -32,6 +32,15 @@
         hash = "sha256-xEO44bnUDu+oTsS0Er4dfV1PooTvGOqYYVsGtPsWZe4=";
       };
 
+      mwb-26-07-linkables.source.build = {
+        url = "https://gitlab.haskell.org/ghc/ghc";
+        version = "9.10.1";
+        flavour = "release+split_sections+ipe";
+        # branch: wip/torsten.schmits/mwb-26-07/abstract-linkables
+        rev = "9101dbb234d2cff453d93dec15ccf246c21a5273";
+        hash = "sha256-sUOd6NZXgrnEhWjgfo74OajjS7llJH94FGFXAjvegBE=";
+      };
+
       ghc914.nixpkgs = "ghc914";
 
     };
