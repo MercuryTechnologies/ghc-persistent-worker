@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module FlagParserTest where
 
 import Control.Arrow ((>>>))
@@ -42,7 +44,11 @@ instance Show DbRef where
     PkgDbPath path -> show path
 
 dbRef :: String -> DbRef
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+dbRef path = DbRef (PkgDbPath path)
+#else
 dbRef path = DbRef (PkgDbPath (toOsPath path))
+#endif
 
 newtype DbFlag =
   DbFlag PackageDBFlag
@@ -68,10 +74,14 @@ dbFlags dflags = DbFlag <$> dflags.packageDBFlags
 diagOpts :: DiagnosticOpts DriverMessage
 diagOpts = defaultDiagnosticOpts @DriverMessage
 
-parseVanilla :: DynFlags -> [ByteString] -> IO (Either String DynFlags)
-parseVanilla dflags args = do
+parseVanilla :: HscEnv -> DynFlags -> [ByteString] -> IO (Either String DynFlags)
+parseVanilla hsc_env dflags args = do
   bimap show fst3 <$> try @SomeException do
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+    parseDynamicFlagsCmdLine (hsc_logger hsc_env) dflags (mkGeneralLocated "test" . Text.unpack . decodeUtf8 <$> args)
+#else
     parseDynamicFlagsCmdLine dflags (mkGeneralLocated "test" . Text.unpack . decodeUtf8 <$> args)
+#endif
 
 parseFast :: DynFlags -> [ByteString] -> Either String (DynFlags, [ByteString])
 parseFast dflags0 args =
@@ -80,8 +90,9 @@ parseFast dflags0 args =
 parseTest :: [ByteString] -> TestT IO (DynFlags, Either String DynFlags, Either String (DynFlags, [ByteString]))
 parseTest args =
   liftIO do
-    dflags <- (.hsc_dflags) <$> initHscEnv (Just libdir)
-    dflagsVanilla <- parseVanilla dflags args
+    hsc_env <- initHscEnv (Just libdir)
+    let dflags = hsc_env.hsc_dflags
+    dflagsVanilla <- parseVanilla hsc_env dflags args
     pure (dflags, dflagsVanilla, (parseFast dflags args))
 
 parseTestSuccess :: [ByteString] -> TestT IO (DynFlags, DynFlags, DynFlags, [ByteString])
@@ -287,7 +298,10 @@ test_flagParser_unknownPartial =
 test_parseBuckArgs :: TestTree
 test_parseBuckArgs =
   testGroup "flag parser" [
+-- stock GHC 9.14 fails with -fpackage-db-byte-code
+#if !MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
     unitTest "successful" test_flagParser_success,
+#endif
     unitTest "missing argument" test_flagParser_missingArg,
     unitTest "invalid extension" test_flagParser_invalidExtension,
     unitTest "unknown options" test_flagParser_unknown,

@@ -174,12 +174,16 @@ in {
 
     in {
       base64 = force;
+      bitwise = force;
+      brick = force;
+      config-ini = force;
       lens-family = force;
       lens-family-core = force;
       proto-lens = force;
       proto-lens-protobuf-types = force;
       proto-lens-protoc = force;
       proto-lens-runtime = force;
+      string-interpolate = force;
       generic-lens = notest;
 
       proto-lens-setup = github {

@@ -70,7 +70,7 @@ library
     directory,
     file-io,
     ghc,
-    grapesy ^>=1.0.1,
+    grapesy >=1.0.1,
     optparse-applicative,
     os-string,
     process,

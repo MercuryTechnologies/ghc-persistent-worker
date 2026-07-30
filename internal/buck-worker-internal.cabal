@@ -96,7 +96,7 @@ library
 
     build-depends:    aeson,
                       async,
-                      base >= 4.20 && < 4.22,
+                      base >= 4.20,
                       buck-worker-types,
                       containers,
                       directory,
