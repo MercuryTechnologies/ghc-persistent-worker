@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - tek/dev
+      - tek/review-head
   pull_request:
 
 jobs:
@@ -28,15 +29,11 @@ jobs:
         run: rm -rf /opt/hostedtoolcache
       - name: Nix build and test
         run: nix -L build
-      - name: Nix build and test with mwb-25-10
-        run: nix -L build .#mwb-25-10.ghc-worker
+      - name: Nix build with GHC 9.14
+        run: nix -L build .#mercury-ghc9141.ghc-worker
       - name: Init Cabal
         run: nix -L develop -c cabal update
       - name: Build packages
-        run: nix -L develop -c cabal build -fmwb all
+        run: nix -L develop -c cabal build all
       - name: Run resource tests
         run: nix -L develop .#test-ext-deps -c cabal test ghc-worker --test-option='-p /resources/'
-      - name: Clean up Cabal store to switch to vanilla GHC
-        run: rm -rf $(nix develop -c cabal path --store-dir)/ghc-9.10.1-inplace dist-newstyle
-      - name: Build packages with vanilla GHC
-        run: nix -L develop .#ghc910 -c cabal build -f-mwb all
