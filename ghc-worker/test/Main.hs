@@ -4,6 +4,7 @@ module Main where
 
 import qualified BuildPlanTest.Test1 (test_buildPlan)
 import qualified BuildPlanTest.Test2 (test_buildPlan)
+import BuildThTest (test_buildTh)
 import FlagParserTest (test_parseBuckArgs)
 import Incremental.BuildTest (test_incrementalBuild)
 import Incremental.FlowTest (test_incrementalFlow)
@@ -43,6 +44,7 @@ testsGeneral =
     test_interfacePath,
     test_sortScheduleOrder,
     test_projectBuild,
+    test_buildTh,
     testGroup "incremental metadata" [
       test_incrementalBuild,
       test_incrementalFlow
