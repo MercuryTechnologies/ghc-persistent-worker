@@ -6,7 +6,8 @@ import Data.Foldable (for_)
 import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Hedgehog (PropertyT, annotate, diff)
+import GHC.Stack (HasCallStack, withFrozenCallStack)
+import Hedgehog (MonadTest, PropertyT, annotate, assert, diff)
 import System.Directory.OsPath (doesFileExist)
 import System.OsPath.Extra (OsPath, fromOsPath, osp, (<.>), (</>))
 import Test.Data.BuildSystem (BuildResult (..))
@@ -106,3 +107,15 @@ showProjectBuild ProjectBuild {schedule, resumeSchedule, resumePlan, initial, in
     thCount = Map.size (Map.filter (.th) modules)
 
     InitialProject {unitCount, moduleCount, modulesError, modules} = initial
+
+assertNoFailures ::
+  HasCallStack =>
+  MonadTest m =>
+  String ->
+  BuildResult ->
+  m ()
+assertNoFailures label result =
+  withFrozenCallStack do
+    unless (Map.null result.failures) do
+      annotate (label ++ " failures: " ++ show (Map.keys result.failures))
+    assert (Map.null result.failures)

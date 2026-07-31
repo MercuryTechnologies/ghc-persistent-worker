@@ -37,6 +37,7 @@ library
     Test.Build
     Test.BuildSystem
     Test.BuckHashes
+    Test.Bytecode
     Test.Cache
     Test.Data.BuildSystem
     Test.Data.Env
