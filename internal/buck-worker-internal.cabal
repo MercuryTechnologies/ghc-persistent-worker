@@ -29,6 +29,11 @@ flag fixed-nodes
     manual: True
     default: False
 
+flag linkables
+  description: GHC contains patch for abstract getLinkDeps
+  manual: True
+  default: False
+
 common all
   ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages
   default-language: GHC2021
@@ -62,6 +67,9 @@ common all
 
   if (flag(fixed-nodes) || impl(ghc >= 9.14))
       cpp-options: -DFIXED_NODES
+
+  if (flag(linkables))
+      cpp-options: -DLINKABLES
 
 library
     import: all
