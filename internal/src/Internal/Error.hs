@@ -7,6 +7,7 @@ import GHC (DynFlags, Ghc, GhcException (..), GhcMonad, getSessionDynFlags, noSr
 import GHC.Data.Bag (listToBag)
 import GHC.Data.FastString (mkFastString)
 import GHC.Driver.Config.Diagnostic (initDiagOpts)
+import GHC.Driver.Env (HscEnv (..))
 import GHC.Driver.Errors.Types (DriverMessage (..), DriverMessages, GhcMessage (..))
 import GHC.Types.Error (
   DiagnosticReason (..),
@@ -144,6 +145,13 @@ workerError ::
 workerError reason = do
   dflags <- getSessionDynFlags
   throwErrors (GhcDriverMessage <$> unknownErrors (Just "worker") dflags reason)
+
+workerErrorIO ::
+  HscEnv ->
+  SDoc ->
+  IO a
+workerErrorIO hsc_env reason = do
+  throwErrors (GhcDriverMessage <$> unknownErrors (Just "worker") hsc_env.hsc_dflags reason)
 
 eitherWorkerError ::
   GhcMonad m =>
