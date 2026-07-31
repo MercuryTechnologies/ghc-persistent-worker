@@ -34,7 +34,7 @@ import Test.Data.Project (
   errorDiagnosticCode,
   taskModuleKeys,
   )
-import Test.Data.Scheduler (RequestFailure (..), RequestResult (..), Schedule (..), SchedulerState (..))
+import Test.Data.Scheduler (Dispatch (..), RequestFailure (..), RequestResult (..), Schedule (..), SchedulerState (..))
 import Test.Data.TestLog (DiagnosticEntry (..), TestLog (..))
 import Test.Log (withTestLog)
 import Test.Path (compileTmpDir, extDepName, moduleName, moduleSourcePath, unitDir, unitName, unitOutputDir, unitTmpDir)
@@ -195,16 +195,18 @@ resumeCompileArgs env fixErrors ModuleCache {cachedUnit, cachedDeps} key = do
       | otherwise = errorCodeSet key
 
 -- | Handlers for build steps specialized to the initial build's requirements.
-initialStrategy :: SessionEnv -> Bool -> Component -> IO RequestResult
-initialStrategy env useIncremental = \case
-  ComponentUnit unit -> runMetadata env (metadataArgs env useIncremental) unit
-  ComponentModule key -> runCompile env (initialCompileArgs env) key
+initialStrategy :: SessionEnv -> Bool -> Dispatch Component
+initialStrategy env useIncremental =
+  Dispatch \case
+    ComponentUnit unit -> runMetadata env (metadataArgs env useIncremental) unit
+    ComponentModule key -> runCompile env (initialCompileArgs env) key
 
 -- | Handlers for build steps specialized to the resume build's requirements.
-resumeStrategy :: SessionEnv -> Bool -> Bool -> ResumeComponent -> IO RequestResult
-resumeStrategy env useIncremental fixErrors = \case
-  ResumeUnit unit cache -> runMetadata env (resumeMetadataArgs env useIncremental cache) unit
-  ResumeModule key cache -> runCompile env (resumeCompileArgs env fixErrors cache) key
+resumeStrategy :: SessionEnv -> Bool -> Bool -> Dispatch ResumeComponent
+resumeStrategy env useIncremental fixErrors =
+  Dispatch \case
+    ResumeUnit unit cache -> runMetadata env (resumeMetadataArgs env useIncremental cache) unit
+    ResumeModule key cache -> runCompile env (resumeCompileArgs env fixErrors cache) key
 
 -- | Extract the data required for properties and classifiers from the final state of the scheduler after a build.
 buildResult :: SchedulerState TaskKey component -> BuildResult
@@ -226,7 +228,7 @@ runSchedule ::
   -- | Maximum number of jobs that should be executed concurrently.
   MaxJobs ->
   -- | Task dispatch function that calls the worker.
-  (component -> IO RequestResult) ->
+  Dispatch component ->
   -- | Initial set of tasks keys that are treated as completed, representing the unmodified modules in a resume build.
   -- Only used to decide whether dependencies are available.
   Set TaskKey ->

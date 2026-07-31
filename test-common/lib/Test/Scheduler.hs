@@ -17,6 +17,7 @@ import Test.Data.Env (MaxJobs (..))
 import Test.Data.Scheduler (
   Capacity (..),
   Task (..),
+  Dispatch,
   RequestFailure (..),
   RequestOutput (..),
   RequestResult (..),
@@ -24,6 +25,8 @@ import Test.Data.Scheduler (
   SchedulerEnv (..),
   SchedulerState (..),
   Status (..),
+  Task (..),
+  runDispatch,
   )
 
 type Scheduler key task = ReaderT (SchedulerEnv key task) (StateT (SchedulerState key task) IO)
@@ -34,9 +37,9 @@ type Scheduler key task = ReaderT (SchedulerEnv key task) (StateT (SchedulerStat
 -- GHC throws exceptions liberally and we want to be able to associate a panic with the request that caused it, so we
 -- catch anything.
 -- @AsyncException@ is always critical, of course.
-executeRequest :: (task -> IO RequestResult) -> Task key task -> IO (RequestOutput key)
+executeRequest :: Dispatch task -> Task key task -> IO (RequestOutput key)
 executeRequest dispatch Task {key, value = request} = do
-  result <- try (timeout 10_000_000 (dispatch request)) >>= \case
+  result <- try (timeout 10_000_000 (runDispatch dispatch request)) >>= \case
     Right (Just result) ->
       pure result
     Right Nothing ->
@@ -52,7 +55,7 @@ executeRequest dispatch Task {key, value = request} = do
 initScheduler ::
   Ord key =>
   MaxJobs ->
-  (task -> IO RequestResult) ->
+  Dispatch task ->
   Schedule key task ->
   Set key ->
   (SchedulerEnv key task, SchedulerState key task)

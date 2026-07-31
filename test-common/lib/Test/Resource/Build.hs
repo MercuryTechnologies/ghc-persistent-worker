@@ -3,12 +3,12 @@ module Test.Resource.Build where
 
 import Data.Foldable (fold)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
-import qualified Data.Set as Set
+import Data.Set (Set)
 import Test.Build (initialStrategy, runSchedule)
 import Test.Data.BuildSystem (BuildResult (..))
 import Test.Data.Env (MaxJobs (..), SessionEnv (..))
-import Test.Data.Project (BuildModule (..), Component (..), GenUnit (..), ModuleKey (..))
-import Test.Data.Scheduler (RequestResult)
+import Test.Data.Project (BuildModule (..), Component (..), GenUnit (..), ModuleKey (..), TaskKey)
+import Test.Data.Scheduler (Dispatch (..), Schedule, runDispatch)
 import Test.ExtDep (createExtDepPackageDbs)
 import Test.Path (showUnit)
 import Test.Resource.Project (allModuleSources, schedule)
@@ -22,11 +22,30 @@ phaseName = \case
   ComponentModule key -> "unit_" ++ showUnit key.unit ++ "_compile_" ++ show key.number
 
 -- | Wrap 'initialStrategy' to measure allocations per task and accumulate results.
-measuredStrategy :: IORef [PhaseResult] -> SessionEnv -> Component -> IO RequestResult
-measuredStrategy ref env component = do
-  (result, phase) <- measurePhase (phaseName component) (initialStrategy env False component)
-  modifyIORef' ref (phase :)
-  pure result
+measuredStrategy ::
+  Dispatch task ->
+  (task -> String) ->
+  IORef [PhaseResult] ->
+  Dispatch task
+measuredStrategy inner name ref =
+  Dispatch \ component -> do
+    (result, phase) <- measurePhase (name component) (runDispatch inner component)
+    modifyIORef' ref (phase :)
+    pure result
+
+-- | Run the full build sequentially, measuring allocations per task.
+-- This uses the scheduler for convenience, even though there's no concurrency involved.
+withMeasuredBuild ::
+  Dispatch task ->
+  (task -> String) ->
+  Set TaskKey ->
+  Schedule TaskKey task ->
+  IO (BuildResult, [PhaseResult])
+withMeasuredBuild build name unmodified sched = do
+  phasesRef <- newIORef []
+  buildResult <- runSchedule (MaxJobs 1) (measuredStrategy build name phasesRef) unmodified sched
+  taskPhases <- reverse <$> readIORef phasesRef
+  pure (buildResult, taskPhases)
 
 -- | Run the full build sequentially, measuring allocations per task.
 -- This uses the scheduler for convenience, even though there's no concurrency involved.
@@ -35,9 +54,6 @@ runResourceBuild units env = do
   extDepDbs <- createExtDepPackageDbs env.tempDir allExtDeps
   let envWithExtDeps = env {extDepDbs, extDeps = allExtDeps}
   writeProjectSources envWithExtDeps.sourceDir (allModuleSources units)
-  phasesRef <- newIORef []
-  buildResult <- runSchedule (MaxJobs 1) (measuredStrategy phasesRef envWithExtDeps) Set.empty (schedule units)
-  taskPhases <- reverse <$> readIORef phasesRef
-  pure (buildResult, taskPhases)
+  withMeasuredBuild (initialStrategy envWithExtDeps False) phaseName [] (schedule units)
   where
     allExtDeps = fold [bm.extDeps | u <- units, bm <- u.modules]
