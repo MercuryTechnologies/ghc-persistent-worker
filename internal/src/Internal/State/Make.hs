@@ -62,22 +62,17 @@ loadStateCompile hsc_env0 state =
 -- There was also some issue with node duplication, which is why this function is so convoluted.
 storeModuleGraph :: ModuleGraph -> MakeState -> MakeState
 storeModuleGraph new state =
-  state {moduleGraph = merged}
+  state {moduleGraph = mkModuleGraph (Map.elems merged), moduleGraphNodes = merged}
   where
-    !merged = merge state.moduleGraph
+    !merged = Map.unionWith mergeNodes state.moduleGraphNodes newMap
 
-    merge old =
-      mkModuleGraph (Map.elems (Map.unionWith mergeNodes oldMap newMap))
-      where
-        mergeNodes = \cases
-          (ModuleNode oldDeps _) (ModuleNode newDeps summ) -> ModuleNode (moduleNodeEdge <$> (mergeDeps (edgeTarget <$> oldDeps) (edgeTarget <$> newDeps))) summ
-          _ newNode -> newNode
+    mergeNodes = \cases
+      (ModuleNode oldDeps _) (ModuleNode newDeps summ) -> ModuleNode (moduleNodeEdge <$> (mergeDeps (edgeTarget <$> oldDeps) (edgeTarget <$> newDeps))) summ
+      _ newNode -> newNode
 
-        mergeDeps oldDeps newDeps = Set.toList (Set.fromList oldDeps <> Set.fromList newDeps)
+    mergeDeps oldDeps newDeps = Set.toList (Set.fromList oldDeps <> Set.fromList newDeps)
 
-        oldMap = Map.fromList $ [(mkNodeKey n, n) | n <- mgModSummaries' old]
-
-        newMap = Map.fromList $ [(mkNodeKey n, n) | n <- mgModSummaries' new]
+    newMap = Map.fromList $ [(mkNodeKey n, n) | n <- mgModSummaries' new]
 
 -- | Extract the unit env of the currently active unit and store it in the cache.
 -- This is used by the make mode worker after the metadata step has initialized the new unit.

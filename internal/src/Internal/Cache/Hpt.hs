@@ -11,13 +11,13 @@ import Data.Function (on)
 import Data.Functor ((<&>))
 import Data.List (isSuffixOf)
 import Data.List.NonEmpty (NonEmpty ((:|)), groupBy)
-import Data.Map.Strict qualified as M (fromList, insert, lookup)
+import Data.Map.Strict qualified as M (Map, insert, lookup)
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Set qualified as Set (insert, member, singleton)
 import Data.Time (getCurrentTime)
 import Data.Traversable (for)
 import Data.Tuple (swap)
-import GHC (DynFlags, GhcException (..), IsBootInterface (..), ModIface, ModIface_ (..), ModLocation (..), Module, ModuleGraph, ModuleName, mkModule, mkModuleName, moduleName, moduleNameString)
+import GHC (DynFlags, GhcException (..), IsBootInterface (..), ModIface, ModIface_ (..), ModLocation (..), Module, ModuleName, mkModule, mkModuleName, moduleName, moduleNameString)
 import GHC.Data.Bag (emptyBag)
 import GHC.Data.Maybe (MaybeErr (..))
 import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hsc_HPT)
@@ -38,7 +38,7 @@ import GHC.Unit.Home.Graph (unitEnv_lookup_maybe)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..), homeModInfoByteCode)
 import GHC.Unit.Home.PackageTable (HomePackageTable, addHomeModInfoToHpt, lookupHpt)
 import GHC.Unit.Module (moduleNameSlashes)
-import GHC.Unit.Module.Graph (NodeKey (..), mgModSummaries', mkNodeKey)
+import GHC.Unit.Module.Graph (ModuleGraphNode, NodeKey (..))
 import GHC.Unit.Module.Location (addBootSuffix, pattern ModLocation)
 import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Unit.Module.ModIface (IfaceTopEnv (..), set_mi_top_env)
@@ -315,8 +315,8 @@ canonicalInterfacePath dflags name =
       | otherwise = Nothing
 
 -- | Compute the transitive dependency closure of a given module from the module graph, in dependency postorder.
-depsFromModuleGraph :: ModuleGraph -> Module -> CachedDeps
-depsFromModuleGraph graph target =
+depsFromModuleGraph :: M.Map NodeKey ModuleGraphNode -> Module -> CachedDeps
+depsFromModuleGraph nodes target =
   CachedDeps (reverse (snd (children (Set.singleton targetKey, []) targetKey)))
   where
     children acc key =
@@ -339,8 +339,6 @@ depsFromModuleGraph graph target =
 
     bootName IsBoot name = mkModuleName (moduleNameString name ++ "-boot")
     bootName NotBoot name = name
-
-    nodes = M.fromList [(mkNodeKey node, node) | node <- mgModSummaries' graph]
 
     targetKey = NodeKey_Module (ModNodeKeyWithUid (GWIB (moduleName target) NotBoot) (moduleUnitId target))
 

@@ -32,6 +32,7 @@ newState = do
     options = defaultOptions,
     make = MakeState {
       moduleGraph = emptyMG,
+      moduleGraphNodes = M.empty,
       hug = unitEnv_new mempty,
       interp = Nothing,
       unitIndex,

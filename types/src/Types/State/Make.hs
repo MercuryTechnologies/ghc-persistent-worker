@@ -6,6 +6,7 @@ import Control.Concurrent.MVar (MVar)
 import GHC (ModuleGraph, ModuleName)
 import GHC.Runtime.Interpreter (Interp)
 import GHC.Unit.Env (HomeUnitGraph)
+import GHC.Unit.Module.Graph (ModuleGraphNode, NodeKey)
 -- import Data.IORef (IORef)
 import Data.Map.Strict qualified as M
 
@@ -29,6 +30,9 @@ data MakeState =
     -- | The module graph for a specific unit is computed in its metadata step, after which it's extracted and merged
     -- into the existing graph.
     moduleGraph :: ModuleGraph,
+
+    -- | moduleGraph nodes indexed by NodeKey.
+    moduleGraphNodes :: M.Map NodeKey ModuleGraphNode,
 
     -- | The unit environment for a specific unit is inserted into the shared home unit graph at the beginning of the
     -- metadata step, constructed from the dependency specifications provided by Buck.
