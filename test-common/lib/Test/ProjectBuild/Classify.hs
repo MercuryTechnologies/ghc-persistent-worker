@@ -5,7 +5,7 @@ import Control.Monad (when)
 import qualified Data.Map.Strict as Map
 import Hedgehog (PropertyT, classify, label)
 import Test.Data.BuildSystem (BuildResult (..))
-import Test.Data.Project (InitialProject (..))
+import Test.Data.Project (InitialProject (..), ModuleSource (..))
 import Test.Data.ProjectBuild (ProjectBuild (..), ResumePlan (..))
 
 classifyFirstBuild :: BuildResult -> PropertyT IO ()
@@ -15,7 +15,7 @@ classifyFirstBuild result = do
   classify "  error" result.hasErrors
 
 classifyProject :: ProjectBuild -> PropertyT IO ()
-classifyProject ProjectBuild {initial = InitialProject {unitCount, moduleCount}, incrementalBuildPlan} = do
+classifyProject ProjectBuild {initial = InitialProject {unitCount, moduleCount, modules}, incrementalBuildPlan} = do
   label "── project size ──"
   classify "  1 unit" (unitCount == 1)
   classify "  2-3 units" (unitCount >= 2 && unitCount <= 3)
@@ -25,6 +25,7 @@ classifyProject ProjectBuild {initial = InitialProject {unitCount, moduleCount},
   classify "  >10 modules" (moduleCount > 10)
   classify "  incremental metadata" incrementalBuildPlan
   classify "  full metadata" (not incrementalBuildPlan)
+  classify "  with TH" (any (.th) modules)
 
 classifyResume :: ProjectBuild -> BuildResult -> PropertyT IO ()
 classifyResume ProjectBuild {resumePlan, initial = InitialProject {moduleCount}} BuildResult {hasErrors} = do
