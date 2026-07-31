@@ -36,6 +36,7 @@ library
   exposed-modules:
     Test.Build
     Test.BuildSystem
+    Test.Bytecode
     Test.Cache
     Test.Data.BuildSystem
     Test.Data.Env
