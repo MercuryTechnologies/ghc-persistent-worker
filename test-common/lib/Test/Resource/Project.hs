@@ -17,9 +17,8 @@ import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
-import Test.Data.Project (BuildModule (..), Component (..), GenUnit (..), ModuleKey (..), TaskKey (..), UnitKey (..))
+import Test.Data.Project (BuildModule (..), Component (..), GenUnit (..), ModuleKey (..), ModuleSource (..), TaskKey (..), UnitKey (..))
 import Test.Data.Scheduler (Schedule (..), Task (..))
-import Test.Data.SourceMode (ModuleSource (..))
 
 modulesPerUnit :: Int
 modulesPerUnit = 3

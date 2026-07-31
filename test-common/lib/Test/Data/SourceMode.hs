@@ -1,7 +1,6 @@
 module Test.Data.SourceMode where
 
-import Data.Set (Set)
-import Test.Data.Project (ModuleKey)
+import Test.Data.Project (ModuleSource)
 
 -- | Flag that determines the content of a module's source file that's written to disk before each build.
 -- Resume builds only write the sources selected for modification.
@@ -25,25 +24,6 @@ data SourceMode =
 data SourceRewrite =
   SourceRewrite {
     mode :: SourceMode,
-    deps :: [ModuleKey],
-    -- | Whether to generate a Template Haskell splice expression.
-    th :: Bool,
-    -- | Number of top-level value bindings to generate.
-    bindings :: Int,
-    -- | Indexes of external dependency packages imported by this module.
-    extDeps :: Set Int
-  }
-  deriving stock (Eq, Show)
-
--- | The data needed to write a module's source file.
-data ModuleSource =
-  ModuleSource {
-    deps :: [ModuleKey],
-    -- | Whether to generate a Template Haskell splice expression.
-    th :: Bool,
-    -- | Number of top-level value bindings to generate.
-    bindings :: Int,
-    -- | Indexes of external dependency packages imported by this module.
-    extDeps :: Set Int
+    source :: ModuleSource
   }
   deriving stock (Eq, Show)

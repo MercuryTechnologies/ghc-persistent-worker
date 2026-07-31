@@ -18,6 +18,7 @@ import Test.Data.Project (
   GenUnit (..),
   InitialProject (..),
   ModuleKey (..),
+  ModuleSource (..),
   UnitKey (..),
   )
 
@@ -108,7 +109,8 @@ initialProject genUnits =
     (modulesSuccess, modulesError) =
       Map.partitionWithKey (\ ModuleKey {errorVariant} _ -> isNothing errorVariant) modules
 
-    modules = Map.fromList [(gm.key, Set.toList gm.deps) | u <- genUnits, gm <- u.modules]
+    modules =
+      Map.fromList [(key, ModuleSource {deps = Set.toList deps, ..}) | u <- genUnits, GenModule {..} <- u.modules]
 
 -- | Generate all data for the project.
 --

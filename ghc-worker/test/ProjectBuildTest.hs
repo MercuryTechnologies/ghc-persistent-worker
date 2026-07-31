@@ -4,7 +4,7 @@ import Control.Monad.IO.Class (liftIO)
 import Hedgehog (PropertyT, forAllWith, property, withTests)
 import Test.BuildSystem (mkBuildSystem)
 import Test.Data.BuildSystem (BuildResult (..), BuildSystem (..))
-import Test.Data.Env (SessionEnv (..), TestConfig (..), TestEnv, withTestConfig)
+import Test.Data.Env (SessionEnv (..), TestConfig (..), TestEnv (..), withTestConfig)
 import Test.Data.Project (InitialProject (..))
 import Test.Data.ProjectBuild (ProjectBuild (..))
 import Test.Env (newResumeSessionEnv, newSessionEnv, withTestEnv)
@@ -12,7 +12,7 @@ import Test.Gen.ProjectBuild (genProjectBuild)
 import Test.ProjectBuild.Classify (classifyFirstBuild, classifyProject, classifyResume)
 import Test.ProjectBuild.Property (annotateRebuildPlan, assertBuildResult, showProjectBuild)
 import Test.Resume (executeResumeBuild, setupResumeBuild)
-import Test.Source (writeProjectSources, toModuleSourceMap)
+import Test.Source (writeProjectSources)
 import Test.Tasty (TestTree)
 import Test.Tasty.Hedgehog (testProperty)
 
@@ -27,7 +27,7 @@ setup conf env = do
 runInitialBuild :: ProjectBuild -> BuildSystem -> SessionEnv -> PropertyT IO BuildResult
 runInitialBuild project buildSys sessionEnv = do
   result <- liftIO do
-    writeProjectSources sessionEnv.sourceDir (toModuleSourceMap project.initial.modules)
+    writeProjectSources sessionEnv.sourceDir project.initial.modules
     buildSys.runInitialBuild project.schedule
   classifyProject project
   classifyFirstBuild result

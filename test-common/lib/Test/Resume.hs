@@ -3,7 +3,7 @@ module Test.Resume where
 import Data.Foldable (for_)
 import Data.Functor ((<&>))
 import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
+import Data.Map.Strict (Map, (!?))
 import qualified Data.Set as Set
 import Data.Set (Set)
 import qualified System.File.OsPath as OsPath
@@ -11,6 +11,7 @@ import System.OsPath.Extra (OsPath, osp, (<.>), (</>))
 import Test.Data.BuildSystem (BuildResult (..), BuildSystem (..))
 import Test.Data.Env (SessionEnv (..))
 import Test.Data.Project (InitialProject (..), ModuleKey (..), ResumeComponent, TaskKey)
+import qualified Test.Data.Project as ModuleSource (ModuleSource (..))
 import Test.Data.ProjectBuild (ProjectBuild (..), RebuildSet (..), ResumePlan (..))
 import Test.Data.Scheduler (Schedule (..), Task (..))
 import Test.Data.SourceMode (SourceMode (..), SourceRewrite (..))
@@ -20,22 +21,25 @@ import Test.Source (moduleSource)
 -- | Combine all mutations into one set that eliminates duplication, since added deps can overlap with the other
 -- mutations.
 sourceRewrites :: InitialProject -> ResumePlan -> Bool -> Map ModuleKey SourceRewrite
-sourceRewrites InitialProject {modulesError} plan fixErrors =
+sourceRewrites InitialProject {modules, modulesError} plan fixErrors =
   fixedSources <> modifiedSources <> addedDepSources
   where
-    fixedSources
-      | fixErrors =
-        modulesError <&> \ deps ->
-          SourceRewrite {mode = SourceFixed, deps, th = False, bindings = 1, extDeps = mempty}
-      | otherwise = []
+    fixedSources =
+      if fixErrors
+      then sources SourceFixed modulesError
+      else []
 
     modifiedSources =
-      plan.moduleMutations <&> \ deps ->
-        SourceRewrite {mode = SourceModified, deps, th = False, bindings = 1, extDeps = mempty}
+      sources SourceModified plan.moduleMutations
 
     addedDepSources =
-      plan.depMutations <&> \ (_, total) ->
-        SourceRewrite {mode = SourceNormal, deps = total, th = False, bindings = 1, extDeps = mempty}
+      sources SourceNormal (Map.mapMaybeWithKey withDeps plan.depMutations)
+
+    withDeps key (_, total) =
+      modules !? key <&> \ source ->
+        source {ModuleSource.deps = total}
+
+    sources mode = fmap \ source -> SourceRewrite {..}
 
 -- | Update all files for which a 'SourceRewrite' was constructed.
 rewriteResumeSources ::
@@ -44,8 +48,7 @@ rewriteResumeSources ::
   IO ()
 rewriteResumeSources sourceDir rewrites =
   for_ (Map.toList rewrites) \ (key, rewrite) ->
-    OsPath.writeFile (sourceDir </> moduleSourcePath key)
-      (moduleSource rewrite.bindings rewrite.th rewrite.extDeps rewrite.mode key rewrite.deps)
+    OsPath.writeFile (sourceDir </> moduleSourcePath key) (moduleSource rewrite.source rewrite.mode key)
 
 -- | Remove all tasks from the resume schedule that don't require rebuild.
 --
