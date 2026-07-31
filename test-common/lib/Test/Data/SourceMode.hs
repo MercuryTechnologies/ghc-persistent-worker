@@ -34,16 +34,3 @@ data SourceRewrite =
     extDeps :: Set Int
   }
   deriving stock (Eq, Show)
-
--- | The data needed to write a module's source file.
-data ModuleSource =
-  ModuleSource {
-    deps :: [ModuleKey],
-    -- | Whether to generate a Template Haskell splice expression.
-    th :: Bool,
-    -- | Number of top-level value bindings to generate.
-    bindings :: Int,
-    -- | Indexes of external dependency packages imported by this module.
-    extDeps :: Set Int
-  }
-  deriving stock (Eq, Show)

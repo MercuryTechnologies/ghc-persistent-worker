@@ -21,12 +21,13 @@ import Test.Data.Project (
   Component (..),
   GenUnit (..),
   ModuleKey (..),
+  ModuleSource (..),
   ResumeComponent (..),
   TaskKey (..),
   UnitKey (..),
   )
 import Test.Data.Scheduler (Dispatch (..), Schedule (..), Task (..), runDispatch)
-import Test.Data.SourceMode (ModuleSource (..), SourceMode (..))
+import Test.Data.SourceMode (SourceMode (..))
 import Test.Env (newResumeSessionEnv, newSessionEnv, withTestEnv)
 import Test.Path (moduleSourcePath, unitOutputDir)
 import Test.Run (unitTest)

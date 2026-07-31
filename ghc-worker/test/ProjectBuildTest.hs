@@ -8,7 +8,7 @@ import Hedgehog (PropertyT, forAllWith, property, withTests)
 import Test.BuckHashes (writeUnitHashes)
 import Test.BuildSystem (mkBuildSystem)
 import Test.Data.BuildSystem (BuildResult (..), BuildSystem (..))
-import Test.Data.Env (SessionEnv (..), TestConfig (..), TestEnv, withTestConfig)
+import Test.Data.Env (SessionEnv (..), TestConfig (..), TestEnv (..), withTestConfig)
 import Test.Data.Project (BuildModule (..), Component (..), GenUnit (..), InitialProject (..), TaskKey (..))
 import Test.Data.ProjectBuild (ProjectBuild (..))
 import Test.Data.Scheduler (Schedule (..), Task (..))
@@ -17,7 +17,7 @@ import Test.Gen.ProjectBuild (genProjectBuild)
 import Test.ProjectBuild.Classify (classifyFirstBuild, classifyProject, classifyResume)
 import Test.ProjectBuild.Property (annotateRebuildPlan, assertBuildResult, showProjectBuild)
 import Test.Resume (executeResumeBuild, setupResumeBuild)
-import Test.Source (toModuleSourceMap, writeProjectSources)
+import Test.Source (writeProjectSources)
 import Test.Tasty (TestTree)
 import Test.Tasty.Hedgehog (testProperty)
 
@@ -43,7 +43,7 @@ setup conf env = do
 runInitialBuild :: ProjectBuild -> BuildSystem -> SessionEnv -> PropertyT IO BuildResult
 runInitialBuild project buildSys sessionEnv = do
   result <- liftIO do
-    writeProjectSources sessionEnv.sourceDir (toModuleSourceMap project.initial.modules)
+    writeProjectSources sessionEnv.sourceDir project.initial.modules
     updateActionMetadata project.incrementalBuildPlan sessionEnv project.schedule
     buildSys.runInitialBuild project.schedule
   classifyProject project

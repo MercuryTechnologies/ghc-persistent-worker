@@ -11,8 +11,8 @@ import Data.Text.Lazy.Encoding (encodeUtf8)
 import System.Directory.OsPath (createDirectoryIfMissing)
 import qualified System.File.OsPath as OsPath
 import System.OsPath.Extra (OsPath, (</>))
-import Test.Data.Project (ErrorVariant (..), ModuleKey (..))
-import Test.Data.SourceMode (ModuleSource (..), SourceMode (..))
+import Test.Data.Project (ErrorVariant (..), ModuleKey (..), ModuleSource (..))
+import Test.Data.SourceMode (SourceMode (..))
 import Test.Path (
   extDepModuleName,
   extDepValueName,
@@ -81,11 +81,6 @@ moduleSource numBindings useTh extDeps mode key deps =
     valName i
       | i == 0 = moduleValueName key
       | otherwise = indexedValueName key i
-
--- | Convert a plain dependency map to 'ModuleSource' values with TH disabled and no external deps.
-toModuleSourceMap :: Map ModuleKey [ModuleKey] -> Map ModuleKey ModuleSource
-toModuleSourceMap =
-  fmap (\ deps -> ModuleSource {deps, th = False, bindings = 1, extDeps = mempty})
 
 -- | Write source files for all modules.
 writeProjectSources :: OsPath -> Map ModuleKey ModuleSource -> IO ()

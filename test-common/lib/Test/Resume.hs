@@ -10,7 +10,7 @@ import qualified System.File.OsPath as OsPath
 import System.OsPath.Extra (OsPath, osp, (<.>), (</>))
 import Test.Data.BuildSystem (BuildResult (..), BuildSystem (..))
 import Test.Data.Env (SessionEnv (..))
-import Test.Data.Project (InitialProject (..), ModuleKey (..), ResumeComponent, TaskKey)
+import Test.Data.Project (InitialProject (..), ModuleKey (..), ModuleSource (..), ResumeComponent, TaskKey)
 import Test.Data.ProjectBuild (ProjectBuild (..), RebuildSet (..), ResumePlan (..))
 import Test.Data.Scheduler (Schedule (..), Task (..))
 import Test.Data.SourceMode (SourceMode (..), SourceRewrite (..))
@@ -20,22 +20,24 @@ import Test.Source (moduleSource)
 -- | Combine all mutations into one set that eliminates duplication, since added deps can overlap with the other
 -- mutations.
 sourceRewrites :: InitialProject -> ResumePlan -> Bool -> Map ModuleKey SourceRewrite
-sourceRewrites InitialProject {modulesError} plan fixErrors =
+sourceRewrites InitialProject {modules, modulesError} plan fixErrors =
   fixedSources <> modifiedSources <> addedDepSources
   where
     fixedSources
       | fixErrors =
-        modulesError <&> \ deps ->
-          SourceRewrite {mode = SourceFixed, deps, th = False, bindings = 1, extDeps = mempty}
+        modulesError <&> \ ms ->
+          SourceRewrite {mode = SourceFixed, deps = ms.deps, th = ms.th, bindings = ms.bindings, extDeps = ms.extDeps}
       | otherwise = []
 
     modifiedSources =
-      plan.moduleMutations <&> \ deps ->
-        SourceRewrite {mode = SourceModified, deps, th = False, bindings = 1, extDeps = mempty}
+      plan.moduleMutations <&> \ ms ->
+        SourceRewrite {mode = SourceModified, deps = ms.deps, th = ms.th, bindings = ms.bindings, extDeps = ms.extDeps}
 
     addedDepSources =
-      plan.depMutations <&> \ (_, total) ->
-        SourceRewrite {mode = SourceNormal, deps = total, th = False, bindings = 1, extDeps = mempty}
+      Map.mapWithKey (\ key (_, total) ->
+        let ms = modules Map.! key
+        in SourceRewrite {mode = SourceNormal, deps = total, th = ms.th, bindings = ms.bindings, extDeps = ms.extDeps}
+      ) plan.depMutations
 
 -- | Update all files for which a 'SourceRewrite' was constructed.
 rewriteResumeSources ::

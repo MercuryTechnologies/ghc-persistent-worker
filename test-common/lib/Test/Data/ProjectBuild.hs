@@ -3,7 +3,7 @@ module Test.Data.ProjectBuild where
 import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
-import Test.Data.Project (Component (..), InitialProject (..), ModuleKey (..), TaskKey (..))
+import Test.Data.Project (Component (..), InitialProject (..), ModuleKey (..), ModuleSource, TaskKey (..))
 import Test.Data.Scheduler (Schedule (..), Task (..))
 
 -- | Metadata that indicates which modules should be cleaned up and rebuilt.
@@ -29,8 +29,8 @@ data ResumePlan =
     -- Ignored when the initial build succeeded.
     fixErrors :: Bool,
 
-    -- | Succeeding modules whose sources are changed between builds, with their initial deps.
-    moduleMutations :: Map ModuleKey [ModuleKey],
+    -- | Succeeding modules whose sources are changed between builds, with their source metadata.
+    moduleMutations :: Map ModuleKey ModuleSource,
 
     -- | Additional dependencies to add for the resume build.
     -- Each entry maps a module to @(additional, total)@: additional deps and the total set of deps when combined with
