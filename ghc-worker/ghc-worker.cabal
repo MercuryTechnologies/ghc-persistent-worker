@@ -109,7 +109,8 @@ test-suite ghc-worker-test
     Incremental.FlowTest,
     InterfacePathTest,
     ProjectBuildTest,
-    ResourceTest,
+    Resource.Measure,
+    Resource.BasicTest,
     ScheduleTest
   ghc-options: -threaded -rtsopts "-with-rtsopts=-N -T"
   build-depends:
