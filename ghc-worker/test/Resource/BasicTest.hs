@@ -6,6 +6,7 @@ module Resource.BasicTest where
 
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.Set as Set
+import Resource.LazyByteCodeTest (test_memory_lazyByteCode)
 import Resource.Measure (assertMeasurements, checkEnvironment)
 import System.IO (hPutStrLn, stderr)
 import Test.Data.Project (BuildModule (..), GenUnit (..))
@@ -66,5 +67,6 @@ test_memory_basic =
 test_resources :: TestTree
 test_resources =
     dependentTestGroup "resources" AllFinish [
-      test_memory_basic
+      test_memory_basic,
+      test_memory_lazyByteCode
     ]
