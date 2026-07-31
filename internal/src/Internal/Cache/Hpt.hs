@@ -109,6 +109,35 @@ loadWholeCoreBindings = initWholeCoreBindings
 
 #endif
 
+
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+
+coreBindings :: ModIface -> ModLocation -> Maybe WholeCoreBindings
+coreBindings iface wcb_mod_location =
+  mi_simplified_core iface <&> \ sc ->
+    WholeCoreBindings {wcb_mod_location, wcb_bindings = mi_sc_extra_decls sc, wcb_foreign = mi_sc_foreign sc, wcb_module = mi_module iface, ..}
+
+#elif defined(MWB)
+
+coreBindings :: ModIface -> ModLocation -> Maybe WholeCoreBindings
+coreBindings iface wcb_mod_location =
+  mi_extra_decls iface <&> \ wcb_bindings ->
+    WholeCoreBindings {wcb_mod_location, wcb_foreign = mi_foreign iface, wcb_module = mi_module iface, ..}
+
+#endif
+
+
+loadCachedByteCodeFrom :: HscEnv -> ModLocation -> ModIface -> ModDetails -> IO (Maybe Linkable)
+loadCachedByteCodeFrom hsc_env location iface details =
+  for (coreBindings iface location) \ wcb -> do
+    linkable <- bcoLinkable [CoreBindings wcb]
+    loadWholeCoreBindings hsc_env iface details linkable
+   where
+    bcoLinkable parts = do
+      if_time <- modificationTimeIfExists (ml_hi_file location)
+      time <- maybe getCurrentTime pure if_time
+      return $! Linkable time (mi_module iface) parts
+
 -- | Load bytecode from an interface.
 -- Used only for modules missing from the current target's HPT when restoring the Buck cache after restarting a build.
 --
@@ -117,11 +146,9 @@ loadWholeCoreBindings = initWholeCoreBindings
 -- For example, the source file is used to add debug info and find foreign export stubs.
 loadCachedByteCode :: HscEnv -> FilePath -> ModIface -> ModDetails -> IO (Maybe Linkable)
 loadCachedByteCode hsc_env ifaceFile iface details =
-  for core_bindings \ wcb -> do
-    linkable <- bcoLinkable [CoreBindings wcb]
-    loadWholeCoreBindings hsc_env iface details linkable
+  loadCachedByteCodeFrom hsc_env location iface details
    where
-    wcb_mod_location =
+    location =
       ModLocation {
         ml_hs_file = Nothing,
         ml_hi_file = ifaceFile,
@@ -130,25 +157,6 @@ loadCachedByteCode hsc_env ifaceFile iface details =
         ml_dyn_obj_file = error "loadCachedByteCode",
         ml_hie_file = error "loadCachedByteCode"
       }
-
-#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
-
-    core_bindings =
-      mi_simplified_core iface <&> \ sc ->
-        WholeCoreBindings {wcb_mod_location, wcb_bindings = mi_sc_extra_decls sc, wcb_foreign = mi_sc_foreign sc, wcb_module = mi_module iface, ..}
-
-#elif defined(MWB)
-
-    core_bindings =
-      mi_extra_decls iface <&> \ wcb_bindings ->
-        WholeCoreBindings {wcb_mod_location, wcb_foreign = mi_foreign iface, wcb_module = mi_module iface, ..}
-
-#endif
-
-    bcoLinkable parts = do
-      if_time <- modificationTimeIfExists (ml_hi_file wcb_mod_location)
-      time <- maybe getCurrentTime pure if_time
-      return $! Linkable time (mi_module iface) parts
 
 -- | module loading state
 data ModuleLoadState =
