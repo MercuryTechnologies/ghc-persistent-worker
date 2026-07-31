@@ -10,7 +10,7 @@ import Hedgehog (PropertyT, annotate, diff)
 import System.Directory.OsPath (doesFileExist)
 import System.OsPath.Extra (OsPath, fromOsPath, osp, (<.>), (</>))
 import Test.Data.BuildSystem (BuildResult (..))
-import Test.Data.Project (InitialProject (..), ModuleKey (..), TaskKey (..), taskModuleKeys)
+import Test.Data.Project (InitialProject (..), ModuleKey (..), ModuleSource (..), TaskKey (..), taskModuleKeys)
 import Test.Data.ProjectBuild (ProjectBuild (..), RebuildSet (..), ResumePlan (..))
 import Test.Data.Scheduler (Schedule (..), Task (..), unexpectedFailure)
 import Test.Path (moduleName, moduleOutputBase, showUnit)
@@ -91,6 +91,7 @@ showProjectBuild ProjectBuild {schedule, resumeSchedule, resumePlan, initial} =
   unlines $
     ["Project: " ++ show unitCount ++ " units, " ++ show moduleCount ++ " modules"
       ++ if errorCount == 0 then "" else " (" ++ show errorCount ++ " error)"
+    , "Template Haskell: " ++ show thCount ++ " modules"
     ]
     ++ ["", "── first schedule ──"]
     ++ fmap showTask schedule.tasks
@@ -101,4 +102,6 @@ showProjectBuild ProjectBuild {schedule, resumeSchedule, resumePlan, initial} =
   where
     errorCount = Map.size modulesError
 
-    InitialProject {unitCount, moduleCount, modulesError} = initial
+    thCount = Map.size (Map.filter (.th) modules)
+
+    InitialProject {unitCount, moduleCount, modulesError, modules} = initial
