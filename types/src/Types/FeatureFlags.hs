@@ -39,5 +39,5 @@ defaultFeatureFlags =
     concurrentInitUnits = True,
     instrument = False,
     incrementalBuildPlan = True,
-    lazyByteCode = False
+    lazyByteCode = True -- False
   }
