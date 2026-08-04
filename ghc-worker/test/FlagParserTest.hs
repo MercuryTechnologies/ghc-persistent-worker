@@ -114,7 +114,10 @@ argsSuccess =
     "-fPIC",
     "-fwrite-ide-info",
     "-fexternal-dynamic-refs",
+-- stock GHC 9.14 fails with -fpackage-db-byte-code
+#if !MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
     "-fpackage-db-byte-code",
+#endif
     "-prof",
     "-haddock",
     "-idiscarded1:discarded2",
@@ -298,10 +301,7 @@ test_flagParser_unknownPartial =
 test_parseBuckArgs :: TestTree
 test_parseBuckArgs =
   testGroup "flag parser" [
--- stock GHC 9.14 fails with -fpackage-db-byte-code
-#if !MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
     unitTest "successful" test_flagParser_success,
-#endif
     unitTest "missing argument" test_flagParser_missingArg,
     unitTest "invalid extension" test_flagParser_invalidExtension,
     unitTest "unknown options" test_flagParser_unknown,
