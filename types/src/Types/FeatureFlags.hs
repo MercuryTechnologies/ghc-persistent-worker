@@ -34,5 +34,5 @@ defaultFeatureFlags =
     flagParser = False,
     concurrentInitUnits = True,
     instrument = False,
-    lazyByteCode = False
+    lazyByteCode = True
   }
