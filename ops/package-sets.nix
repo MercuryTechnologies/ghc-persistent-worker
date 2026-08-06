@@ -221,6 +221,7 @@ in {
       proto-lens-protoc = force;
       proto-lens-runtime = force;
       string-interpolate = force;
+      tasty = hackage "1.5.4" "0x6khif6n0rzfgkvrbiagg1sj0lwmjfr6qarjnjwmb9ywdk7598b";
       generic-lens = notest;
 
       proto-lens-setup = github {

@@ -121,6 +121,6 @@ test-suite ghc-worker-test
     ghc-paths,
     ghc-worker-test-common,
     hedgehog >= 1.5,
-    tasty,
+    tasty >= 1.5.4,
     tasty-hedgehog,
     text
