@@ -103,6 +103,7 @@ library
                       Internal.State.Stats
                       Internal.State.UnitIndex
                       Internal.State.UnitIndex.Update
+                      Internal.ValidateNames
 
     build-depends:    aeson,
                       async,

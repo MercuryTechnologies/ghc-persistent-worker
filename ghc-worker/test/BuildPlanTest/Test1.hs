@@ -8,7 +8,7 @@
 module BuildPlanTest.Test1 where
 
 import Control.Monad.IO.Class (liftIO)
-import Data.Foldable (toList)
+import Data.Foldable (for_, toList)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -27,7 +27,7 @@ import System.FilePath ((</>))
 import System.OsPath.Extra (takeFileName, toOsPath)
 import Test.PackageDb (ModuleSpec (..), UnitSpec (..), createEmptyHomeUnitDb, moduleSpec)
 import Test.Run (persistentSession, transientSession, unitTest, withTemp)
-import Test.Target (fileUnitTargets, ghcOptions, pureUnitTargets)
+import Test.Target (dummyPath, fileUnitTargets, ghcOptions, pureUnitTargets)
 import Test.Tasty (TestTree, testGroup)
 import Types.Args (Args (..), BuildPlanField (..), buildPlanAll, emptyArgs)
 import Types.BuildPlan (BuildPlan (..), BuildPlanJson (..), BuildPlanSchema (..))
@@ -89,12 +89,10 @@ unit2Spec =
 fields :: Set BuildPlanField
 fields = Set.fromList (toList buildPlanAll)
 
-writeDummy :: FilePath -> TestT IO FilePath
-writeDummy tmp = do
-  liftIO $ writeFile dummyFile ""
-  pure dummyFile
-  where
-    dummyFile = tmp </> "Dummy.hs"
+writeDummies :: FilePath -> UnitSpec -> TestT IO ()
+writeDummies tmp UnitSpec {modules} =
+  liftIO $ for_ modules \ ModuleSpec {name, boot} ->
+    writeFile (dummyPath tmp name boot) ""
 
 expected1 :: BuildPlanSchema
 expected1 =
@@ -159,13 +157,13 @@ expected2 oneshot =
     th_modules = Just [],
     cache = Just [
       ("U2M1", CachedModule {
-        source = toOsPath "Dummy.hs",
+        source = toOsPath "U2M1.hs",
         modules = [],
         packages = [],
         flags = []
       }),
       ("U2M2", CachedModule {
-        source = toOsPath "Dummy.hs",
+        source = toOsPath "U2M2.hs",
         modules = [jmn "U2M1"],
         packages = if oneshot then [] else [CachedPackageDep {id = jui "unit1", modules = [jmn "U1M2"]}],
         flags = []
@@ -198,10 +196,10 @@ test_buildPlan_make =
   withTemp "build-plan-make" \ tmpResource ->
     unitTest "build plan JSON with persistent state" do
       tmp <- liftIO tmpResource
-      dummyFile <- writeDummy tmp
+      writeDummies tmp unit2Spec
       state <- liftIO $ newState
       testUnit1 tmp state
-      testUnit2 dummyFile state
+      testUnit2 tmp state
   where
     testUnit1 tmp state = do
       targets <- liftIO $ fileUnitTargets (tmp </> "src") unit1Spec
@@ -209,12 +207,12 @@ test_buildPlan_make =
       expected1 === normalize plan1.json
       persist state plan1 hsc_env1
 
-    testUnit2 dummyFile state = do
+    testUnit2 tmp state = do
       (plan2, _) <- evalMaybe =<< liftIO do
         sessionWithDebugLog state (emptyArgs []) {ghcOptions = ghcOptions unit2 [(unit1, Nothing)]} \ env ->
           withDynFlags env \ dflags _ -> do
             _ <- prepareMetadataSession env dflags
-            runBuildPlan (pureUnitTargets dummyFile unit2Spec)
+            runBuildPlan (pureUnitTargets tmp unit2Spec)
       expected2 False === normalize plan2.json
 
     persist state plan hsc_env =
@@ -229,19 +227,19 @@ test_buildPlan_oneshot =
   withTemp "build-plan-oneshot" \ tmpResource ->
     unitTest "build plan JSON with package DBs" do
       tmp <- liftIO tmpResource
-      dummyFile <- writeDummy tmp
+      writeDummies tmp unit2Spec
       testUnit1 tmp
       unit1Db <- setupDb tmp
-      testUnit2 dummyFile unit1Db
+      testUnit2 tmp unit1Db
   where
     testUnit1 tmp = do
       targets <- liftIO $ fileUnitTargets (tmp </> "src") unit1Spec
       (plan1, _) <- transientSession (ghcOptions unit1 []) (runBuildPlan targets)
       expected1 === normalize plan1.json
 
-    testUnit2 dummyFile unit1Db = do
+    testUnit2 tmp unit1Db = do
       (plan2, _) <-
-        transientSession (ghcOptions unit2 [(unit1, Just unit1Db)]) (runBuildPlan (pureUnitTargets dummyFile unit2Spec))
+        transientSession (ghcOptions unit2 [(unit1, Just unit1Db)]) (runBuildPlan (pureUnitTargets tmp unit2Spec))
       expected2 True === normalize plan2.json
 
     setupDb tmp =

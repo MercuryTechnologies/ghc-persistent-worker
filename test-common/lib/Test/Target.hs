@@ -34,13 +34,17 @@ ghcOptions unit deps =
 -- The 'targetId' is specified as a 'TargetFile' because 'TargetModule' causes GHC to look for the file anyway, but we
 -- use a dummy to avoid having to write the contents to speed up tests.
 pureTarget :: FilePath -> UnitId -> ModuleSpec -> Target
-pureTarget dummyFile targetUnitId ModuleSpec {..} =
+pureTarget dir targetUnitId ModuleSpec {..} =
   Target {
-    targetId = TargetFile dummyFile Nothing,
+    targetId = TargetFile (dummyPath dir name boot) Nothing,
     targetAllowObjCode = False,
     targetUnitId,
     targetContents = Just (stringBufferFromByteString content, UTCTime (YearMonthDay 2000 1 1) 0)
   }
+
+dummyPath :: FilePath -> String -> Bool -> FilePath
+dummyPath dir name boot =
+  dir </> name <.> (if boot then "hs-boot" else "hs")
 
 -- | Write a source file for the given module and create a GHC target.
 fileTarget :: FilePath -> UnitId -> ModuleSpec -> IO Target
@@ -58,8 +62,8 @@ fileTarget src targetUnitId ModuleSpec {..} = do
 
 -- | Create in-memory GHC targets for all modules in the given unit.
 pureUnitTargets :: FilePath -> UnitSpec -> NonEmpty Target
-pureUnitTargets dummyFile UnitSpec {name, modules} =
-  pureTarget dummyFile (stringToUnitId name) <$> modules
+pureUnitTargets dir UnitSpec {name, modules} =
+  pureTarget dir (stringToUnitId name) <$> modules
 
 -- | Create file-backed GHC targets for all modules in the given unit.
 fileUnitTargets :: FilePath -> UnitSpec -> IO (NonEmpty Target)

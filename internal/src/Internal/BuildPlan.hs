@@ -46,6 +46,7 @@ import Internal.BuildPlan.Json (assembleFields, mergePackageDeps)
 import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, deps, downsweepCompat, key, summary)
 import Internal.Compat.GHC914 (edgeTarget, mapMGM)
 import Internal.Error (eitherMessages)
+import Internal.ValidateNames (validateModuleNames)
 import System.FilePath (splitExtension)
 import System.OsPath.Extra (toOsPath)
 import Types.Args (BuildPlanField (..))
@@ -349,9 +350,10 @@ buildPlanForTargets fields perModuleFlags staticUnits targets = do
   GHC.setTargets targets
   (errs, graph0) <- withSession (liftIO . downsweepWithCache . useNoBackend)
   graph <- addPerModuleFlagsToModuleGraph perModuleFlags graph0
+  hsc_env <- getSession
+  liftIO (validateModuleNames hsc_env graph)
   let msgs = unionManyMessages errs
   unless (isEmptyMessages msgs) $ throwErrors (fmap GhcDriverMessage msgs)
-  hsc_env <- getSession
   json <- buildPlanModules fields perModuleFlags staticUnits hsc_env graph
   pure BuildPlan {graph, json}
 
