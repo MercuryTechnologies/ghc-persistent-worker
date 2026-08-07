@@ -89,10 +89,10 @@ lookupSummary _logger hsc_env target =
 #if FIXED_NODES
     check = \case
       ModuleNodeCompile ms -> pure ms
-      ModuleNodeFixed _ ModLocation {ml_hs_file} ->
-        case ml_hs_file of
+      ModuleNodeFixed _ OsPathModLocation {ml_hs_file_ospath} ->
+        case ml_hs_file_ospath of
           Just src ->
-            computeSummary _logger hsc_env src
+            computeSummary _logger hsc_env (fromOsPath src)
           Nothing ->
             throwGhcExceptionIO (PprProgramError "Fixed node without source path" (ppr target))
 #else
