@@ -87,7 +87,9 @@ data BuckArgs =
     closeInput :: Maybe String,
     closeOutput :: Maybe String,
     isBinary :: Bool,
-    interp :: IsInterpreted
+    interp :: IsInterpreted,
+    unitBuckArgsPath :: Maybe String,
+    depUnitsPath :: Maybe String
   }
   deriving stock (Eq, Show)
 
@@ -123,7 +125,9 @@ emptyBuckArgs env =
     closeInput = Nothing,
     closeOutput = Nothing,
     isBinary = False,
-    interp = Compiled
+    interp = Compiled,
+    unitBuckArgsPath = Nothing,
+    depUnitsPath = Nothing
   }
 
 options :: Map String ([String] -> BuckArgs -> Either String ([String], BuckArgs))
@@ -155,6 +159,8 @@ options =
     withArg "--worker-mode" \ z a -> z {mode = Just (parseMode a)},
     flag "--worker-multiplexer-custom" \ z -> z {multiplexerCustom = True},
     flag "--unit-is-binary" \ z -> z {isBinary = True},
+    withArg "--unit-buck-args-path" \ z a -> z {unitBuckArgsPath = Just a},
+    withArg "--dep-units-path" \ z a -> z {depUnitsPath = Just a},
     withArg "--close-input" \z a -> z {closeInput = Just a},
     withArg "--close-output" \z a -> z {closeOutput = Just a},
     flag "--interp" \ z -> z {interp = Interpreted},
@@ -278,7 +284,10 @@ toGhcArgs args features = do
     cachedDeps,
     homeUnit = args.homeUnit,
     isBinary = args.isBinary,
-    features = fromMaybe defaultFeatureFlags features
+    features = fromMaybe defaultFeatureFlags features,
+    unitArgsPath = args.ghcArgsFile,
+    unitBuckArgsPath = args.unitBuckArgsPath,
+    depUnitsPath = args.depUnitsPath
   }
   where
     packageDbArg path = ["-package-db", path]

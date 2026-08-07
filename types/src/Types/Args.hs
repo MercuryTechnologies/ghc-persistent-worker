@@ -103,7 +103,10 @@ data Args =
     cachedDeps :: Maybe CachedDeps,
     homeUnit :: Maybe OsPath,
     isBinary :: Bool,
-    features :: FeatureFlags
+    features :: FeatureFlags,
+    unitArgsPath :: Maybe String,
+    unitBuckArgsPath :: Maybe String,
+    depUnitsPath :: Maybe String
   }
   deriving stock (Eq, Show)
 
@@ -125,5 +128,8 @@ emptyArgs env =
     cachedDeps = Nothing,
     homeUnit = Nothing,
     isBinary = False,
-    features = defaultFeatureFlags
+    features = defaultFeatureFlags,
+    unitArgsPath = Nothing,
+    unitBuckArgsPath = Nothing,
+    depUnitsPath = Nothing
   }

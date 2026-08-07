@@ -1,6 +1,7 @@
 module Internal.BuildPlan.Json where
 
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Coerce (coerce)
 import Data.Map (Map)
 import qualified Data.Map.Merge.Strict as Map
@@ -11,7 +12,7 @@ import Data.Set (Set)
 import GHC.Unit.Module (ModuleName (..), UnitId)
 import qualified System.File.OsPath as OsPath
 import System.OsPath.Extra (OsPath)
-import Types.Args (BuildPlanField (..))
+import Types.Args (Args (..), BuildPlanField (..))
 import Types.BuildPlan (
   BuildPlan (..),
   BuildPlanJson (..),
@@ -116,3 +117,22 @@ assembleFields fields toolchainDeps modules =
 writeBuildPlan :: OsPath -> BuildPlan -> IO ()
 writeBuildPlan path BuildPlan {json} =
   OsPath.writeFile path (Aeson.encode json)
+
+-- | Write the build plan JSON, passing through additional paths required by the Buck rules.
+writeBuildPlanWith :: Args -> OsPath -> BuildPlan -> IO ()
+writeBuildPlanWith args path BuildPlan {json} =
+  OsPath.writeFile path (Aeson.encode (withExtras json))
+  where
+    withExtras value =
+      case Aeson.toJSON value of
+        Aeson.Object o -> Aeson.Object (KeyMap.union (KeyMap.fromList extraFields) o)
+        v -> v
+
+    extraFields =
+      [
+        ("unit_args", nullableString args.unitArgsPath),
+        ("unit_buck_args", nullableString args.unitBuckArgsPath),
+        ("dep_units", nullableString args.depUnitsPath)
+      ]
+
+    nullableString = maybe Aeson.Null (Aeson.toJSON @String)
