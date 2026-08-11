@@ -60,6 +60,12 @@ import Types.Log (Logger (..))
 import Types.State (WorkerState (make))
 import Types.State.Make (bcoLoadState)
 
+#if !defined(LINKABLES)
+
+import GHC.Utils.Outputable (text)
+
+#endif
+
 #if defined(MWB)
 
 import GHC.Unit.Module.ModIface (mi_foreign)
@@ -234,7 +240,14 @@ loadCachedDep log features interp hsc_env name ifaceFile mod_load_state =
       logTimed log ("Loading HPT module from cache (BCO): " ++ fromOsPath ifaceFile) do
         homeMod_bytecode <-
           if features.lazyByteCode
+#if defined(LINKABLES)
           then pure Nothing
+#else
+          then throwGhcExceptionIO $
+            PprProgramError
+             "ghc-worker error"
+             (text "features.lazyByteCode is on, but buck-worker-internal is not compiled with -flinkables")
+#endif
           else loadCachedByteCode hsc_env (fromOsPath ifaceFile) hm_iface hm_details
         let hm_iface' = (if features.lazyByteCode then id else setExtraDecls Nothing) hm_iface
         let hmi' = HomeModInfo {
