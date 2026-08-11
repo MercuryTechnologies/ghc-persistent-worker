@@ -62,3 +62,30 @@ For example, running `cabal build -ffixed-nodes` enables the fixed nodes feature
 
   This is a simple optimization that allows reusing old module graphs when recomputing a new graph, which we use to
   provide dependency graphs from our state.
+
+HLS
+===
+
+When the GHC used to build HLS includes patches that influence CPP pragmas in the worker, you need to enable those in
+`cabal.project`.
+
+An HLS version patched for the MWB GHC can be run with `nix run .#hls`.
+
+Cachix
+======
+
+In order to avoid having to rebuild GHC when first using a new upstream change, you can add this Cachix instance to your
+Nix config:
+
+```nix
+  nix = {
+    settings.substituters = ["https://ghc-server.cachix.org"];
+    settings.trusted-public-keys = ["ghc-server.cachix.org-1:VPQv6cKWK7QjnkgE/v2zMBAvqdSdyRsLt2xGh7APKWc="];
+  };
+```
+
+It can be provided as CLI arguments as well:
+
+```
+$ nix --option extra-substituters https://ghc-server.cachix.org --option extra-trusted-public-keys ghc-server.cachix.org-1:VPQv6cKWK7QjnkgE/v2zMBAvqdSdyRsLt2xGh7APKWc= run .#buck-tests
+```
