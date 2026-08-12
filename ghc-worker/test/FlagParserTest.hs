@@ -80,6 +80,7 @@ parseVanilla hsc_env dflags args = do
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
     parseDynamicFlagsCmdLine (hsc_logger hsc_env) dflags (mkGeneralLocated "test" . Text.unpack . decodeUtf8 <$> args)
 #else
+    let _ = hsc_env
     parseDynamicFlagsCmdLine dflags (mkGeneralLocated "test" . Text.unpack . decodeUtf8 <$> args)
 #endif
 
