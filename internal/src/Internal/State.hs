@@ -16,7 +16,7 @@ import System.Environment (lookupEnv)
 import System.OsPath.Extra (toOsPath)
 import Types.Log (Logger (..))
 import Types.State (BinPath (..), WorkerState (..), defaultOptions)
-import Types.State.Make (MakeState (..))
+import Types.State.Make (MakeState (..), emptyLibLoadState)
 
 newState :: IO (MVar WorkerState)
 newState = do
@@ -36,7 +36,8 @@ newState = do
       hug = unitEnv_new mempty,
       interp = Nothing,
       unitIndex,
-      bcoLoadState
+      bcoLoadState,
+      extraLib = emptyLibLoadState
     },
     targetArgs = mempty
   }

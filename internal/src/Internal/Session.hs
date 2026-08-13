@@ -248,7 +248,7 @@ withGhcMakeModule interp target =
 
     restoreCachedHomeUnit env dflags0 =
       maybeArg env.args.homeUnit $
-      loadHomeUnit env.log dflags0 env.args.features (moduleUnitId target.mod)
+        loadHomeUnit env.log dflags0 env.args.features (moduleUnitId target.mod)
 
     setSessionModuleGraph (state, hsc_env) = pure (state, hscSetModuleGraph state.make.moduleGraph hsc_env)
 
