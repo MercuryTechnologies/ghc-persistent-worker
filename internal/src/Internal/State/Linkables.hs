@@ -10,16 +10,21 @@ import Types.State (WorkerState)
 #if defined(LINKABLES)
 
 import Control.Concurrent (modifyMVar)
-import Data.Foldable (traverse_)
+import Control.Monad (foldM)
+import Data.Foldable (for_, traverse_)
+import Data.Map.Strict qualified as M
+import Data.Set qualified as S
 import GHC (Module)
 import GHC.Driver.Config.Finder (initFinderOpts)
+import GHC.Driver.DynFlags (targetPlatform)
 import GHC.Driver.Env (hscInterp, hsc_home_unit, hsc_units)
 import qualified GHC.Driver.Env.Types as GHC
 import GHC.Driver.Env.Types (HscEnv (..), LinkDeps, Linkables (Linkables))
 import GHC.Linker.Deps (LinkDepsOpts)
 import GHC.Linker.Loader (initLinkDepsOpts)
-import GHC.Linker.Types (Linkable, LoaderState)
-import GHC.Runtime.Interpreter (Interp)
+import GHC.Linker.Types (Linkable (..), LoaderState)
+import GHC.Platform (platformSOName)
+import GHC.Runtime.Interpreter (Interp, loadDLL)
 import GHC.Types.SrcLoc (SrcSpan)
 import GHC.Unit (moduleUnitId)
 import GHC.Unit.Finder (findExactModule)
@@ -30,13 +35,16 @@ import GHC.Unit.Home.PackageTable (addHomeModInfoToHpt)
 import GHC.Unit.Module.Location (ModLocation)
 import GHC.Unit.Module.ModIface (mi_module)
 import GHC.Unit.Types (toUnitId)
-import GHC.Utils.Outputable (parens, ppr, (<+>))
+import GHC.Utils.Outputable (parens, ppr, text, (<+>))
 import Internal.Cache.Hpt (loadCachedByteCodeFrom)
 import Internal.Compat.LinkDeps (getLinkDeps)
 import Internal.Error (workerErrorIO)
+import Internal.State (modifyMakeState)
 import Language.Haskell.Syntax.ImpExp (IsBootInterface (..))
+import System.Directory (findFile)
 import Types.State (WorkerState (..))
-import Types.State.Make (MakeState (..))
+import Types.State.Make (LibLoadState (..), MakeState (..))
+
 
 requireLocation ::
   HscEnv ->
@@ -80,6 +88,38 @@ lazyLoadByteCode logger stateVar hsc_env hmi = do
 
     module_ = mi_module hmi.hm_iface
 
+loadDLL_ :: HscEnv -> Interp -> [FilePath] -> String -> IO ()
+loadDLL_ hsc_env interp lib_paths lib = do
+  let dflags = hsc_dflags hsc_env
+      platform = targetPlatform dflags
+      so_name = platformSOName platform lib
+  mb_so_file  <- findFile lib_paths so_name
+  case mb_so_file of
+    Nothing -> emitError ("Library not found: " <+> text so_name)
+    Just so_file -> do
+      e <- loadDLL interp so_file
+      case e of
+        Left err -> emitError (text err)
+        Right _ -> pure ()
+  where
+    emitError msg =
+      workerErrorIO hsc_env ("Loading DLL error:" <+> msg)
+
+ensureLibraries :: MVar WorkerState -> HscEnv -> Interp -> GHC.LinkDeps -> IO ()
+ensureLibraries stateVar hsc_env interp deps =
+  let unitIds = fmap (moduleUnitId . linkableModule) (GHC.ldNeededLinkables deps)
+   in for_ unitIds \unit_id -> do
+    modifyMakeState stateVar \make -> do
+      let m = make.extraLib.requested
+      case M.lookup unit_id m of
+        Nothing -> pure (make, ())
+        Just (lib_paths, libs) -> do
+          let load loaded lib
+                | lib `S.member` loaded = pure loaded
+                | otherwise = loadDLL_ hsc_env interp lib_paths lib >> pure (S.insert lib loaded)
+          loaded' <- foldM load make.extraLib.loaded libs
+          pure (make {extraLib = LibLoadState m loaded'}, ())
+
 linkablesResolve ::
   Logger ->
   MVar WorkerState ->
@@ -90,12 +130,13 @@ linkablesResolve ::
   SrcSpan ->
   [Module] ->
   IO LinkDeps
-linkablesResolve logger stateVar hsc_env o i l s m = do
-  getLinkDeps o i l (lazyLoadByteCode logger stateVar hsc_env) s m
+linkablesResolve logger stateVar hsc_env o interp l s m = do
+  deps <- getLinkDeps o interp l (lazyLoadByteCode logger stateVar hsc_env) s m
+  ensureLibraries stateVar hsc_env interp deps
+  pure deps
 
 linkablesSelect :: LinkDeps -> IO LinkDeps
-linkablesSelect deps = do
-  pure deps
+linkablesSelect deps = pure deps
 
 newLinkables ::
   Logger ->

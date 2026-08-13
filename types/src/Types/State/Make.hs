@@ -7,8 +7,9 @@ import GHC (ModuleGraph, ModuleName)
 import GHC.Runtime.Interpreter (Interp)
 import GHC.Unit.Env (HomeUnitGraph)
 import GHC.Unit.Module.Graph (ModuleGraphNode, NodeKey)
--- import Data.IORef (IORef)
+import GHC.Unit.Types (UnitId)
 import Data.Map.Strict qualified as M
+import Data.Set qualified as S
 
 #if defined(UNIT_INDEX)
 
@@ -19,6 +20,23 @@ import GHC.Unit.State (UnitIndex)
 data UnitIndex = UnitIndex
 
 #endif
+
+type LibName = String
+
+-- | Currently requested and loaded dynamic libraries
+--   which are being loaded via direct loadDLL calls.
+--   Loaded libraries are tracked and loading is done only once.
+data LibLoadState =
+  LibLoadState {
+    requested :: M.Map UnitId ([FilePath], [LibName]),
+    loaded :: S.Set LibName
+  }
+
+emptyLibLoadState :: LibLoadState
+emptyLibLoadState = LibLoadState
+  { requested = M.empty,
+    loaded = S.empty
+  }
 
 -- | Data extracted from 'HscEnv' for the purpose of persisting it across sessions.
 --
@@ -47,5 +65,8 @@ data MakeState =
 
     unitIndex :: UnitIndex,
 
-    bcoLoadState :: M.Map ModuleName (MVar ())
+    bcoLoadState :: M.Map ModuleName (MVar ()),
+
+    -- | Unit-level extra native library dependencies are loaded by checking in LibLoadState explicitly.
+    extraLib :: LibLoadState
   }

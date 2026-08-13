@@ -35,6 +35,7 @@ import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), updateHug)
 import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
 import GHC.Unit.Home.PackageTable (emptyHomePackageTable)
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
+import GHC.Utils.CliOption (Option (..))
 import GHC.Utils.Outputable (comma, hcat, ppr, punctuate, quotes, text, (<+>))
 import Internal.Compat.GHC914 (moduleNodeEdge)
 import Internal.Compat.UnitIndex (initUnits)
@@ -58,6 +59,7 @@ import Types.CachedDeps (
 import Types.FeatureFlags (FeatureFlags (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
+import Types.State.Make (LibLoadState (..), MakeState (..))
 
 #if defined(FIXED_NODES) || defined(MWB)
 
@@ -302,7 +304,13 @@ insertPreparedUnit logger features hsc_env pu = do
     unit_env <- insertHomeUnit pu.unitId pu.dflags pu.dbs pu.unitState pu.homeUnit hsc_env.hsc_unit_env
     let hsc_env1 = hsc_env {hsc_unit_env = unit_env}
     pure (hscSetActiveUnitId pu.unitId hsc_env1)
-  modify (updateMakeState (insertUnitEnv hsc_env2))
+  let lib_paths = libraryPaths pu.dflags
+      libs = [ lib | Option ('-':'l':lib) <- ldInputs pu.dflags ]
+  let updateExtraLibs = \make ->
+        let requested' = Map.insert pu.unitId (lib_paths, libs) make.extraLib.requested
+         in make {extraLib = LibLoadState requested' make.extraLib.loaded}
+
+  modify (updateMakeState (updateExtraLibs . insertUnitEnv hsc_env2))
   nodes <- liftIO $ traverse (uncurry (loadCachedModule features.fixedNodesCache hsc_env2 pu.unitId)) pu.moduleEntries
   modify (updateMakeState (storeModuleGraph (mkModuleGraph nodes)))
   pure hsc_env2

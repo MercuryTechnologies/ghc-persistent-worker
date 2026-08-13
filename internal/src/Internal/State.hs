@@ -16,10 +16,13 @@ import System.Environment (lookupEnv)
 import System.OsPath.Extra (toOsPath)
 import Types.Log (Logger (..))
 import Types.State (BinPath (..), WorkerState (..), defaultOptions)
-import Types.State.Make (MakeState (..))
+import Types.State.Make (MakeState (..), emptyLibLoadState)
+
+import System.IO
 
 newState :: IO (MVar WorkerState)
 newState = do
+  hPutStrLn stderr "START WORKER"
   initialPath <- lookupEnv "PATH"
   unitIndex <- newUnitIndex
   let bcoLoadState = M.empty
@@ -36,7 +39,8 @@ newState = do
       hug = unitEnv_new mempty,
       interp = Nothing,
       unitIndex,
-      bcoLoadState
+      bcoLoadState,
+      extraLib = emptyLibLoadState
     },
     targetArgs = mempty
   }
