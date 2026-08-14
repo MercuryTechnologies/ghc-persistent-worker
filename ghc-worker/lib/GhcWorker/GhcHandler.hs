@@ -18,7 +18,7 @@ import GHC.Debug.Stub (withGhcDebugUnix)
 import GHC (DynFlags (..), Ghc, ModIface, getSession)
 import GHC.Driver.DynFlags (GhcMode (..))
 import GHC.Driver.Monad (reflectGhc, reifyGhc)
-import GhcWorker.CompileResult (CompileResult (..), writeResult)
+import GhcWorker.CompileResult (CompileResult (..), usedDepFiles, writeResult)
 import GhcWorker.Instrumentation (Hooks (..), InstrumentedHandler (..))
 import Internal.AbiHash (AbiHash (..), showAbiHash)
 import Internal.Compile.Make (compileModuleWithDepsInHpt)
@@ -66,7 +66,8 @@ compileAndReadAbiHash ghcMode compile hooks args target = do
       abiHash = do
         path <- args.abiOut
         Just AbiHash {path, hash = showAbiHash hsc_env iface}
-    pure CompileResult {abiHash}
+      depFiles = usedDepFiles hsc_env iface
+    pure CompileResult {abiHash, depFiles}
 
 -- | Process a worker request based on the operational mode specified in the request arguments, either compiling a
 -- single module for 'ModeCompile' (@-c@), or computing and writing the module graph to a JSON file for 'ModeMetadata'
@@ -81,8 +82,8 @@ dispatch hooks env args =
     Just ModeCompile -> do
       compile >>= \case
         Nothing -> pure (1, Nothing)
-        Just (CompileResult {abiHash}, target) -> do
-          writeResult args abiHash
+        Just (CompileResult {abiHash, depFiles}, target) -> do
+          writeResult args abiHash depFiles
           pure (0, Just target)
     Just ModeMetadata -> do
       (success, target) <- computeMetadata env

@@ -4,6 +4,7 @@ module Main where
  
 import qualified BuildPlanTest.Test1 (test_buildPlan)
 import qualified BuildPlanTest.Test2 (test_buildPlan)
+import DepFilesTest (test_depFiles)
 import FlagParserTest (test_parseBuckArgs)
 import InterfacePathTest (test_interfacePath)
 import ProjectBuildTest (test_projectBuild)
@@ -38,6 +39,7 @@ testsGeneral :: [TestTree]
 testsGeneral =
   [
     test_parseBuckArgs,
+    test_depFiles,
     test_interfacePath,
     test_sortScheduleOrder,
     test_projectBuild

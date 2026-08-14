@@ -102,6 +102,7 @@ test-suite ghc-worker-test
   other-modules:
     BuildPlanTest.Test1,
     BuildPlanTest.Test2,
+    DepFilesTest,
     FlagParserTest,
     InterfacePathTest,
     ProjectBuildTest,
@@ -120,6 +121,7 @@ test-suite ghc-worker-test
     ghc,
     ghc-boot,
     ghc-paths,
+    ghc-worker,
     ghc-worker-test-common,
     hedgehog >= 1.5,
     tasty >= 1.5.4,
