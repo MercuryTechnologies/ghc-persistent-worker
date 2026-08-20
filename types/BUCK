@@ -1,0 +1,42 @@
+load("@buck2-haskell//:defs.bzl", "haskell_library")
+load("//haskell:defs.bzl", "default_language", "default_extensions")
+
+flags = ["mwb"]
+
+other_ghc_options = [
+    "-Wall",
+    "-Widentities",
+    "-Wincomplete-uni-patterns",
+    "-Wmissing-deriving-strategies",
+    "-Wredundant-constraints",
+    "-Wunused-type-patterns",
+    "-Wunused-packages",
+    "-O2",
+]
+
+haskell_library(
+    name = "buck-worker-types",
+    srcs = glob(["src/**/*.hs"]),
+    compiler_flags =
+        ["-X" + default_language] +
+        ["-X" + ext for ext in [default_language] + default_extensions] +
+        other_ghc_options +
+        (["-DMWB", "-DUNIT_INDEX"] if "mwb" in flags else []) +
+        (["-DUNIT_INDEX"] if "unit-index" in flags else []),
+    strip_prefix = ["src"],
+    deps = [
+        "//haskell:aeson",
+        "//haskell:base",
+        "//haskell:binary",
+        "//haskell:containers",
+        "//haskell:exceptions",
+        "//haskell:filepath",
+        "//haskell:ghc",
+        "//haskell:ghc-paths",
+        "//haskell:os-string",
+        "//haskell:split",
+        "//haskell:text",
+    ],
+    visibility = ["PUBLIC"],
+    allow_worker = False,
+)

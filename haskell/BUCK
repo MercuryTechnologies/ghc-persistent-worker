@@ -1,0 +1,19 @@
+load("@buck2-haskell//:defs.bzl", "haskell_toolchain_library")
+load("@toolchains//:haskell_all.bzl", "haskell_toolchain_all")
+
+[haskell_toolchain_library(
+    name = lib,
+    visibility = ["//..."],
+) for lib in [
+    "aeson",
+    "base",
+    "binary",
+    "containers",
+    "filepath",
+    "exceptions",
+    "ghc",
+    "ghc-paths",
+    "os-string",
+    "split",
+    "text",
+]]
