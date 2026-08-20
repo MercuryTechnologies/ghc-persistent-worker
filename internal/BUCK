@@ -1,0 +1,56 @@
+load("@buck2-haskell//:defs.bzl", "haskell_library")
+load("//haskell:defs.bzl", "default_language", "default_extensions")
+
+flags = ["mwb", "fixed-nodes", "linkables"]
+
+other_extensions = [
+    "OverloadedLabels",
+    "QuasiQuotes",
+    "NoFieldSelectors",
+]
+
+other_ghc_options = [
+    "-Wall",
+    "-Widentities",
+    "-Wincomplete-uni-patterns",
+    "-Wmissing-deriving-strategies",
+    "-Wredundant-constraints",
+    "-Wunused-type-patterns",
+    "-Wunused-packages",
+]
+
+haskell_library(
+    name = "buck-worker-internal",
+    srcs = glob(["src/**/*.hs"]),
+    compiler_flags =
+        ["-X" + default_language] +
+        ["-X" + ext for ext in [default_language] + default_extensions + other_extensions] +
+        other_ghc_options +
+        (["-DMWB", "-DDOWNSWEEP_CACHE", "-DUNIT_INDEX"] if "mwb" in flags else []) +
+        (["-DDOWNSWEEP_CACHE"] if "downsweep-cache" in flags else []) +
+        (["-DUNIT_INDEX"] if "unit-index" in flags else []) +
+        (["-DFIXED_NODES"] if "fixed-nodes" in flags else []) +
+        (["-DLINKABLES"] if "linkables" in flags else []),
+    strip_prefix = ["src"],
+    deps = [
+        "//haskell:aeson",
+        "//haskell:async",
+        "//haskell:base",
+        "//haskell:bytestring",
+        "//haskell:containers",
+        "//haskell:directory",
+        "//haskell:exceptions",
+        "//haskell:filepath",
+        "//haskell:file-io",
+        "//haskell:flatparse",
+        "//haskell:ghc",
+        "//haskell:ghc-boot",
+        "//haskell:hashable",
+        "//haskell:text",
+        "//haskell:time",
+        "//haskell:transformers",
+        "//types:buck-worker-types",
+    ],
+    visibility = ["PUBLIC"],
+    allow_worker = False,
+)
