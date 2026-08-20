@@ -1,0 +1,36 @@
+load("@buck2-haskell//:defs.bzl", "haskell_library")
+load("//haskell:defs.bzl", "default_language", "default_extensions")
+
+other_ghc_options = [
+    "-Wall",
+    "-Widentities",
+    "-Wincomplete-uni-patterns",
+    "-Wmissing-deriving-strategies",
+    "-Wredundant-constraints",
+    "-Wunused-type-patterns",
+    "-Wunused-packages",
+    "-O2",
+]
+
+haskell_library(
+    name = "buck-worker-proto",
+    srcs = glob(["src/**/*.hs"]),
+    compiler_flags =
+        ["-X" + default_language] +
+        ["-X" + ext for ext in [default_language] + default_extensions] +
+        other_ghc_options,
+    strip_prefix = ["src"],
+    deps = [
+        "//haskell:base",
+        "//haskell:bytestring",
+        "//haskell:containers",
+        "//haskell:deepseq",
+        "//haskell:grapesy",
+        "//haskell:lens-family",
+        "//haskell:proto-lens",
+        "//haskell:text",
+        "//haskell:vector",
+    ],
+    visibility = ["PUBLIC"],
+    allow_worker = False,
+)

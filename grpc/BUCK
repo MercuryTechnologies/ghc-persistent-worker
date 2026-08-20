@@ -1,0 +1,32 @@
+load("@buck2-haskell//:defs.bzl", "haskell_library")
+load("//haskell:defs.bzl", "default_language", "default_extensions")
+
+other_ghc_options = [
+    "-Wall",
+    "-Widentities",
+    "-Wincomplete-uni-patterns",
+    "-Wmissing-deriving-strategies",
+    "-Wredundant-constraints",
+    "-Wunused-type-patterns",
+    "-Wunused-packages",
+    "-O2",
+]
+
+haskell_library(
+    name = "buck-worker-grpc",
+    srcs = glob(["src/**/*.hs"]),
+    compiler_flags =
+        ["-X" + default_language] +
+        ["-X" + ext for ext in [default_language] + default_extensions],
+    strip_prefix = ["src"],
+    deps = [
+        "//haskell:base",
+        "//haskell:containers",
+        "//haskell:grapesy",
+        "//haskell:text",
+        "//proto:buck-worker-proto",
+        "//types:buck-worker-types",
+    ],
+    visibility = ["PUBLIC"],
+    allow_worker = False,
+)
