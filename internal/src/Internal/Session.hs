@@ -214,8 +214,8 @@ withGhcSource cacheWrapper =
 
 -- | Like @withGhcSource@, using the make cache handler @withCacheMake@.
 withGhcMakeSource :: Env -> (Target -> Ghc (Maybe a)) -> IO (Maybe a)
-withGhcMakeSource =
-  withGhcSource \ _ logger stateVar ma -> withState logger stateVar pure ma
+withGhcMakeSource env =
+  withGhcSource (\ _ logger stateVar ma -> withState logger env.args.features stateVar pure ma) env
 
 -- | Run a GHC session with multiple home unit support for a module target.
 --
@@ -233,7 +233,7 @@ withGhcMakeModule interp target =
     dflags0 <- getSessionDynFlags
     ensureNoArgs srcs
     logDebugD env.log (text "Compiling module target" <+> ppr target)
-    withState env.log env.state (setup env dflags0) do
+    withState env.log env.args.features env.state (setup env dflags0) do
       initializeSessionPlugins
       run (targetSpec target)
   where
