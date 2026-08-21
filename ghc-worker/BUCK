@@ -1,0 +1,79 @@
+load("@buck2-haskell//:defs.bzl", "haskell_library", "haskell_binary")
+load("//haskell:defs.bzl", "default_language", "default_extensions")
+
+flags = ["mwb"]
+
+other_extensions = [
+    "NoFieldSelectors",
+    "OverloadedLabels",
+    "QuasiQuotes",
+]
+
+other_common_ghc_options = [
+    "-Wall",
+    "-Widentities",
+    "-Wincomplete-uni-patterns",
+    "-Wmissing-deriving-strategies",
+    "-Wredundant-constraints",
+    "-Wunused-type-patterns",
+    "-Wunused-packages",
+]
+
+haskell_library(
+    name = "ghc-worker-lib",
+    srcs = glob(["lib/**/*.hs"]),
+    compiler_flags =
+        ["-X" + default_language] +
+        ["-X" + ext for ext in [default_language] + default_extensions + other_extensions] +
+        other_common_ghc_options +
+        ["-O2"] +
+        (["-DMWB", "-DDOWNSWEEP_CACHE", "-DUNIT_INDEX"] if "mwb" in flags else []) +
+        (["-DGHC_DEBUG"] if "ghc-debug" in flags else []) +
+        (["-D__DEBUG__"] if "debug" in flags else []),
+    strip_prefix = ["lib"],
+    deps = [
+        "//haskell:async",
+        "//haskell:base",
+        "//haskell:binary",
+        "//haskell:bytestring",
+        "//haskell:containers",
+        "//haskell:deepseq",
+        "//haskell:directory",
+        "//haskell:file-io",
+        "//haskell:ghc",
+        "//haskell:grapesy",
+        "//haskell:optparse-applicative",
+        "//haskell:os-string",
+        "//haskell:process",
+        "//haskell:text",
+        "//grpc:buck-worker-grpc",
+        "//internal:buck-worker-internal",
+        "//proto:buck-worker-proto",
+        "//types:buck-worker-types",
+    ] +
+    (["//haskell:ghc-debug-stub"] if "ghc-debug" in flags else []),
+    visibility = ["PUBLIC"],
+    allow_worker = False,
+)
+
+haskell_binary(
+    name = "ghc-worker",
+    srcs = glob(["app/**/*.hs"]),
+    compiler_flags =
+        ["-X" + default_language] +
+        ["-X" + ext for ext in [default_language] + default_extensions + other_extensions] +
+        other_common_ghc_options +
+        ["-O2"]  +
+        (["-DMWB", "-DDOWNSWEEP_CACHE", "-DUNIT_INDEX"] if "mwb" in flags else []),
+    linker_flags = select({
+        "prelude//os:linux": ["-O2", "-threaded", "-with-rtsopts=\"-K512M -I5 -A128M -T -N -xm40000000 -xp\""],
+        "prelude//os:macos": ["-O2", "-threaded", "-with-rtsopts=\"-K512M -I5 -A128M -T -N\""],
+    }),
+    strip_prefix = ["app"],
+    deps = [
+        "//haskell:base",
+        ":ghc-worker-lib",
+    ],
+    visibility = ["PUBLIC"],
+    allow_worker = False,
+)

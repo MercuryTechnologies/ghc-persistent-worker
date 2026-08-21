@@ -50,7 +50,6 @@ executable buck-proxy
   ghc-options: -O2 -threaded "-with-rtsopts=-N -T"
   main-is: Main.hs
   hs-source-dirs: app/buck-proxy
-  ghc-options: -O2 -threaded "-with-rtsopts=-N -T"
   build-depends:
     base ==4.*,
     buck-proxy,
