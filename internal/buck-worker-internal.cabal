@@ -78,6 +78,7 @@ library
                       Internal.BuildPlan
                       Internal.BuildPlan.External
                       Internal.BuildPlan.Json
+                      Internal.Cache.Bytecode
                       Internal.Cache.Hpt
                       Internal.Cache.Metadata
                       Internal.Compat.FixedNodes
