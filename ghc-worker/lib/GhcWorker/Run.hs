@@ -4,7 +4,7 @@ module GhcWorker.Run where
 
 import BuckWorkerProto (Instrument, Worker)
 import Common.Grpc (GrpcHandler (..), fromGrpcHandler)
-import Control.Applicative (many, (<|>))
+import Control.Applicative (many, optional, (<|>))
 import Control.Concurrent (MVar, newChan, newMVar)
 import Control.Concurrent.Chan (Chan)
 import Data.Functor (void)
@@ -32,7 +32,7 @@ import Options.Applicative (
   strOption,
   (<**>),
   )
-import Types.FeatureFlags (FeatureFlag (..), FeatureFlags (..), defaultFeatureFlags)
+import Types.FeatureFlags (FeatureFlag (..), FeatureFlags (..), defaultFeatureFlags, parseByteSize)
 import Types.Grpc (CommandEnv, RequestArgs)
 import Types.Instrument (Event)
 import Types.Log (TraceId (..))
@@ -79,11 +79,23 @@ featureFlagsParser =
         flag -> Left ("Invalid feature flag: " ++ flag)
       pure (value, flag)
 
+-- | Parser for '--max-bytecode', bounding the loader state size.
+maxBytecodeParser :: Parser (Maybe Int)
+maxBytecodeParser =
+  optional (
+    option (eitherReader parseByteSize) (
+      long "max-bytecode"
+      <> metavar "NUM[k|M|G]"
+      <> help "Maximum number of BCOs in the loader state (enables eviction)"
+      )
+    )
+
 cliOptionsParser :: Parser CliOptions
 cliOptionsParser = do
   serve <- serverSocketFromPath . toOsPath <$> strOption (long "serve" <> metavar "SOCKET" <> help "Socket path for the GHC server")
-  features <- featureFlagsParser
-  pure CliOptions {..}
+  features0 <- featureFlagsParser
+  maxBytecode <- maxBytecodeParser
+  pure CliOptions {serve, features = features0 {lazyByteCodeCacheLimit = maxBytecode}}
 
 cliOptionsParserInfo :: ParserInfo CliOptions
 cliOptionsParserInfo =

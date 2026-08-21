@@ -48,12 +48,10 @@
       tests.ghc-worker-test = {
         enable = true;
         dependencies = [
-          "aeson"
           "buck-worker-internal"
           "buck-worker-types"
           "bytestring"
           "containers"
-          "directory"
           "exceptions"
           "extra"
           "filepath"
@@ -62,8 +60,6 @@
           "ghc-paths"
           "ghc-worker-test-common"
           "hedgehog"
-          "lens"
-          "mtl"
           "tasty"
           "tasty-hedgehog"
           "text"
@@ -227,6 +223,7 @@
           "binary"
           "containers"
           "exceptions"
+          "extra"
           "filepath"
           "ghc"
           "ghc-paths"

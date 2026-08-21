@@ -55,6 +55,7 @@ library
     binary,
     containers,
     exceptions,
+    extra,
     filepath,
     ghc,
     ghc-paths,

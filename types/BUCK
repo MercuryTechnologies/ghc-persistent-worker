@@ -30,6 +30,7 @@ haskell_library(
         "//haskell:binary",
         "//haskell:containers",
         "//haskell:exceptions",
+        "//haskell:extra",
         "//haskell:filepath",
         "//haskell:ghc",
         "//haskell:ghc-paths",
