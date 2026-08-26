@@ -57,12 +57,13 @@ loadStateCompile hsc_env0 state =
 
     restoreInterp interp hsc_env = (state, hsc_env {hsc_interp = Just interp})
 
--- | Merge the given module graph into the cached graph.
+-- | Merge the given nodes into the cached node index, leaving the derived 'moduleGraph' untouched.
+--
 -- In more recent versions of GHC, the function for merging graphs is not exposed anymore.
 -- There was also some issue with node duplication, which is why this function is so convoluted.
-storeModuleGraph :: ModuleGraph -> MakeState -> MakeState
-storeModuleGraph new state =
-  state {moduleGraph = mkModuleGraph (Map.elems merged), moduleGraphNodes = merged}
+storeModuleGraphNodes :: [ModuleGraphNode] -> MakeState -> MakeState
+storeModuleGraphNodes new state =
+  state {moduleGraphNodes = merged}
   where
     !merged = Map.unionWith mergeNodes state.moduleGraphNodes newMap
 
@@ -72,7 +73,20 @@ storeModuleGraph new state =
 
     mergeDeps oldDeps newDeps = Set.toList (Set.fromList oldDeps <> Set.fromList newDeps)
 
-    newMap = Map.fromList $ [(mkNodeKey n, n) | n <- mgModSummaries' new]
+    newMap = Map.fromList $ [(mkNodeKey n, n) | n <- new]
+
+-- | Derive 'moduleGraph' from the node index.
+--
+-- This is @O(size of the index)@, so when a batch of units is restored it must be called once for the batch rather than
+-- once per unit.
+rebuildModuleGraph :: MakeState -> MakeState
+rebuildModuleGraph state =
+  state {moduleGraph = mkModuleGraph (Map.elems state.moduleGraphNodes)}
+
+-- | Merge the given module graph into the cached graph and derive 'moduleGraph' immediately.
+storeModuleGraph :: ModuleGraph -> MakeState -> MakeState
+storeModuleGraph new =
+  rebuildModuleGraph . storeModuleGraphNodes (mgModSummaries' new)
 
 -- | Extract the unit env of the currently active unit and store it in the cache.
 -- This is used by the make mode worker after the metadata step has initialized the new unit.

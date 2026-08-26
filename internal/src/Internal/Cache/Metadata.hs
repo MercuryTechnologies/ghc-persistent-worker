@@ -45,7 +45,7 @@ import Internal.Error (eitherMessages, unknownErrors)
 import Internal.Log (logDebugD, logTimed, logTimedD)
 import Internal.State (updateMakeState)
 import qualified Internal.State.Make as Make
-import Internal.State.Make (insertUnitEnv, storeModuleGraph)
+import Internal.State.Make (insertUnitEnv, storeModuleGraph, storeModuleGraphNodes)
 import System.OsPath.Extra (OsPath, fromOsPath)
 import Types.BuckArgs (CachedBuckArgs (..), parseCachedBuckArgs)
 import Types.CachedDeps (
@@ -314,7 +314,7 @@ insertPreparedUnit logger features hsc_env pu = do
 
   modify (updateMakeState (updateExtraLibs . insertUnitEnv hsc_env2))
   nodes <- liftIO $ traverse (uncurry (loadCachedModule features.fixedNodesCache hsc_env2 pu.unitId)) pu.moduleEntries
-  modify (updateMakeState (storeModuleGraph (mkModuleGraph nodes)))
+  modify (updateMakeState (storeModuleGraphNodes nodes))
   pure hsc_env2
 
 loadCachedBuildPlan ::
@@ -373,6 +373,8 @@ processConcurrent f plans = do
 -- We pre-compute the full set of home unit IDs to avoid the sequential dependency.
 --
 -- Phase 2 (sequential): Insert prepared units into the 'UnitEnv', build graph nodes, store module graphs.
+--
+-- Phase 3: Derive GHC's 'ModuleGraph' from the accumulated node index, once for the whole batch.
 loadCachedUnits ::
   Logger ->
   DynFlags ->
@@ -385,6 +387,7 @@ loadCachedUnits logger dflags0 (CachedBuildPlans buildPlans) features (state0, h
   logTimed logger "Loading cached units" $ fmap swap do
     let (total, missing) = compareUnits hsc_env1 buildPlans
     prepared <- catMaybes <$> traverser (loadCachedBuildPlan hsc_env1 dflags0 features total) missing
-    runStateT (foldM (insertPreparedUnit logger features) hsc_env1 prepared) state0
+    (hsc_env2, state1) <- runStateT (foldM (insertPreparedUnit logger features) hsc_env1 prepared) state0
+    pure (hsc_env2, updateMakeState Make.rebuildModuleGraph state1)
   where
     traverser = if features.concurrentInitUnits then processConcurrent else traverse
