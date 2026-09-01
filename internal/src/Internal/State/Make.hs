@@ -7,7 +7,7 @@ import qualified Data.Set as Set
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.Graph (UnitEnvGraph (..), unitEnv_insert, unitEnv_lookup)
-import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), mgModSummaries', mkModuleGraph, mkNodeKey)
+import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), NodeKey, mgModSummaries', mkModuleGraph, mkNodeKey)
 import Internal.Compat.GHC914 (edgeTarget, moduleNodeEdge)
 import Internal.State.Stats (logMemStats)
 import Internal.State.UnitIndex (restoreUnitIndex)
@@ -61,11 +61,10 @@ loadStateCompile hsc_env0 state =
 --
 -- In more recent versions of GHC, the function for merging graphs is not exposed anymore.
 -- There was also some issue with node duplication, which is why this function is so convoluted.
-storeModuleGraphNodes :: [ModuleGraphNode] -> MakeState -> MakeState
-storeModuleGraphNodes new state =
-  state {moduleGraphNodes = merged}
+mergeModuleGraphNodes :: [ModuleGraphNode] -> Map.Map NodeKey ModuleGraphNode -> Map.Map NodeKey ModuleGraphNode
+mergeModuleGraphNodes new oldMap = merged
   where
-    !merged = Map.unionWith mergeNodes state.moduleGraphNodes newMap
+    !merged = Map.unionWith mergeNodes oldMap newMap
 
     mergeNodes = \cases
       (ModuleNode oldDeps _) (ModuleNode newDeps summ) -> ModuleNode (moduleNodeEdge <$> (mergeDeps (edgeTarget <$> oldDeps) (edgeTarget <$> newDeps))) summ
@@ -74,6 +73,12 @@ storeModuleGraphNodes new state =
     mergeDeps oldDeps newDeps = Set.toList (Set.fromList oldDeps <> Set.fromList newDeps)
 
     newMap = Map.fromList $ [(mkNodeKey n, n) | n <- new]
+
+storeModuleGraphNodes :: [ModuleGraphNode] -> MakeState -> MakeState
+storeModuleGraphNodes new state =
+  state {moduleGraphNodes = merged}
+  where
+    !merged = mergeModuleGraphNodes new state.moduleGraphNodes
 
 -- | Derive 'moduleGraph' from the node index.
 --
