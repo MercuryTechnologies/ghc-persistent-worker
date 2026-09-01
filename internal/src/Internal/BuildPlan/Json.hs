@@ -130,6 +130,7 @@ writeBuildPlanWith args path BuildPlan {json} =
 
     extraFields =
       [
+        ("is_binary", Aeson.toJSON args.isBinary),
         ("unit_args", nullableString args.unitArgsPath),
         ("unit_buck_args", nullableString args.unitBuckArgsPath),
         ("dep_units", nullableString args.depUnitsPath)

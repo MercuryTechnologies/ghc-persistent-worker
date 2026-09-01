@@ -78,6 +78,7 @@ cachedUnit ::
 cachedUnit build_plan args depUnits =
   CachedUnit {
     build_plan = Just build_plan,
+    is_binary = False, -- for now, only testing library
     unit_args = Just args,
     unit_buck_args = Nothing,
     dep_units = Just depUnits,

@@ -139,6 +139,7 @@ data CachedUnit =
   CachedUnit {
     build_plan :: Maybe (Map (JsonFs ModuleName) CachedModule),
     cache :: Maybe (Map (JsonFs ModuleName) CachedModule),
+    is_binary :: Bool,
     unit_args :: Maybe OsPath,
     unit_buck_args :: Maybe OsPath,
     dep_units :: Maybe OsPath
