@@ -46,7 +46,7 @@ import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
 import GHC.Utils.Misc (modificationTimeIfExists)
 import GHC.Utils.Outputable (ppr, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO, tryMost)
-import Internal.Cache.Metadata (loadCachedUnit, loadCachedUnits, readParseGHCArgs)
+import Internal.Cache.Metadata (loadCachedHomeUnit, loadCachedDepUnits, readParseGHCArgs)
 import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, deps)
 import Internal.Compat.GHC914 (edgeTarget, setExtraDecls)
 import Internal.Log (logTimed)
@@ -429,7 +429,7 @@ loadHomeUnit log dflags0 features unit (state0, hsc_env0) path
     cachedUnit@CachedUnit {unit_args} <- decodeJsonArg "--home-unit" path
     (state1, hsc_env1) <- fmap (fromMaybe (state0, hsc_env0)) $ for cachedUnit.dep_units \ file -> do
       deps <- decodeJsonArg "--home-unit" file
-      loadCachedUnits log dflags0 deps features (state0, hsc_env0)
+      loadCachedDepUnits log dflags0 deps features (state0, hsc_env0)
     dflags <- maybe (pure dflags0) (readParseGHCArgs features.flagParser hsc_env1 dflags0) unit_args
     logTimed log "Loading cached home unit" $ fmap swap do
-      runStateT (loadCachedUnit log features.fixedNodesCache hsc_env1 unit (cachedUnit, dflags)) state1
+      runStateT (loadCachedHomeUnit log features.fixedNodesCache hsc_env1 unit (cachedUnit, dflags)) state1

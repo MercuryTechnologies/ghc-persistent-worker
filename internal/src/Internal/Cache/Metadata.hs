@@ -266,15 +266,15 @@ loadCachedModules useFixedNodes hsc_env unit CachedUnit {build_plan, cache} =
 --
 -- The cached data consists of a simple list of GHC command line arguments that can recreate the unit state, as well as
 -- the module graph produced by a previous metadata request.
-loadCachedUnit ::
+loadCachedHomeUnit ::
   Logger ->
   Bool ->
   HscEnv ->
   UnitId ->
   (CachedUnit, DynFlags) ->
   StateT WorkerState IO HscEnv
-loadCachedUnit logger useFixedNodes hsc_env0 unit (cachedUnit, dflags) =
-  logTimedD logger (text "Loading cached unit" <+> quotes (ppr unit)) do
+loadCachedHomeUnit logger useFixedNodes hsc_env0 unit (cachedUnit, dflags) =
+  logTimedD logger (text "Loading cached home unit" <+> quotes (ppr unit)) do
     traverse_ loadCachedArgs cachedUnit.unit_buck_args
     hsc_env2 <- liftIO do
       (hsc_env1, _) <- addHomeUnitTo hsc_env0 dflags
@@ -375,16 +375,16 @@ processConcurrent f plans = do
 -- Phase 2 (sequential): Insert prepared units into the 'UnitEnv', build graph nodes, store module graphs.
 --
 -- Phase 3: Derive GHC's 'ModuleGraph' from the accumulated node index, once for the whole batch.
-loadCachedUnits ::
+loadCachedDepUnits ::
   Logger ->
   DynFlags ->
   CachedBuildPlans ->
   FeatureFlags ->
   (WorkerState, HscEnv) ->
   IO (WorkerState, HscEnv)
-loadCachedUnits logger dflags0 (CachedBuildPlans buildPlans) features (state0, hsc_env0) = do
+loadCachedDepUnits logger dflags0 (CachedBuildPlans buildPlans) features (state0, hsc_env0) = do
   let hsc_env1 = Make.loadState hsc_env0 state0.make
-  logTimed logger "Loading cached units" $ fmap swap do
+  logTimed logger "Loading cached dep units" $ fmap swap do
     let (total, missing) = compareUnits hsc_env1 buildPlans
     prepared <- catMaybes <$> traverser (loadCachedBuildPlan hsc_env1 dflags0 features total) missing
     (hsc_env2, state1) <- runStateT (foldM (insertPreparedUnit logger features) hsc_env1 prepared) state0

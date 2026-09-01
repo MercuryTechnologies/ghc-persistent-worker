@@ -27,7 +27,7 @@ import GHC.Unit (UnitId)
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import Internal.BuildPlan (buildPlanForSources)
 import Internal.BuildPlan.Json (writeBuildPlanWith)
-import Internal.Cache.Metadata (addHomeUnitTo, loadCachedUnits)
+import Internal.Cache.Metadata (addHomeUnitTo, loadCachedDepUnits)
 import Internal.DynFlags (updateActiveUnitFlags)
 import Internal.Log (logTimed)
 import Internal.Metadata.Static (prepareStaticSession)
@@ -178,7 +178,7 @@ computeMetadata env = do
       dflags <- getSessionDynFlags
       for_ env.args.cachedBuildPlans \ bp ->
         withSession \ hsc_env ->
-          liftIO $ modifyMVar env.state \ state -> loadCachedUnits env.log dflags bp env.args.features (state, hsc_env)
+          liftIO $ modifyMVar env.state \ state -> loadCachedDepUnits env.log dflags bp env.args.features (state, hsc_env)
       pure (Just ())
     logTimed env.log "Computing module graph" do
       MaybeT $ runSession env $ withDynFlags env \ dflags srcs -> do
