@@ -37,6 +37,7 @@ library
     Types.Args
     Types.BuckArgs
     Types.BuildPlan
+    Types.ByteString
     Types.CachedDeps
     Types.Compat.GHC914
     Types.Env
@@ -53,6 +54,7 @@ library
     aeson,
     base ==4.*,
     binary,
+    bytestring,
     containers,
     exceptions,
     extra,

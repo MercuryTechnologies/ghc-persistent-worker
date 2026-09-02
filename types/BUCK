@@ -32,6 +32,7 @@ haskell_library(
         "//haskell:aeson",
         "//haskell:base",
         "//haskell:binary",
+        "//haskell:bytestring",
         "//haskell:containers",
         "//haskell:exceptions",
         "//haskell:extra",
