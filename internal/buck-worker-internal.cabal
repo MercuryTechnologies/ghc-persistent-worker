@@ -57,7 +57,7 @@ common all
     base ==4.*
 
   if (flag(mwb))
-      cpp-options: -DMWB -DDOWNSWEEP_CACHE -DUNIT_INDEX
+      cpp-options: -DMWB -DDOWNSWEEP_CACHE -DUNIT_INDEX -DFIXED_NODES
 
   if (flag(downsweep-cache))
       cpp-options: -DDOWNSWEEP_CACHE

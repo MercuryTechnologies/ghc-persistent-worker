@@ -256,8 +256,8 @@ in {
 
       github = path: fast (mkGithub api path);
 
-      rev = "d45b5400b43ec2130ce3197a322891993cb3d73f";
-      hash = "sha256-BHBvrVImJAOpm4XY/XeS6Hd2ZzZOcPZuqKRpPKVHGtI=";
+      rev = "4b92951f76cde898142981d017e0aa8b0d083e22";
+      hash = "sha256-H/zUa/vN/ukJrnBEIKIdMAfArvtrLDciZODgizHG5Ns=";
 
       hlsPackage = path:
       ghcOption "-DMWB" (github {
