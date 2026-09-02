@@ -26,7 +26,6 @@
   in allPackages opts;
 
   buckBinOverrides = {overrideAttrs, notest, nodoc, ...}: {
-    buck-worker-internal = notest;
     ghc-worker = notest;
   };
 
@@ -82,13 +81,15 @@
     (overrides_mwb_flag flags)
   ];
 
-  defaultGhciArgs = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX" "-DFIXED_NODES" "-DLINKABLES"];
-
   defaultEnv = extra: {
     hls.enable = lib.mkForce false;
     package-set.extends = "mercury-ghc9101";
-    overrides = commonOverrides ["mwb" "unit-index" "downsweep-cache" "linkables"] ++ [ipeOverrides] ++ extra;
-    ghci.args = defaultGhciArgs;
+    overrides = commonOverrides ["mwb" "unit-index" "downsweep-cache"] ++ [ipeOverrides] ++ extra;
+  };
+
+  latestEnv = extra: defaultEnv (extra ++ [(overrides_mwb_flag ["fixed-nodes" "linkables"])]) // {
+    package-set.extends = "mercury-ghc9101";
+    ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX" "-DFIXED_NODES" "-DLINKABLES"];
   };
 
   mkGithub = {force, source, nodoc, ...}: {owner ? "tek", repo, rev, hash, path ? ""}:
@@ -101,16 +102,14 @@ in {
     overrides = [envOverrides ({notest, ...}: { ghc-worker = notest; })];
   };
 
-  envs.dev = defaultEnv [] // {
-    package-set.extends = "mercury-ghc9101";
+  envs.dev = latestEnv [] // {
     buildInputs = pkgs: [pkgs.zlib pkgs.snappy pkgs.protobuf build.envs.dev.toolchain.packages.proto-lens-protoc];
   };
 
-  envs.min = defaultEnv [];
+  envs.min = latestEnv [buckBinOverrides];
 
-  envs.mercury-ghc9101 = defaultEnv [] // {
+  envs.mercury-ghc9101 = latestEnv [buckBinOverrides] // {
     expose.scoped = true;
-    package-set.extends = "mercury-ghc9101";
   };
 
   envs.profiled = defaultEnv [({notest, ...}: { ghc-worker = notest; ghc-server = notest; })];
@@ -135,10 +134,10 @@ in {
     testExtDeps = import ./test-ext-deps.nix {
       inherit (config) pkgs;
       inherit lib;
-      ghc = build.envs.dev.toolchain.packages.ghc;
+      ghc = build.envs.test-ext-deps.toolchain.packages.ghc;
     };
 
-  in defaultEnv [] // {
+  in latestEnv [buckBinOverrides] // {
     expose.shell = true;
     env.resource_test_ext_deps = "${testExtDeps}";
     buildInputs = pkgs: [pkgs.zlib];
