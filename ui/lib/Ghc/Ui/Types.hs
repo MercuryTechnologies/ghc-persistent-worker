@@ -1,4 +1,4 @@
-module UI.Types where
+module Ghc.Ui.Types where
 
 import Brick.AttrMap (AttrName, attrName)
 import Data.Text (Text)

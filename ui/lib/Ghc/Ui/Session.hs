@@ -1,6 +1,6 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FieldSelectors #-}
 
-module UI.Session where
+module Ghc.Ui.Session where
 
 import Brick.Types (EventM, Widget)
 import Brick.Widgets.Border (borderWithLabel, hBorder)
@@ -9,14 +9,14 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Map qualified as Map
 import Data.Text qualified as Text
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
+import Ghc.Ui.ActiveTasks qualified as ActiveTasks
+import Ghc.Ui.ModuleSelector qualified as ModuleSelector
+import Ghc.Ui.Types (Name, WorkerId)
+import Ghc.Ui.Utils (formatBytes, formatPs, stripEscSeqs)
 import Lens.Micro.Platform (each, filtered, makeLenses, modifying, use, zoom)
 import Network.GRPC.Client (Connection)
 import Types.Instrument qualified as Instr
 import Types.Target (TargetSpec (..))
-import UI.ActiveTasks qualified as ActiveTasks
-import UI.ModuleSelector qualified as ModuleSelector
-import UI.Types (Name, WorkerId)
-import UI.Utils (formatBytes, formatPs, stripEscSeqs)
 
 newtype Id = Id {unId :: Text.Text}
   deriving stock (Eq, Ord, Show)

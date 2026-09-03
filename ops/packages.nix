@@ -132,10 +132,11 @@
       };
     };
 
-    instrument = {
-      src = ../instrument;
-      cabal.meta.synopsis = "Buck2 GHC persistent worker instrumentation client";
-      executable = {
+    ghc-ui = {
+      src = ../ui;
+      cabal.meta.synopsis = "Terminal UI for ghc-server";
+      library = {
+        enable = true;
         dependencies = [
           "binary"
           "brick"
@@ -154,14 +155,8 @@
           "time"
           "vty"
         ];
-        ghc-options-exe = [
-          "-O2"
-          "-threaded"
-          "-rtsopts"
-          ''"-with-rtsopts=-K512M -H -I5 -T -N"''
-        ];
-        source-dirs = ".";
       };
+      executable.enable = true;
     };
 
     buck-worker-internal = {
@@ -311,6 +306,7 @@
       "QuasiQuotes"
       "RecordWildCards"
       "StrictData"
+      "TemplateHaskell"
       "TypeFamilies"
       "DataKinds"
     ];

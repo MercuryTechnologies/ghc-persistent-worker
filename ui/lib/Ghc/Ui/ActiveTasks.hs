@@ -1,16 +1,18 @@
-module UI.ActiveTasks where
+{-# LANGUAGE FieldSelectors #-}
+
+module Ghc.Ui.ActiveTasks where
 
 import Brick.Types (EventM, Widget)
-import Brick.Widgets.Core (Padding (..), padRight, str, strWrap, (<+>), withAttr)
-import Brick.Widgets.List (GenericList, list, listElementsL, listSelectedL, renderList, listSelectedElementL)
+import Brick.Widgets.Core (Padding (..), padRight, str, strWrap, withAttr, (<+>))
+import Brick.Widgets.List (GenericList, list, listElementsL, listSelectedElementL, listSelectedL, renderList)
 import Control.Monad.IO.Class (liftIO)
 import Data.Maybe (fromMaybe)
 import Data.Sequence qualified as Seq
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
+import Ghc.Ui.Types (Name (ActiveTasks), WorkerId, canDebugAttr)
+import Ghc.Ui.Utils (formatPico, popup)
+import Lens.Micro.Platform (modifying, preuse, use, (.=))
 import Types.Target (TargetSpec (..), renderTargetSpec)
-import Lens.Micro.Platform (modifying, use, (.=), preuse)
-import UI.Types (Name (ActiveTasks), WorkerId, canDebugAttr)
-import UI.Utils (formatPico, popup)
 
 type State = GenericList Name Seq.Seq Task
 

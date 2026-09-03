@@ -1,4 +1,4 @@
-module UI.GhcDebug where
+module Ghc.Ui.GhcDebug where
 
 import Brick (BrickEvent (..), EventM, attrMap, get, on)
 import Brick.BChan (newBChan)
@@ -18,7 +18,7 @@ import GHC.Debug.Brick.Model (
   RootsOrigin (DefaultRoots),
   keybindingsMode,
   mkSocketInfo,
- )
+  )
 import GHC.Debug.Brick.Render (myAppDraw)
 import GHC.Debug.Brick.Render.Utils (disabledMenuAttr, highlightAttr, inputAttr, labelAttr, menuAttr, treeAttr)
 import GHC.Debug.Brick.UI (myAppStartEvent)

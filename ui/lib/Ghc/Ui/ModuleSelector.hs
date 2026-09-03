@@ -1,15 +1,15 @@
-module UI.ModuleSelector where
+module Ghc.Ui.ModuleSelector where
 
 import Brick.Types (EventM, Widget)
-import Brick.Widgets.Core (Padding (..), padRight, str, strWrap, vBox, (<+>), withAttr)
+import Brick.Widgets.Core (Padding (..), padRight, str, strWrap, vBox, withAttr, (<+>))
 import Brick.Widgets.List (GenericList, list, listElementsL, listSelectedElementL, listSelectedL, renderList)
 import Control.Monad (when)
 import Data.Fixed (Fixed (..), Pico)
 import Data.Sequence qualified as Seq
+import Ghc.Ui.Types (Name (ModuleSelector), WorkerId, disabledAttr)
+import Ghc.Ui.Utils (formatPico, formatPs, popup, upsertAscSeq)
 import Lens.Micro.Platform (modifying, preuse, use, (.=))
 import Types.Target (TargetSpec (..), renderTargetSpec)
-import UI.Types (Name (ModuleSelector), WorkerId, disabledAttr)
-import UI.Utils (formatPico, formatPs, popup, upsertAscSeq)
 
 type State = GenericList Name Seq.Seq Module
 

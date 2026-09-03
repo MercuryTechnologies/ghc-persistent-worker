@@ -1,10 +1,8 @@
-{-# LANGUAGE TemplateHaskell #-}
-
-module UI (module UI, customMainWithDefaultVty) where
+module Ghc.Ui where
 
 import Brick.AttrMap (attrMap)
 import Brick.Forms (Form, FormFieldState, editTextField, formState, handleFormEvent, newForm, renderForm, (@@=))
-import Brick.Main (App (..), customMainWithDefaultVty, getVtyHandle, halt, showFirstCursor, suspendAndResume')
+import Brick.Main (App (..), getVtyHandle, halt, showFirstCursor, suspendAndResume')
 import Brick.Types (BrickEvent (..), EventM, Widget)
 import Brick.Util (on)
 import Brick.Widgets.Border (borderWithLabel)
@@ -19,20 +17,20 @@ import Data.Foldable (for_)
 import Data.Monoid (First (..))
 import Data.Text qualified as Text
 import Data.Time (UTCTime (..), fromGregorian)
+import Ghc.Ui.ActiveTasks qualified as ActiveTasks
+import Ghc.Ui.GhcDebug (debug)
+import Ghc.Ui.Grpc (sendOptions, triggerRebuild)
+import Ghc.Ui.ModuleSelector qualified as ModuleSelector
+import Ghc.Ui.Session qualified as Session
+import Ghc.Ui.SessionSelector qualified as SessionSelector
+import Ghc.Ui.Types (Name (..), WorkerId, canDebugAttr, disabledAttr)
+import Ghc.Ui.Utils (handleListEventOf, popup)
 import Graphics.Vty qualified as V
 import Graphics.Vty.Attributes.Color
-import Grpc (sendOptions, triggerRebuild)
 import Internal.Debug (debugSocketPath)
-import Lens.Micro.Platform (Lens', Traversal', each, filtered, lens, makeLenses, packed, preuse, use, zoom, (.=), _2)
+import Lens.Micro.Platform (Lens', Traversal', _2, each, filtered, lens, makeLenses, packed, preuse, use, zoom, (.=))
 import Types.State (Options (..), defaultOptions)
 import Types.Target (TargetSpec)
-import UI.ActiveTasks qualified as ActiveTasks
-import UI.GhcDebug (debug)
-import UI.ModuleSelector qualified as ModuleSelector
-import UI.Session qualified as Session
-import UI.SessionSelector qualified as SessionSelector
-import UI.Types (Name (..), WorkerId, canDebugAttr, disabledAttr)
-import UI.Utils (handleListEventOf, popup)
 
 data Event
   = SendOptions (Maybe WorkerId)

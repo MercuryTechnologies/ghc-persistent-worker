@@ -1,4 +1,4 @@
-module UI.Utils where
+module Ghc.Ui.Utils where
 
 import Brick.Types (EventM, Widget)
 import Brick.Widgets.Border (borderWithLabel)
@@ -7,9 +7,9 @@ import Brick.Widgets.Core (hLimitPercent, str, vLimitPercent)
 import Brick.Widgets.List (GenericList, Splittable, handleListEvent, handleListEventVi)
 import Data.Fixed (Fixed (..), Pico)
 import Data.Sequence qualified as Seq
+import Ghc.Ui.Types (Name)
 import Graphics.Vty qualified as V
 import Lens.Micro.Platform (Traversal', zoom)
-import UI.Types (Name)
 
 popup :: Int -> String -> Widget Name -> Widget Name
 popup size popupTitle content =

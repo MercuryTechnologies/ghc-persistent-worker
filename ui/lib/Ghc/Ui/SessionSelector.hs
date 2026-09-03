@@ -1,4 +1,4 @@
-module UI.SessionSelector where
+module Ghc.Ui.SessionSelector where
 
 import Brick.Types (EventM, Widget)
 import Brick.Widgets.Core (str)
@@ -7,11 +7,11 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Sequence qualified as Seq
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
+import Ghc.Ui.Session qualified as Session
+import Ghc.Ui.Types (Name (SessionSelector), WorkerId)
+import Ghc.Ui.Utils (popup)
+import Lens.Micro.Platform (Traversal', _2, each, filtered, modifying, preuse, zoom, (.=))
 import Network.GRPC.Client (Connection)
-import Lens.Micro.Platform (Traversal', each, filtered, modifying, preuse, zoom, (.=), _2)
-import UI.Session qualified as Session
-import UI.Types (Name (SessionSelector), WorkerId)
-import UI.Utils (popup)
 
 type State = GenericList Name Seq.Seq (Session.Id, Session.State)
 

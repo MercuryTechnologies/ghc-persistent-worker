@@ -1,0 +1,69 @@
+cabal-version: 2.2
+name: ghc-ui
+version: 0.1
+synopsis: Terminal UI for ghc-server
+license: MIT
+build-type: Simple
+
+common all
+  ghc-options: -Wall -Widentities -Wincomplete-uni-patterns -Wmissing-deriving-strategies -Wredundant-constraints -Wunused-type-patterns -Wunused-packages
+  default-language: GHC2021
+  default-extensions:
+    BlockArguments,
+    DataKinds,
+    DerivingStrategies,
+    DuplicateRecordFields,
+    LambdaCase,
+    NamedFieldPuns,
+    NoFieldSelectors,
+    OverloadedLabels,
+    OverloadedLists,
+    OverloadedRecordDot,
+    OverloadedStrings,
+    QuasiQuotes,
+    RecordWildCards,
+    StrictData,
+    TemplateHaskell,
+    TypeFamilies
+  build-depends:
+    base ==4.*
+
+library
+  import: all
+  hs-source-dirs: lib
+  exposed-modules:
+    Ghc.Ui
+    Ghc.Ui.ActiveTasks
+    Ghc.Ui.GhcDebug
+    Ghc.Ui.Grpc
+    Ghc.Ui.ModuleSelector
+    Ghc.Ui.Run
+    Ghc.Ui.Session
+    Ghc.Ui.SessionSelector
+    Ghc.Ui.Types
+    Ghc.Ui.Utils
+  build-depends:
+    binary,
+    brick,
+    buck-worker-internal,
+    buck-worker-proto,
+    buck-worker-types,
+    bytestring,
+    containers,
+    ghc-debug-brick,
+    directory,
+    filepath,
+    fsnotify,
+    grapesy,
+    microlens-platform,
+    text,
+    time,
+    vty
+
+executable ghc-ui
+  main-is: Main.hs
+  hs-source-dirs: app
+  ghc-options:
+    -threaded -rtsopts -with-rtsopts=-N -O2
+  build-depends:
+    ghc-ui
