@@ -9,7 +9,7 @@ import Data.Time (UTCTime)
 import Ghc.Ui.Data.Name (Name)
 import Ghc.Ui.Data.Session (SessionState (..), Stats (..), Worker (..))
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
-import Ghc.Ui.Tasks qualified as Tasks
+import Ghc.Ui.Render.Tasks qualified as Tasks
 import Ghc.Ui.Utils (formatBytes, formatPs)
 
 drawStats :: Int -> Stats -> Widget Name

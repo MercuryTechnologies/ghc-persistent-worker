@@ -4,15 +4,15 @@ import Brick.Types (EventM)
 import Control.Monad.IO.Class (liftIO)
 import Data.Generics.Labels ()
 import Data.Time (diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
-import Ghc.Ui.Data.Session (SessionEvent (..), SessionState (..), Stats (..), Worker (..))
-import Ghc.Ui.ModuleSelector qualified as ModuleSelector
-import Ghc.Ui.Tasks qualified as Tasks
 import Ghc.Ui.Data.Name (Name)
+import Ghc.Ui.Data.Session (SessionEvent (..), SessionState (..), Stats (..), Worker (..))
+import Ghc.Ui.Data.WorkerId (WorkerId)
+import Ghc.Ui.Event.Tasks qualified as Tasks
+import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Ghc.Ui.Utils (stripEscSeqs)
 import Lens.Micro.Platform (each, filtered, modifying, use, zoom)
 import Types.Instrument qualified as Instr
 import Types.Target (TargetSpec (..))
-import Ghc.Ui.Data.WorkerId (WorkerId)
 
 handleEvent :: SessionEvent -> EventM Name SessionState ()
 handleEvent (InstrEvent wid evt) =

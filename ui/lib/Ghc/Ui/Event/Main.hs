@@ -17,9 +17,9 @@ import Ghc.Ui.Data.Session (SessionState, Worker (..))
 import qualified Ghc.Ui.Data.Sessions as Sessions
 import Ghc.Ui.Data.WorkerId (WorkerId)
 import qualified Ghc.Ui.Event.Sessions as Sessions
+import Ghc.Ui.Event.Tasks qualified as Tasks
 import Ghc.Ui.GhcDebug (debug)
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
-import Ghc.Ui.Tasks qualified as Tasks
 import Ghc.Ui.Utils (handleListEventOf)
 import Graphics.Vty (Event (..), Key (..), Output (..), Vty (..))
 import Internal.Debug (debugSocketPath)

@@ -44,14 +44,15 @@ library
     Ghc.Ui.Event.Main
     Ghc.Ui.Event.Session
     Ghc.Ui.Event.Sessions
+    Ghc.Ui.Event.Tasks
     Ghc.Ui.GhcDebug
     Ghc.Ui.Grpc
     Ghc.Ui.ModuleSelector
     Ghc.Ui.Render.Main
     Ghc.Ui.Render.Session
     Ghc.Ui.Render.Sessions
+    Ghc.Ui.Render.Tasks
     Ghc.Ui.Run
-    Ghc.Ui.Tasks
     Ghc.Ui.Utils
   build-depends:
     binary,

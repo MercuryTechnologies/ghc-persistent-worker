@@ -1,30 +1,16 @@
-module Ghc.Ui.Tasks where
+module Ghc.Ui.Event.Tasks where
 
-import Brick.Types (EventM, Widget)
-import Brick.Widgets.Core (Padding (..), padRight, str, strWrap, withAttr, (<+>))
-import Brick.Widgets.List (listElementsL, listSelectedElementL, listSelectedL, renderList)
+import Brick.Types (EventM)
+import Brick.Widgets.List (listElementsL, listSelectedElementL, listSelectedL)
 import Control.Monad.IO.Class (liftIO)
 import Data.Maybe (fromMaybe)
 import Data.Sequence qualified as Seq
-import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
-import Ghc.Ui.Attr (canDebugAttr)
-import Ghc.Ui.Data.Name (Name (Tasks))
+import Data.Time (UTCTime, getCurrentTime)
+import Ghc.Ui.Data.Name (Name)
 import Ghc.Ui.Data.Tasks (Task (..), TasksState)
 import Ghc.Ui.Data.WorkerId (WorkerId)
-import Ghc.Ui.Utils (formatPico, popup)
 import Lens.Micro.Platform (modifying, preuse, use, (.=), (<&>))
-import Types.Target (TargetSpec (..), renderTargetSpec)
-
-draw :: Name -> UTCTime -> TasksState -> Widget Name
-draw current now = renderList drawTask (current == Tasks)
- where
-  drawTask _ Task {..} =
-    (if debuggable then withAttr canDebugAttr else id) $
-      padRight Max (str (renderTargetSpec target)) <+> str (maybe (formatPico $ nominalDiffTimeToSeconds (max 0 (diffUTCTime now startTime))) (const "Failure") failure)
-
-drawTaskDetails :: Task -> Widget Name
-drawTaskDetails Task {..} =
-  popup 70 (renderTargetSpec target) $ strWrap $ maybe "" id failure
+import Types.Target (TargetSpec (..))
 
 addTask :: TargetSpec -> WorkerId -> Bool -> EventM Name TasksState ()
 addTask target worker debuggable = do
