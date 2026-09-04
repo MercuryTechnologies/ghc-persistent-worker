@@ -34,6 +34,8 @@ library
   exposed-modules:
     Ghc.Ui.ActiveTasks
     Ghc.Ui.App
+    Ghc.Ui.Data.Main
+    Ghc.Ui.Data.Session
     Ghc.Ui.Data.ServerApi
     Ghc.Ui.Event.Main
     Ghc.Ui.GhcDebug

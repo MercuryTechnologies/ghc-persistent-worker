@@ -8,7 +8,8 @@ import Brick.Widgets.Center (center)
 import Brick.Widgets.Core (joinBorders, modifyDefAttr, str, vBox, withBorderStyle)
 import Brick.Widgets.List (listSelectedElement)
 import Ghc.Ui.ActiveTasks qualified as ActiveTasks
-import Ghc.Ui.Event.Main (MainState (..))
+import Ghc.Ui.Data.Main (MainState (..))
+import Ghc.Ui.Data.Session qualified as Session
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Ghc.Ui.Session qualified as Session
 import Ghc.Ui.SessionSelector qualified as SessionSelector

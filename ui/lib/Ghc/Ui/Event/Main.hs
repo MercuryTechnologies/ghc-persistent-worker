@@ -1,6 +1,6 @@
 module Ghc.Ui.Event.Main where
 
-import Brick.Forms (Form, FormFieldState, editTextField, formState, handleFormEvent, newForm, (@@=))
+import Brick.Forms (FormFieldState, editTextField, formState, handleFormEvent, newForm, (@@=))
 import Brick.Main (getVtyHandle, halt, suspendAndResume')
 import Brick.Types (BrickEvent (..), EventM)
 import Brick.Widgets.Core (str, (<+>))
@@ -11,13 +11,12 @@ import Data.Foldable (for_)
 import Data.Monoid (First (..))
 import Data.Text qualified as Text
 import Data.Time (UTCTime (..), fromGregorian)
-import GHC.Generics (Generic)
 import Ghc.Ui.ActiveTasks qualified as ActiveTasks
+import Ghc.Ui.Data.Main (MainEvent (..), MainState (..))
 import Ghc.Ui.Data.ServerApi (ServerApi (..))
+import Ghc.Ui.Data.Session (SessionState, Worker (..))
 import Ghc.Ui.GhcDebug (debug)
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
-import Ghc.Ui.Session qualified as Session
-import Ghc.Ui.Session (Worker (..))
 import Ghc.Ui.SessionSelector qualified as SessionSelector
 import Ghc.Ui.Types (Name (..), WorkerId)
 import Ghc.Ui.Utils (handleListEventOf)
@@ -26,24 +25,7 @@ import Internal.Debug (debugSocketPath)
 import Lens.Micro.Platform (Lens', Traversal', _2, each, filtered, lens, packed, preuse, use, zoom, (.=))
 import Types.State (Options (..), defaultOptions)
 import Types.Target (TargetSpec)
-
-data MainEvent =
-  SendOptions (Maybe WorkerId)
-  |
-  SetTime UTCTime
-  |
-  SessionSelectorEvent SessionSelector.Event
-  |
-  TriggerRebuild WorkerId TargetSpec
-
-data MainState =
-  MainState {
-    sessions :: SessionSelector.State,
-    options :: Form Options Event Name,
-    currentFocus :: Name,
-    currentTime :: UTCTime
-  }
-  deriving stock (Generic)
+import Ghc.Ui.Data.WorkerId (WorkerId)
 
 ghcOptionsLens :: Lens' Options Text.Text
 ghcOptionsLens =
@@ -66,7 +48,7 @@ optionFields =
   [ (str "Extra GHC Options: " <+>) @@= editTextField ghcOptionsLens OEExtraGhcOptions (Just 1)
   ]
 
-currentSession :: Traversal' MainState Session.State
+currentSession :: Traversal' MainState SessionState
 currentSession = #sessions . listSelectedElementL . _2
 
 beep :: EventM Name MainState ()

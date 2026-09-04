@@ -12,8 +12,9 @@ import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
 import Data.Time (getCurrentTime)
 import Ghc.Ui.App (app)
-import Ghc.Ui.Event.Main (MainEvent (..), initialState)
-import Ghc.Ui.Session qualified as Session
+import Ghc.Ui.Data.Main (MainEvent (..))
+import qualified Ghc.Ui.Data.Session as Session
+import Ghc.Ui.Event.Main (initialState)
 import Ghc.Ui.SessionSelector qualified as SessionSelector
 import Ghc.Ui.Types (WorkerId (WorkerId))
 import Graphics.Vty (Vty (shutdown))
@@ -56,7 +57,7 @@ listen eventChan instrPath = do
             whileNext_ recv
               $ writeBChan eventChan
               . SessionSelectorEvent
-              . SessionSelector.SessionEvent sessionId
+              . SessionSelector.Session sessionId
               . Session.InstrEvent workerId
               . decode
               . fromStrict

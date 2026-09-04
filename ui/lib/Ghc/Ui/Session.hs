@@ -6,60 +6,19 @@ import Brick.Widgets.Core (str, vBox, vLimitPercent)
 import Control.Monad.IO.Class (liftIO)
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
-import Data.Text qualified as Text
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
-import GHC.Generics (Generic)
 import Ghc.Ui.ActiveTasks qualified as ActiveTasks
+import Ghc.Ui.Data.Session
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Ghc.Ui.Types (Name, WorkerId)
 import Ghc.Ui.Utils (formatBytes, formatPs, stripEscSeqs)
 import Lens.Micro.Platform (each, filtered, modifying, use, zoom)
-import Network.GRPC.Client (Connection)
 import Types.Instrument qualified as Instr
 import Types.Target (TargetSpec (..))
 
-newtype Id = Id {unId :: Text.Text}
-  deriving stock (Eq, Ord, Show)
-
-data Worker =
-  Worker {
-    workerId :: WorkerId,
-    connection :: Connection,
-    stats :: Stats
-  }
-  deriving stock (Generic)
-
-data Stats =
-  Stats {
-    memory :: Map.Map String Int, -- in bytes
-    gc_cpu_ns :: Int,
-    cpu_ns :: Int
-  }
-
-instance Semigroup Stats where
-  Stats m1 gc1 cpu1 <> Stats m2 gc2 cpu2 =
-    Stats (Map.unionWith (+) m1 m2) (gc1 + gc2) (cpu1 + cpu2)
-
-instance Monoid Stats where
-  mempty = Stats mempty 0 0
-
-data State =
-  Session {
-    title :: String,
-    workers :: [Worker],
-    activeTasks :: ActiveTasks.State,
-    modules :: ModuleSelector.State,
-    sesStartTime :: UTCTime,
-    sesEndTime :: Maybe UTCTime,
-    finishedWorkerStats :: Stats
-  }
-  deriving stock (Generic)
-
-data Event = InstrEvent WorkerId Instr.Event
-
-mkSession :: String -> UTCTime -> State
+mkSession :: String -> UTCTime -> SessionState
 mkSession title startTime =
-  Session {
+  SessionState {
     title,
     workers = [],
     activeTasks = ActiveTasks.initialState,
@@ -69,8 +28,8 @@ mkSession title startTime =
     finishedWorkerStats = mempty
   }
 
-draw :: Name -> UTCTime -> State -> Widget Name
-draw current now Session {..} =
+draw :: Name -> UTCTime -> SessionState -> Widget Name
+draw current now SessionState {..} =
   borderWithLabel (str $ " GHC Persistent Worker  " ++ title ++ " ") $
     vBox
       [ vLimitPercent 30 $ ActiveTasks.draw current now activeTasks
@@ -97,7 +56,7 @@ drawStats workerCount Stats{..} =
           ++ formatPs (1000 * gc_cpu_ns)
     ]
 
-handleEvent :: Event -> EventM Name State ()
+handleEvent :: SessionEvent -> EventM Name SessionState ()
 handleEvent (InstrEvent wid evt) =
   case evt of
     Instr.CompileStart {..} -> do
@@ -122,7 +81,7 @@ handleEvent (InstrEvent wid evt) =
         }
     Instr.Halt -> pure ()
 
-removeWorker :: WorkerId -> EventM Name State ()
+removeWorker :: WorkerId -> EventM Name SessionState ()
 removeWorker wid = do
   st <- use (#workers . each . filtered (\w -> w.workerId == wid) . #stats)
   modifying #finishedWorkerStats (<> st{memory = mempty})

@@ -5,31 +5,34 @@ import Brick.Widgets.Core (str)
 import Brick.Widgets.List (GenericList, list, listElementsL, listSelectedL, renderList)
 import Control.Monad.IO.Class (liftIO)
 import Data.Sequence qualified as Seq
+import Data.Sequence (Seq)
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
+import qualified Ghc.Ui.Data.Session as Session
+import Ghc.Ui.Data.Session (SessionEvent, SessionState (..))
 import Ghc.Ui.Session qualified as Session
 import Ghc.Ui.Types (Name (SessionSelector), WorkerId)
 import Ghc.Ui.Utils (popup)
 import Lens.Micro.Platform (Traversal', _2, each, filtered, modifying, preuse, zoom, (.=))
 import Network.GRPC.Client (Connection)
 
-type State = GenericList Name Seq.Seq (Session.Id, Session.State)
+type State = GenericList Name Seq (Session.Id, SessionState)
 
 data Event
   = StartSession Session.Id UTCTime
   | EndSession Session.Id
-  | SessionEvent Session.Id Session.Event
+  | Session Session.Id SessionEvent
   | AddWorker Session.Id WorkerId UTCTime Connection
   | RemoveWorker Session.Id WorkerId
 
 initialState :: State
-initialState = list SessionSelector Seq.empty 1
+initialState = list SessionSelector [] 1
 
 draw :: State -> Widget Name
 draw ss =
   popup 50 "Select session" $ renderList drawOption True ss
  where
-  drawOption isSel (_, Session.Session{..}) =
+  drawOption isSel (_, SessionState {..}) =
     str $
       concat @[]
         [ if isSel then "> " else "  "
@@ -39,7 +42,7 @@ draw ss =
         , " workers"
         ]
 
-sessionLens :: Session.Id -> Traversal' State Session.State
+sessionLens :: Session.Id -> Traversal' State SessionState
 sessionLens sid =
   listElementsL . each . filtered ((== sid) . fst) . _2
 
@@ -66,4 +69,4 @@ handleEvent (StartSession sid start) = do
 handleEvent (EndSession sid) = do
   end <- liftIO getCurrentTime
   modifying (sessionLens sid . #sesEndTime) (const $ Just end)
-handleEvent (SessionEvent sid evt) = zoom (sessionLens sid) (Session.handleEvent evt)
+handleEvent (Session sid evt) = zoom (sessionLens sid) (Session.handleEvent evt)
