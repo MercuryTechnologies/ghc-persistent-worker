@@ -3,7 +3,7 @@ module Ghc.Ui.Data.Sessions where
 import Brick.Widgets.List (GenericList, list)
 import Data.Sequence (Seq)
 import Data.Time (UTCTime)
-import Ghc.Ui.Data.Name (Name (SessionSelector))
+import Ghc.Ui.Data.Name (Name (Sessions))
 import Ghc.Ui.Data.Session (Id, SessionEvent, SessionState (..))
 import Ghc.Ui.Data.WorkerId (WorkerId)
 import Network.GRPC.Client (Connection)
@@ -22,4 +22,4 @@ data SessionsEvent =
   RemoveWorker Id WorkerId
 
 initialState :: SessionsState
-initialState = list SessionSelector [] 1
+initialState = list Sessions [] 1

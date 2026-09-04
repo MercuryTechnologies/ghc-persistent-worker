@@ -9,7 +9,7 @@ data Name =
   |
   ModuleDetails
   |
-  SessionSelector
+  Sessions
   |
   OptionsEditor
   |

@@ -1,49 +1,18 @@
-module Ghc.Ui.Session where
+module Ghc.Ui.Event.Session where
 
-import Brick.Types (EventM, Widget)
-import Brick.Widgets.Border (borderWithLabel, hBorder)
-import Brick.Widgets.Core (str, vBox, vLimitPercent)
+import Brick.Types (EventM)
 import Control.Monad.IO.Class (liftIO)
 import Data.Generics.Labels ()
-import Data.Map qualified as Map
-import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
+import Data.Time (diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
 import Ghc.Ui.Data.Session (SessionEvent (..), SessionState (..), Stats (..), Worker (..))
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Ghc.Ui.Tasks qualified as Tasks
 import Ghc.Ui.Data.Name (Name)
-import Ghc.Ui.Utils (formatBytes, formatPs, stripEscSeqs)
+import Ghc.Ui.Utils (stripEscSeqs)
 import Lens.Micro.Platform (each, filtered, modifying, use, zoom)
 import Types.Instrument qualified as Instr
 import Types.Target (TargetSpec (..))
 import Ghc.Ui.Data.WorkerId (WorkerId)
-
-draw :: Name -> UTCTime -> SessionState -> Widget Name
-draw current now SessionState {..} =
-  borderWithLabel (str $ " GHC Persistent Worker  " ++ title ++ " ") $
-    vBox
-      [ vLimitPercent 30 $ Tasks.draw current now activeTasks
-      , hBorder
-      , ModuleSelector.draw current modules
-      , hBorder
-      , drawStats (length workers) (foldMap (.stats) workers <> finishedWorkerStats)
-      ]
-
-drawStats :: Int -> Stats -> Widget Name
-drawStats workerCount Stats{..} =
-  vBox
-    [ str $
-        " Worker count: "
-          ++ show workerCount
-          ++ " | Memory:"
-          ++ concatMap
-            (\(k, v) -> " " ++ k ++ "=" ++ formatBytes v)
-            (Map.toList memory)
-    , str $
-        " CPU Time: "
-          ++ formatPs (1000 * cpu_ns)
-          ++ " | GC Time: "
-          ++ formatPs (1000 * gc_cpu_ns)
-    ]
 
 handleEvent :: SessionEvent -> EventM Name SessionState ()
 handleEvent (InstrEvent wid evt) =

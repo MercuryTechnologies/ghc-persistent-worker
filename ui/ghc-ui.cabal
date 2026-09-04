@@ -42,14 +42,15 @@ library
     Ghc.Ui.Data.Name
     Ghc.Ui.Data.WorkerId
     Ghc.Ui.Event.Main
+    Ghc.Ui.Event.Session
     Ghc.Ui.Event.Sessions
     Ghc.Ui.GhcDebug
     Ghc.Ui.Grpc
     Ghc.Ui.ModuleSelector
     Ghc.Ui.Render.Main
+    Ghc.Ui.Render.Session
     Ghc.Ui.Render.Sessions
     Ghc.Ui.Run
-    Ghc.Ui.Session
     Ghc.Ui.Tasks
     Ghc.Ui.Utils
   build-depends:

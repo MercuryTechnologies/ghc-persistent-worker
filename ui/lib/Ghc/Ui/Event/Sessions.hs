@@ -10,7 +10,7 @@ import Ghc.Ui.Data.Name (Name)
 import qualified Ghc.Ui.Data.Session as Session
 import Ghc.Ui.Data.Session (SessionState (..))
 import Ghc.Ui.Data.Sessions (SessionsEvent (..), SessionsState)
-import Ghc.Ui.Session qualified as Session
+import qualified Ghc.Ui.Event.Session as Session
 import Lens.Micro.Platform (Traversal', _2, each, filtered, modifying, preuse, zoom, (.=))
 
 sessionLens :: Session.Id -> Traversal' SessionsState SessionState

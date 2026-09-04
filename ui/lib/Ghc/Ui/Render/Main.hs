@@ -7,13 +7,13 @@ import Brick.Widgets.Border.Style (unicodeRounded)
 import Brick.Widgets.Center (center)
 import Brick.Widgets.Core (joinBorders, modifyDefAttr, str, vBox, withBorderStyle)
 import Brick.Widgets.List (listSelectedElement)
-import Ghc.Ui.Tasks qualified as Tasks
 import Ghc.Ui.Data.Main (MainState (..))
+import Ghc.Ui.Data.Name (Name (..))
 import Ghc.Ui.Data.Session qualified as Session
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
-import Ghc.Ui.Session qualified as Session
-import Ghc.Ui.Data.Name (Name (..))
+import qualified Ghc.Ui.Render.Session as Session
 import qualified Ghc.Ui.Render.Sessions as Sessions
+import Ghc.Ui.Tasks qualified as Tasks
 import Ghc.Ui.Utils (popup)
 import Graphics.Vty (italic, withStyle)
 import Types.State (Options (..))
