@@ -1,53 +1,24 @@
-module Ghc.Ui.SessionSelector where
+module Ghc.Ui.Event.Sessions where
 
-import Brick.Types (EventM, Widget)
-import Brick.Widgets.Core (str)
-import Brick.Widgets.List (GenericList, list, listElementsL, listSelectedL, renderList)
+import Brick.Types (EventM)
+import Brick.Widgets.List (listElementsL, listSelectedL)
 import Control.Monad.IO.Class (liftIO)
 import Data.Sequence qualified as Seq
-import Data.Sequence (Seq)
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Time (getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
+import Ghc.Ui.Data.Name (Name)
 import qualified Ghc.Ui.Data.Session as Session
-import Ghc.Ui.Data.Session (SessionEvent, SessionState (..))
+import Ghc.Ui.Data.Session (SessionState (..))
+import Ghc.Ui.Data.Sessions (SessionsEvent (..), SessionsState)
 import Ghc.Ui.Session qualified as Session
-import Ghc.Ui.Data.Name (Name (SessionSelector))
-import Ghc.Ui.Utils (popup)
 import Lens.Micro.Platform (Traversal', _2, each, filtered, modifying, preuse, zoom, (.=))
-import Network.GRPC.Client (Connection)
-import Ghc.Ui.Data.WorkerId (WorkerId)
 
-type State = GenericList Name Seq (Session.Id, SessionState)
-
-data Event
-  = StartSession Session.Id UTCTime
-  | EndSession Session.Id
-  | Session Session.Id SessionEvent
-  | AddWorker Session.Id WorkerId UTCTime Connection
-  | RemoveWorker Session.Id WorkerId
-
-initialState :: State
-initialState = list SessionSelector [] 1
-
-draw :: State -> Widget Name
-draw ss =
-  popup 50 "Select session" $ renderList drawOption True ss
- where
-  drawOption isSel (_, SessionState {..}) =
-    str $
-      concat @[]
-        [ if isSel then "> " else "  "
-        , title
-        , " - "
-        , show (length workers)
-        , " workers"
-        ]
-
-sessionLens :: Session.Id -> Traversal' State SessionState
+sessionLens :: Session.Id -> Traversal' SessionsState SessionState
 sessionLens sid =
   listElementsL . each . filtered ((== sid) . fst) . _2
 
-handleEvent :: Event -> EventM Name State ()
+-- TODO \case
+handleEvent :: SessionsEvent -> EventM Name SessionsState ()
 handleEvent (AddWorker sid wid time sendOpts) = do
   session <- preuse (sessionLens sid)
   case session of

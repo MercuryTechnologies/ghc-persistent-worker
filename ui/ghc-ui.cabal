@@ -36,18 +36,20 @@ library
     Ghc.Ui.App
     Ghc.Ui.Data.Main
     Ghc.Ui.Data.Session
+    Ghc.Ui.Data.Sessions
     Ghc.Ui.Data.ServerApi
     Ghc.Ui.Data.Tasks
     Ghc.Ui.Data.Name
     Ghc.Ui.Data.WorkerId
     Ghc.Ui.Event.Main
+    Ghc.Ui.Event.Sessions
     Ghc.Ui.GhcDebug
     Ghc.Ui.Grpc
     Ghc.Ui.ModuleSelector
     Ghc.Ui.Render.Main
+    Ghc.Ui.Render.Sessions
     Ghc.Ui.Run
     Ghc.Ui.Session
-    Ghc.Ui.SessionSelector
     Ghc.Ui.Tasks
     Ghc.Ui.Utils
   build-depends:

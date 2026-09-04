@@ -12,8 +12,8 @@ import Ghc.Ui.Data.Main (MainState (..))
 import Ghc.Ui.Data.Session qualified as Session
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Ghc.Ui.Session qualified as Session
-import Ghc.Ui.SessionSelector qualified as SessionSelector
 import Ghc.Ui.Data.Name (Name (..))
+import qualified Ghc.Ui.Render.Sessions as Sessions
 import Ghc.Ui.Utils (popup)
 import Graphics.Vty (italic, withStyle)
 import Types.State (Options (..))
@@ -24,7 +24,7 @@ drawOptionsEditor form = popup 50 "Session Options" $ renderForm form
 renderMain :: MainState -> [Widget Name]
 renderMain MainState {..} =
   ( case currentFocus of
-      SessionSelector -> [SessionSelector.draw sessions]
+      Sessions -> [Sessions.draw sessions]
       OptionsEditor -> [drawOptionsEditor options]
       TaskDetails -> let task = session >>= listSelectedElement . (.activeTasks) in maybe [] (pure . Tasks.drawTaskDetails . snd) task
       ModuleDetails -> let mdl = session >>= listSelectedElement . (.modules) in maybe [] (pure . ModuleSelector.drawModuleDetails . snd) mdl

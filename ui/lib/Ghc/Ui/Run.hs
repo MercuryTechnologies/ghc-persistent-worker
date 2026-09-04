@@ -14,9 +14,9 @@ import Data.Time (getCurrentTime)
 import Ghc.Ui.App (app)
 import Ghc.Ui.Data.Main (MainEvent (..))
 import qualified Ghc.Ui.Data.Session as Session
-import Ghc.Ui.Event.Main (initialState)
-import Ghc.Ui.SessionSelector qualified as SessionSelector
+import qualified Ghc.Ui.Data.Sessions as Sessions
 import Ghc.Ui.Data.WorkerId (WorkerId (WorkerId))
+import Ghc.Ui.Event.Main (initialState)
 import Graphics.Vty (Vty (shutdown))
 import Network.GRPC.Client (Server (ServerUnix), rpc, withConnection)
 import Network.GRPC.Client.StreamType.IO (serverStreaming)
@@ -46,18 +46,18 @@ listen eventChan instrPath = do
   sessionId = Session.Id $ Text.pack sessionId'
   workerId = WorkerId $ Text.pack workerId'
   go :: Int -> IO ()
-  go 0 = writeBChan eventChan $ SessionSelectorEvent $ SessionSelector.RemoveWorker sessionId workerId
+  go 0 = writeBChan eventChan $ SessionSelectorEvent $ Sessions.RemoveWorker sessionId workerId
   go n =
     catch @SomeException
       ( withConnection def (ServerUnix instrPath) $ \conn -> do
           serverStreaming conn (rpc @(Protobuf Instrument "notifyMe")) defMessage $ \recv -> do
             time <- getModificationTime instrPath
-            writeBChan eventChan $ SessionSelectorEvent $ SessionSelector.AddWorker sessionId workerId time conn
+            writeBChan eventChan $ SessionSelectorEvent $ Sessions.AddWorker sessionId workerId time conn
             writeBChan eventChan (SendOptions (Just workerId))
             whileNext_ recv
               $ writeBChan eventChan
               . SessionSelectorEvent
-              . SessionSelector.Session sessionId
+              . Sessions.Session sessionId
               . Session.InstrEvent workerId
               . decode
               . fromStrict

@@ -3,41 +3,36 @@ module Ghc.Ui.Event.Main where
 import Brick.Forms (FormFieldState, editTextField, formState, handleFormEvent, newForm, (@@=))
 import Brick.Main (getVtyHandle, halt, suspendAndResume')
 import Brick.Types (BrickEvent (..), EventM)
-import Brick.Widgets.Core (str, (<+>))
+import Brick.Widgets.Core (txt, (<+>))
 import Brick.Widgets.List (listSelectedElementL)
 import Control.Exception (handle)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
 import Data.Monoid (First (..))
-import Data.Text qualified as Text
 import Data.Time (UTCTime (..), fromGregorian)
-import Ghc.Ui.Tasks qualified as Tasks
 import Ghc.Ui.Data.Main (MainEvent (..), MainState (..))
+import Ghc.Ui.Data.Name (Name (..))
 import Ghc.Ui.Data.ServerApi (ServerApi (..))
 import Ghc.Ui.Data.Session (SessionState, Worker (..))
+import qualified Ghc.Ui.Data.Sessions as Sessions
+import Ghc.Ui.Data.WorkerId (WorkerId)
+import qualified Ghc.Ui.Event.Sessions as Sessions
 import Ghc.Ui.GhcDebug (debug)
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
-import Ghc.Ui.SessionSelector qualified as SessionSelector
-import Ghc.Ui.Data.Name (Name (..))
+import Ghc.Ui.Tasks qualified as Tasks
 import Ghc.Ui.Utils (handleListEventOf)
 import Graphics.Vty (Event (..), Key (..), Output (..), Vty (..))
 import Internal.Debug (debugSocketPath)
-import Lens.Micro.Platform (Lens', Traversal', _2, each, filtered, lens, packed, preuse, use, zoom, (.=))
+import Lens.Micro.Platform (Traversal', _2, each, filtered, packed, preuse, use, zoom, (.=))
 import Types.State (Options (..), defaultOptions)
 import Types.Target (TargetSpec)
 import Ghc.Ui.Data.WorkerId (WorkerId)
 
-ghcOptionsLens :: Lens' Options Text.Text
-ghcOptionsLens =
-  lens
-    (.extraGhcOptions)
-    (\opts s -> opts{extraGhcOptions = s})
-    . packed
 
 initialState :: MainState
 initialState =
   MainState {
-    sessions = SessionSelector.initialState,
+    sessions = Sessions.initialState,
     options = newForm optionFields defaultOptions,
     currentFocus = ModuleSelector,
     currentTime = UTCTime (fromGregorian 1970 1 1) 0
@@ -45,8 +40,7 @@ initialState =
 
 optionFields :: [Options -> FormFieldState Options Event Name]
 optionFields =
-  [ (str "Extra GHC Options: " <+>) @@= editTextField ghcOptionsLens OEExtraGhcOptions (Just 1)
-  ]
+  [(txt "Extra GHC Options: " <+>) @@= editTextField (#extraGhcOptions . packed) OEExtraGhcOptions (Just 1)]
 
 currentSession :: Traversal' MainState SessionState
 currentSession = #sessions . listSelectedElementL . _2
@@ -92,11 +86,11 @@ handleEvent api@ServerApi {..} = \case
     for_ mworker $ \worker -> do
       liftIO $ triggerRebuild worker.connection target
   AppEvent (SessionSelectorEvent evt) ->
-    zoom #sessions (SessionSelector.handleEvent evt)
+    zoom #sessions (Sessions.handleEvent evt)
   VtyEvent evt -> do
     current <- use #currentFocus
     case current of
-      SessionSelector -> do
+      Sessions -> do
         let hide = #currentFocus .= ModuleSelector
         case evt of
           EvKey KEsc [] -> hide
@@ -128,7 +122,7 @@ handleEvent api@ServerApi {..} = \case
         EvKey KEsc [] -> halt
         EvKey (KChar 'q') [] -> halt
         EvKey (KChar 's') [] -> do
-          #currentFocus .= SessionSelector
+          #currentFocus .= Sessions
         EvKey (KChar 'o') [] -> do
           #currentFocus .= OptionsEditor
         EvKey (KChar 'd') [] -> do
