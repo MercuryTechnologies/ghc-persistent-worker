@@ -10,11 +10,12 @@ import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds
 import Ghc.Ui.ActiveTasks qualified as ActiveTasks
 import Ghc.Ui.Data.Session (SessionEvent (..), SessionState (..), Stats (..), Worker (..))
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
-import Ghc.Ui.Types (Name, WorkerId)
+import Ghc.Ui.Data.Name (Name)
 import Ghc.Ui.Utils (formatBytes, formatPs, stripEscSeqs)
 import Lens.Micro.Platform (each, filtered, modifying, use, zoom)
 import Types.Instrument qualified as Instr
 import Types.Target (TargetSpec (..))
+import Ghc.Ui.Data.WorkerId (WorkerId)
 
 draw :: Name -> UTCTime -> SessionState -> Widget Name
 draw current now SessionState {..} =

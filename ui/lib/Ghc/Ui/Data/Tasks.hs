@@ -3,7 +3,8 @@ module Ghc.Ui.Data.Tasks where
 import Brick.Widgets.List (GenericList, list)
 import Data.Sequence (Seq)
 import Data.Time (UTCTime)
-import Ghc.Ui.Types (Name (ActiveTasks), WorkerId)
+import Ghc.Ui.Data.Name (Name)
+import Ghc.Ui.Data.WorkerId (WorkerId)
 import Types.Target (TargetSpec (..))
 
 data Task =

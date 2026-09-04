@@ -8,7 +8,7 @@ import GHC.Generics (Generic)
 import qualified Ghc.Ui.Data.Tasks as Tasks
 import Ghc.Ui.Data.Tasks (TasksState)
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
-import Ghc.Ui.Types (WorkerId)
+import Ghc.Ui.Data.WorkerId (WorkerId)
 import Network.GRPC.Client (Connection)
 import Types.Instrument qualified as Shared
 

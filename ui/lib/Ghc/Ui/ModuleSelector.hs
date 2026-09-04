@@ -6,7 +6,9 @@ import Brick.Widgets.List (GenericList, list, listElementsL, listSelectedElement
 import Control.Monad (when)
 import Data.Fixed (Fixed (..), Pico)
 import Data.Sequence qualified as Seq
-import Ghc.Ui.Types (Name (ModuleSelector), WorkerId, disabledAttr)
+import Ghc.Ui.Attr (disabledAttr)
+import Ghc.Ui.Data.Name (Name (ModuleSelector))
+import Ghc.Ui.Data.WorkerId (WorkerId)
 import Ghc.Ui.Utils (formatPico, formatPs, popup, upsertAscSeq)
 import Lens.Micro.Platform (modifying, preuse, use, (.=))
 import Types.Target (TargetSpec (..), renderTargetSpec)

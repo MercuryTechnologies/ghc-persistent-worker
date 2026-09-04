@@ -7,7 +7,7 @@ import Brick.Widgets.Core (hLimitPercent, str, vLimitPercent)
 import Brick.Widgets.List (GenericList, Splittable, handleListEvent, handleListEventVi)
 import Data.Fixed (Fixed (..), Pico)
 import Data.Sequence qualified as Seq
-import Ghc.Ui.Types (Name)
+import Ghc.Ui.Data.Name (Name)
 import Graphics.Vty qualified as V
 import Lens.Micro.Platform (Traversal', zoom)
 

@@ -16,7 +16,7 @@ import Ghc.Ui.Data.Main (MainEvent (..))
 import qualified Ghc.Ui.Data.Session as Session
 import Ghc.Ui.Event.Main (initialState)
 import Ghc.Ui.SessionSelector qualified as SessionSelector
-import Ghc.Ui.Types (WorkerId (WorkerId))
+import Ghc.Ui.Data.WorkerId (WorkerId (WorkerId))
 import Graphics.Vty (Vty (shutdown))
 import Network.GRPC.Client (Server (ServerUnix), rpc, withConnection)
 import Network.GRPC.Client.StreamType.IO (serverStreaming)

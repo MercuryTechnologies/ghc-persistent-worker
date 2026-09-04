@@ -11,10 +11,11 @@ import Data.Time.Format.ISO8601 (iso8601Show)
 import qualified Ghc.Ui.Data.Session as Session
 import Ghc.Ui.Data.Session (SessionEvent, SessionState (..))
 import Ghc.Ui.Session qualified as Session
-import Ghc.Ui.Types (Name (SessionSelector), WorkerId)
+import Ghc.Ui.Data.Name (Name (SessionSelector))
 import Ghc.Ui.Utils (popup)
 import Lens.Micro.Platform (Traversal', _2, each, filtered, modifying, preuse, zoom, (.=))
 import Network.GRPC.Client (Connection)
+import Ghc.Ui.Data.WorkerId (WorkerId)
 
 type State = GenericList Name Seq (Session.Id, SessionState)
 

@@ -32,12 +32,15 @@ library
   import: all
   hs-source-dirs: lib
   exposed-modules:
+    Ghc.Ui.Attr
     Ghc.Ui.ActiveTasks
     Ghc.Ui.App
     Ghc.Ui.Data.Main
     Ghc.Ui.Data.Session
     Ghc.Ui.Data.ServerApi
     Ghc.Ui.Data.Tasks
+    Ghc.Ui.Data.Name
+    Ghc.Ui.Data.WorkerId
     Ghc.Ui.Event.Main
     Ghc.Ui.GhcDebug
     Ghc.Ui.Grpc
@@ -46,7 +49,6 @@ library
     Ghc.Ui.Run
     Ghc.Ui.Session
     Ghc.Ui.SessionSelector
-    Ghc.Ui.Types
     Ghc.Ui.Utils
   build-depends:
     binary,

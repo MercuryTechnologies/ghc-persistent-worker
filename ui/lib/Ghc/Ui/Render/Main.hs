@@ -13,7 +13,7 @@ import Ghc.Ui.Data.Session qualified as Session
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Ghc.Ui.Session qualified as Session
 import Ghc.Ui.SessionSelector qualified as SessionSelector
-import Ghc.Ui.Types (Name (..))
+import Ghc.Ui.Data.Name (Name (..))
 import Ghc.Ui.Utils (popup)
 import Graphics.Vty (italic, withStyle)
 import Types.State (Options (..))
