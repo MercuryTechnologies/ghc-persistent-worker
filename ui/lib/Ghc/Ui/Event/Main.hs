@@ -28,7 +28,6 @@ import Types.State (Options (..), defaultOptions)
 import Types.Target (TargetSpec)
 import Ghc.Ui.Data.WorkerId (WorkerId)
 
-
 initialState :: MainState
 initialState =
   MainState {

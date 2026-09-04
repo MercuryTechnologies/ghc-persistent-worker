@@ -13,7 +13,7 @@ import Network.GRPC.Client (Connection)
 import Types.Instrument qualified as Shared
 
 newtype Id =
-  Id { unId :: Text }
+  Id { text :: Text }
   deriving stock (Eq, Ord, Show)
 
 data Worker =
@@ -32,11 +32,20 @@ data Stats =
   }
 
 instance Semigroup Stats where
-  Stats m1 gc1 cpu1 <> Stats m2 gc2 cpu2 =
-    Stats (Map.unionWith (+) m1 m2) (gc1 + gc2) (cpu1 + cpu2)
+  l <> r =
+    Stats {
+      memory = Map.unionWith (+) l.memory r.memory,
+      gc_cpu_ns = l.gc_cpu_ns + r.gc_cpu_ns,
+      cpu_ns = l.cpu_ns + r.cpu_ns
+    }
 
 instance Monoid Stats where
-  mempty = Stats mempty 0 0
+  mempty =
+    Stats {
+      memory = [],
+      gc_cpu_ns = 0,
+      cpu_ns = 0
+    }
 
 data SessionState =
   SessionState {
