@@ -1,4 +1,4 @@
-module Ghc.Ui.ActiveTasks where
+module Ghc.Ui.Tasks where
 
 import Brick.Types (EventM, Widget)
 import Brick.Widgets.Core (Padding (..), padRight, str, strWrap, withAttr, (<+>))
@@ -8,7 +8,7 @@ import Data.Maybe (fromMaybe)
 import Data.Sequence qualified as Seq
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
 import Ghc.Ui.Attr (canDebugAttr)
-import Ghc.Ui.Data.Name (Name (ActiveTasks))
+import Ghc.Ui.Data.Name (Name (Tasks))
 import Ghc.Ui.Data.Tasks (Task (..), TasksState)
 import Ghc.Ui.Data.WorkerId (WorkerId)
 import Ghc.Ui.Utils (formatPico, popup)
@@ -16,7 +16,7 @@ import Lens.Micro.Platform (modifying, preuse, use, (.=), (<&>))
 import Types.Target (TargetSpec (..), renderTargetSpec)
 
 draw :: Name -> UTCTime -> TasksState -> Widget Name
-draw current now = renderList drawTask (current == ActiveTasks)
+draw current now = renderList drawTask (current == Tasks)
  where
   drawTask _ Task {..} =
     (if debuggable then withAttr canDebugAttr else id) $

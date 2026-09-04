@@ -7,7 +7,7 @@ import Brick.Widgets.Border.Style (unicodeRounded)
 import Brick.Widgets.Center (center)
 import Brick.Widgets.Core (joinBorders, modifyDefAttr, str, vBox, withBorderStyle)
 import Brick.Widgets.List (listSelectedElement)
-import Ghc.Ui.ActiveTasks qualified as ActiveTasks
+import Ghc.Ui.Tasks qualified as Tasks
 import Ghc.Ui.Data.Main (MainState (..))
 import Ghc.Ui.Data.Session qualified as Session
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
@@ -26,7 +26,7 @@ renderMain MainState {..} =
   ( case currentFocus of
       SessionSelector -> [SessionSelector.draw sessions]
       OptionsEditor -> [drawOptionsEditor options]
-      TaskDetails -> let task = session >>= listSelectedElement . (.activeTasks) in maybe [] (pure . ActiveTasks.drawTaskDetails . snd) task
+      TaskDetails -> let task = session >>= listSelectedElement . (.activeTasks) in maybe [] (pure . Tasks.drawTaskDetails . snd) task
       ModuleDetails -> let mdl = session >>= listSelectedElement . (.modules) in maybe [] (pure . ModuleSelector.drawModuleDetails . snd) mdl
       _ -> []
   )

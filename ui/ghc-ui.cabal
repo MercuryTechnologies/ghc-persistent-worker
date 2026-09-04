@@ -33,7 +33,6 @@ library
   hs-source-dirs: lib
   exposed-modules:
     Ghc.Ui.Attr
-    Ghc.Ui.ActiveTasks
     Ghc.Ui.App
     Ghc.Ui.Data.Main
     Ghc.Ui.Data.Session
@@ -49,6 +48,7 @@ library
     Ghc.Ui.Run
     Ghc.Ui.Session
     Ghc.Ui.SessionSelector
+    Ghc.Ui.Tasks
     Ghc.Ui.Utils
   build-depends:
     binary,

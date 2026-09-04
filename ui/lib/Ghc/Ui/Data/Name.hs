@@ -1,7 +1,7 @@
 module Ghc.Ui.Data.Name where
 
 data Name =
-  ActiveTasks
+  Tasks
   |
   TaskDetails
   |

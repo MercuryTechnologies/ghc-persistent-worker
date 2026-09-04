@@ -11,7 +11,7 @@ import Data.Foldable (for_)
 import Data.Monoid (First (..))
 import Data.Text qualified as Text
 import Data.Time (UTCTime (..), fromGregorian)
-import Ghc.Ui.ActiveTasks qualified as ActiveTasks
+import Ghc.Ui.Tasks qualified as Tasks
 import Ghc.Ui.Data.Main (MainEvent (..), MainState (..))
 import Ghc.Ui.Data.ServerApi (ServerApi (..))
 import Ghc.Ui.Data.Session (SessionState, Worker (..))
@@ -60,7 +60,7 @@ withTarget' :: Bool -> (WorkerId -> TargetSpec -> EventM Name MainState ()) -> E
 withTarget' forRebuild handler = do
   current <- use #currentFocus
   First mtarget <- case current of
-    ActiveTasks -> zoom (currentSession . #activeTasks) (First <$> ActiveTasks.getSelectedTarget)
+    Tasks -> zoom (currentSession . #activeTasks) (First <$> Tasks.getSelectedTarget)
     ModuleSelector -> zoom (currentSession . #modules) (First <$> ModuleSelector.getSelectedTarget forRebuild)
     _ -> pure (First Nothing)
   case mtarget of
@@ -113,7 +113,7 @@ handleEvent api@ServerApi {..} = \case
           EvKey KEnter [] -> hide
           _ -> zoom #options (handleFormEvent (VtyEvent evt))
       TaskDetails -> do
-        let hide = #currentFocus .= ActiveTasks
+        let hide = #currentFocus .= Tasks
         case evt of
           EvKey KEsc [] -> hide
           EvKey KEnter [] -> hide
@@ -140,17 +140,17 @@ handleEvent api@ServerApi {..} = \case
             handleEvent api (AppEvent (TriggerRebuild wid target))
         EvKey (KChar '\t') [] -> do
           #currentFocus .= case current of
-            ActiveTasks -> ModuleSelector
-            ModuleSelector -> ActiveTasks
+            Tasks -> ModuleSelector
+            ModuleSelector -> Tasks
             _ -> current
         EvKey KEnter [] -> do
           withTarget \_ _ ->
             #currentFocus .= case current of
-              ActiveTasks -> TaskDetails
+              Tasks -> TaskDetails
               ModuleSelector -> ModuleDetails
               _ -> current
         _ -> case current of
-          ActiveTasks -> handleListEventOf (currentSession . #activeTasks) evt
+          Tasks -> handleListEventOf (currentSession . #activeTasks) evt
           ModuleSelector -> handleListEventOf (currentSession . #modules) evt
           _ -> pure ()
   MouseDown {} -> pure ()
