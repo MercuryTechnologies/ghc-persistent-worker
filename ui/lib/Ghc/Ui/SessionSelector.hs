@@ -33,13 +33,13 @@ draw ss =
     str $
       concat @[]
         [ if isSel then "> " else "  "
-        , _title
+        , title
         , " - "
-        , show (length _workers)
+        , show (length workers)
         , " workers"
         ]
 
-sessionLens :: Session.Id -> Traversal' State (Session.State)
+sessionLens :: Session.Id -> Traversal' State Session.State
 sessionLens sid =
   listElementsL . each . filtered ((== sid) . fst) . _2
 
@@ -50,8 +50,8 @@ handleEvent (AddWorker sid wid time sendOpts) = do
     Nothing -> handleEvent (StartSession sid time)
     _ -> pure ()
   zoom (sessionLens sid) $ do
-    modifying Session.workers (Session.Worker wid sendOpts mempty :)
-    modifying Session.sesStartTime (min time)
+    modifying #workers (Session.Worker wid sendOpts mempty :)
+    modifying #sesStartTime (min time)
 handleEvent (RemoveWorker sid wid) = do
   zoom (sessionLens sid) $ Session.removeWorker wid
 handleEvent (StartSession sid start) = do
@@ -65,5 +65,5 @@ handleEvent (StartSession sid start) = do
   listSelectedL .= Just 0
 handleEvent (EndSession sid) = do
   end <- liftIO getCurrentTime
-  modifying (sessionLens sid . Session.sesEndTime) (const $ Just end)
+  modifying (sessionLens sid . #sesEndTime) (const $ Just end)
 handleEvent (SessionEvent sid evt) = zoom (sessionLens sid) (Session.handleEvent evt)

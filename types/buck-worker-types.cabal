@@ -27,6 +27,7 @@ library
   default-extensions:
     BlockArguments,
     DataKinds,
+    DeriveAnyClass,
     DerivingStrategies,
     DuplicateRecordFields,
     LambdaCase,

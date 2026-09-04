@@ -28,8 +28,8 @@ import GHC.Types.SourceError (throwErrors)
 import GHC.Types.Unique.Map (UniqMap)
 import GHC.Unit (GenWithIsBoot (..), UnitState (..))
 import GHC.Unit.Env (UnitEnv (..))
-import GHC.Unit.Module (IsBootInterface (..), ModLocation (..), ModuleName (..), UnitId (..))
 import GHC.Unit.Home.Graph (unitEnv_keys)
+import GHC.Unit.Module (IsBootInterface (..), ModLocation (..), ModuleName (..), UnitId (..))
 import GHC.Unit.Module.Graph (
   ModNodeKeyWithUid (..),
   ModuleGraph,
@@ -45,7 +45,7 @@ import Internal.BuildPlan.External (packageName, unitImports)
 import Internal.BuildPlan.Json (assembleFields, mergePackageDeps)
 import qualified Internal.Compat.FixedNodes as FixedNodes
 import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, downsweepCompat)
-import Internal.Compat.GHC914 (edgeTarget, hscModuleGraph, mapMGM)
+import Internal.Compat.GHC914 (edgeTarget, mapMGM)
 import Internal.Error (eitherMessages)
 import Internal.ValidateNames (validateModuleNames)
 import System.FilePath (splitExtension)
@@ -80,6 +80,7 @@ import GHC.Unit.Module.Graph (isTemplateHaskellOrQQNonBoot)
 #if defined(DOWNSWEEP_CACHE)
 
 import GHC.Unit.Module.Graph (mgModSummaries)
+import Internal.Compat.GHC914 (hscModuleGraph)
 
 #endif
 

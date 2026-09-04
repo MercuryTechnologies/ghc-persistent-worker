@@ -1,4 +1,4 @@
-cabal-version: 2.2
+cabal-version: 3.4
 name: ghc-ui
 version: 0.1
 synopsis: Terminal UI for ghc-server
@@ -32,11 +32,14 @@ library
   import: all
   hs-source-dirs: lib
   exposed-modules:
-    Ghc.Ui
     Ghc.Ui.ActiveTasks
+    Ghc.Ui.App
+    Ghc.Ui.Data.ServerApi
+    Ghc.Ui.Event.Main
     Ghc.Ui.GhcDebug
     Ghc.Ui.Grpc
     Ghc.Ui.ModuleSelector
+    Ghc.Ui.Render.Main
     Ghc.Ui.Run
     Ghc.Ui.Session
     Ghc.Ui.SessionSelector
@@ -50,14 +53,17 @@ library
     buck-worker-types,
     bytestring,
     containers,
+    generic-lens,
     ghc-debug-brick,
     directory,
     filepath,
     fsnotify,
     grapesy,
+    lens,
     microlens-platform,
     text,
     time,
+    transformers,
     vty
 
 executable ghc-ui

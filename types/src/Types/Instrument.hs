@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 module Types.Instrument where
 
 import Data.Binary (Binary)

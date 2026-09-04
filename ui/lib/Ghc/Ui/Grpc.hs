@@ -4,6 +4,7 @@ import BuckWorkerProto (Instrument)
 import Control.Concurrent (forkIO)
 import Control.Monad (void)
 import Data.Text qualified as Text
+import Ghc.Ui.Data.ServerApi (ServerApi (..))
 import Network.GRPC.Client (Connection, rpc)
 import Network.GRPC.Client.StreamType.IO (nonStreaming)
 import Network.GRPC.Common.Protobuf (Proto, Protobuf, defMessage, (&), (.~))
@@ -19,15 +20,19 @@ sendOptions conn options =
       mkOptions options
 
 mkOptions :: Options -> Proto Instr.Options
-mkOptions Options{..} =
+mkOptions Options {..} =
   defMessage
-    & Fields.extraGhcOptions
-    .~ Text.pack extraGhcOptions
+  & Fields.extraGhcOptions
+  .~ Text.pack extraGhcOptions
 
 triggerRebuild :: Connection -> TargetSpec -> IO ()
 triggerRebuild conn target =
   void $ forkIO $ void $
-    nonStreaming conn (rpc @(Protobuf Instrument "triggerRebuild")) $
-      defMessage
-        & Fields.target
-        .~ Text.pack (renderTargetSpec target)
+  nonStreaming conn (rpc @(Protobuf Instrument "triggerRebuild")) $
+    defMessage
+    & Fields.target
+    .~ renderTargetSpec target
+
+serverApi :: ServerApi
+serverApi =
+  ServerApi {sendOptions, triggerRebuild}

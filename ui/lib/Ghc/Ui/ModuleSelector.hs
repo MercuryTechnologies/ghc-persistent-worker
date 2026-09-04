@@ -16,43 +16,44 @@ type State = GenericList Name Seq.Seq Module
 initialState :: State
 initialState = list ModuleSelector Seq.empty 1
 
-data Module = Module
-  { _modTarget :: TargetSpec
-  , _content :: String
-  , _modCompileTime :: Maybe Pico
-  , _fromWorker :: WorkerId
-  , _disabled :: Bool
+data Module =
+  Module {
+    modTarget :: TargetSpec,
+    content :: String,
+    modCompileTime :: Maybe Pico,
+    fromWorker :: WorkerId,
+    disabled :: Bool
   }
 
 draw :: Name -> State -> Widget Name
 draw current = renderList drawModule (current == ModuleSelector)
  where
-  drawModule _ Module{_modTarget = name, ..} =
-    (if _disabled then withAttr disabledAttr else id) $
-      padRight Max (str (renderTargetSpec name)) <+> str (maybe "" formatPico _modCompileTime)
+  drawModule _ Module{modTarget = name, ..} =
+    (if disabled then withAttr disabledAttr else id) $
+      padRight Max (str (renderTargetSpec name)) <+> str (maybe "" formatPico modCompileTime)
 
 drawModuleDetails :: Module -> Widget Name
-drawModuleDetails Module{_modTarget = name, ..} =
+drawModuleDetails Module{modTarget = name, ..} =
   popup 70 (renderTargetSpec name) $
     vBox
-      [ str $ "Compile time: " ++ maybe "" (formatPs . (\(MkFixed n) -> n)) _modCompileTime
-      , strWrap _content
+      [ str $ "Compile time: " ++ maybe "" (formatPs . (\(MkFixed n) -> n)) modCompileTime
+      , strWrap content
       ]
 
 addModule :: TargetSpec -> String -> Maybe Pico -> WorkerId -> EventM Name State ()
 addModule target content compileTime wid = do
   mods <- use listElementsL
-  let (i, mods') = upsertAscSeq _modTarget (Module target content compileTime wid False) mods
+  let (i, mods') = upsertAscSeq (.modTarget) (Module target content compileTime wid False) mods
   listElementsL .= mods'
   modifying listSelectedL (Just . maybe i (\i' -> if i' >= i then i' + 1 else i'))
 
 getSelectedTarget :: Bool -> EventM Name State (Maybe (WorkerId, TargetSpec))
 getSelectedTarget forRebuild = do
   mtask <- preuse listSelectedElementL
-  when forRebuild $ modifying listSelectedElementL (\m -> m {_disabled = True})
-  pure $ mtask >>= \Module{_fromWorker = wid, _modTarget = target, _disabled} -> if forRebuild && _disabled then Nothing else Just (wid, target)
+  when forRebuild $ modifying listSelectedElementL (\m -> m {disabled = True})
+  pure $ mtask >>= \Module{fromWorker = wid, modTarget = target, disabled} -> if forRebuild && disabled then Nothing else Just (wid, target)
 
 removeWorker :: WorkerId -> EventM Name State ()
 removeWorker wid = do
   modifying listElementsL \mods ->
-    fmap (\m -> if m._fromWorker == wid then m{_disabled = True} else m) mods
+    fmap (\m -> if m.fromWorker == wid then m{disabled = True} else m) mods
