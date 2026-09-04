@@ -37,6 +37,7 @@ library
     Ghc.Ui.Data.Main
     Ghc.Ui.Data.Session
     Ghc.Ui.Data.ServerApi
+    Ghc.Ui.Data.Tasks
     Ghc.Ui.Event.Main
     Ghc.Ui.GhcDebug
     Ghc.Ui.Grpc

@@ -8,25 +8,13 @@ import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
 import Ghc.Ui.ActiveTasks qualified as ActiveTasks
-import Ghc.Ui.Data.Session
+import Ghc.Ui.Data.Session (SessionEvent (..), SessionState (..), Stats (..), Worker (..))
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Ghc.Ui.Types (Name, WorkerId)
 import Ghc.Ui.Utils (formatBytes, formatPs, stripEscSeqs)
 import Lens.Micro.Platform (each, filtered, modifying, use, zoom)
 import Types.Instrument qualified as Instr
 import Types.Target (TargetSpec (..))
-
-mkSession :: String -> UTCTime -> SessionState
-mkSession title startTime =
-  SessionState {
-    title,
-    workers = [],
-    activeTasks = ActiveTasks.initialState,
-    modules = ModuleSelector.initialState,
-    sesStartTime = startTime,
-    sesEndTime = Nothing,
-    finishedWorkerStats = mempty
-  }
 
 draw :: Name -> UTCTime -> SessionState -> Widget Name
 draw current now SessionState {..} =

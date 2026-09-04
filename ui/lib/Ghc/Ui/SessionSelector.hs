@@ -63,7 +63,7 @@ handleEvent (StartSession sid start) = do
     ( \m ->
         let i = Seq.length m + 1
             stitle = "Session " ++ show i ++ "  " ++ take 19 (iso8601Show start)
-         in Seq.insertAt 0 (sid, Session.mkSession stitle start) m
+         in Seq.insertAt 0 (sid, Session.initialState stitle start) m
     )
   listSelectedL .= Just 0
 handleEvent (EndSession sid) = do

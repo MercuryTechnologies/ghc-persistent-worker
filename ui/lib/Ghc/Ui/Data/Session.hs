@@ -5,7 +5,8 @@ import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import GHC.Generics (Generic)
-import Ghc.Ui.ActiveTasks qualified as ActiveTasks
+import qualified Ghc.Ui.Data.Tasks as Tasks
+import Ghc.Ui.Data.Tasks (TasksState)
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Ghc.Ui.Types (WorkerId)
 import Network.GRPC.Client (Connection)
@@ -41,7 +42,7 @@ data SessionState =
   SessionState {
     title :: String,
     workers :: [Worker],
-    activeTasks :: ActiveTasks.State,
+    activeTasks :: TasksState,
     modules :: ModuleSelector.State,
     sesStartTime :: UTCTime,
     sesEndTime :: Maybe UTCTime,
@@ -50,3 +51,15 @@ data SessionState =
   deriving stock (Generic)
 
 data SessionEvent = InstrEvent WorkerId Shared.Event
+
+initialState :: String -> UTCTime -> SessionState
+initialState title startTime =
+  SessionState {
+    title,
+    workers = [],
+    activeTasks = Tasks.initialState,
+    modules = ModuleSelector.initialState,
+    sesStartTime = startTime,
+    sesEndTime = Nothing,
+    finishedWorkerStats = mempty
+  }
