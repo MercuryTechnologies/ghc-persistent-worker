@@ -6,7 +6,7 @@ import Brick.Widgets.List (renderList)
 import Ghc.Ui.Data.Name (Name)
 import Ghc.Ui.Data.Session (SessionState (..))
 import Ghc.Ui.Data.Sessions (SessionsState)
-import Ghc.Ui.Utils (popup)
+import Ghc.Ui.Render.Popup (popup)
 
 draw :: SessionsState -> Widget Name
 draw ss =

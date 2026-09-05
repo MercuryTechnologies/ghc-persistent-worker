@@ -8,7 +8,7 @@ import Ghc.Ui.Attr (canDebugAttr)
 import Ghc.Ui.Data.Name (Name (Tasks))
 import Ghc.Ui.Data.Tasks (Task (..), TasksState)
 import Ghc.Ui.Render.Format (formatPico)
-import Ghc.Ui.Utils (popup)
+import Ghc.Ui.Render.Popup (popup)
 import Types.Target (renderTargetSpec)
 
 drawTaskDetails :: Task -> Widget Name
