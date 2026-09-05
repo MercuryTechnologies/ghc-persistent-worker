@@ -1,8 +1,11 @@
 module Ghc.Ui.Event.Session where
 
 import Brick.Types (EventM)
+import Control.Lens ((%%=), (<>=))
 import Control.Monad.IO.Class (liftIO)
+import Data.Foldable (for_)
 import Data.Generics.Labels ()
+import qualified Data.Map.Strict as Map
 import Data.Time (diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
 import Ghc.Ui.Data.Name (Name)
 import Ghc.Ui.Data.Session (SessionEvent (..), SessionState (..), Stats (..), Worker (..))
@@ -10,7 +13,7 @@ import Ghc.Ui.Data.WorkerId (WorkerId)
 import Ghc.Ui.Event.Tasks qualified as Tasks
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Ghc.Ui.Utils (stripEscSeqs)
-import Lens.Micro.Platform (each, filtered, modifying, use, zoom)
+import Lens.Micro.Platform (each, filtered, modifying, zoom)
 import Types.Instrument qualified as Instr
 import Types.Target (TargetSpec (..))
 
@@ -40,8 +43,8 @@ handleEvent (InstrEvent wid evt) =
     Instr.Halt -> pure ()
 
 removeWorker :: WorkerId -> EventM Name SessionState ()
-removeWorker wid = do
-  st <- use (#workers . each . filtered (\w -> w.workerId == wid) . #stats)
-  modifying #finishedWorkerStats (<> st{memory = mempty})
-  modifying #workers (filter (\w -> w.workerId /= wid))
-  zoom #modules $ ModuleSelector.removeWorker wid
+removeWorker target = do
+  removed <- #workers %%= Map.updateLookupWithKey (\ _ _ -> Nothing) target
+  for_ removed \ worker ->
+    #finishedWorkerStats <>= worker.stats {memory = mempty}
+  zoom #modules $ ModuleSelector.removeWorker target
