@@ -42,6 +42,7 @@ library
     Ghc.Ui.Data.Name
     Ghc.Ui.Data.WorkerId
     Ghc.Ui.Event.Main
+    Ghc.Ui.Event.Popup
     Ghc.Ui.Event.Session
     Ghc.Ui.Event.Sessions
     Ghc.Ui.Event.Tasks

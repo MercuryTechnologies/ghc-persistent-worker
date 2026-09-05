@@ -24,6 +24,7 @@ data MainState =
     sessions :: SessionsState,
     options :: Form Options Event Name,
     currentFocus :: Name,
+    previousFocus :: Name,
     currentTime :: UTCTime
   }
   deriving stock (Generic)

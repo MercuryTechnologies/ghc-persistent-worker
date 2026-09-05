@@ -15,18 +15,17 @@ import Ghc.Ui.Data.Name (Name (..))
 import Ghc.Ui.Data.ServerApi (ServerApi (..))
 import Ghc.Ui.Data.Session (SessionState, Worker (..))
 import qualified Ghc.Ui.Data.Sessions as Sessions
-import Ghc.Ui.Data.WorkerId (WorkerId)
+import Ghc.Ui.Data.WorkerId (WorkerId (..))
+import Ghc.Ui.Event.Popup (handleListEventOf)
 import qualified Ghc.Ui.Event.Sessions as Sessions
 import Ghc.Ui.Event.Tasks qualified as Tasks
 import Ghc.Ui.GhcDebug (debug)
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
-import Ghc.Ui.Utils (handleListEventOf)
 import Graphics.Vty (Event (..), Key (..), Output (..), Vty (..))
 import Internal.Debug (debugSocketPath)
 import Lens.Micro.Platform (Traversal', _2, each, filtered, packed, preuse, use, zoom, (.=))
 import Types.State (Options (..), defaultOptions)
 import Types.Target (TargetSpec)
-import Ghc.Ui.Data.WorkerId (WorkerId)
 
 initialState :: MainState
 initialState =

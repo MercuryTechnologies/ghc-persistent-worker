@@ -1,15 +1,12 @@
 module Ghc.Ui.Utils where
 
-import Brick.Types (EventM, Widget)
+import Brick.Types (Widget)
 import Brick.Widgets.Border (borderWithLabel)
 import Brick.Widgets.Center (centerLayer)
 import Brick.Widgets.Core (hLimitPercent, str, vLimitPercent)
-import Brick.Widgets.List (GenericList, Splittable, handleListEvent, handleListEventVi)
 import Data.Fixed (Fixed (..), Pico)
 import Data.Sequence qualified as Seq
 import Ghc.Ui.Data.Name (Name)
-import Graphics.Vty qualified as V
-import Lens.Micro.Platform (Traversal', zoom)
 
 popup :: Int -> String -> Widget Name -> Widget Name
 popup size popupTitle content =
@@ -54,6 +51,3 @@ upsertAscSeq meas x as = binSearch 0 (Seq.length as - 1)
                 if meas x > b'
                   then binSearch (m + 1) r
                   else (m, Seq.update m x as)
-
-handleListEventOf :: (Foldable t, Splittable t, Ord n) => Traversal' s (GenericList n t e) -> V.Event -> EventM n s ()
-handleListEventOf lens = zoom lens . handleListEventVi handleListEvent
