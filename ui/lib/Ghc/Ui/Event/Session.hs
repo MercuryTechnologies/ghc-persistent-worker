@@ -12,10 +12,14 @@ import Ghc.Ui.Data.Session (SessionEvent (..), SessionState (..), Stats (..), Wo
 import Ghc.Ui.Data.WorkerId (WorkerId)
 import Ghc.Ui.Event.Tasks qualified as Tasks
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
-import Ghc.Ui.Utils (stripEscSeqs)
 import Lens.Micro.Platform (each, filtered, modifying, zoom)
 import Types.Instrument qualified as Instr
 import Types.Target (TargetSpec (..))
+
+stripEscSeqs :: String -> String
+stripEscSeqs [] = []
+stripEscSeqs ('\ESC' : '[' : xs) = stripEscSeqs (drop 1 (dropWhile (/= 'm') xs))
+stripEscSeqs (x : xs) = x : stripEscSeqs xs
 
 handleEvent :: SessionEvent -> EventM Name SessionState ()
 handleEvent (InstrEvent wid evt) =

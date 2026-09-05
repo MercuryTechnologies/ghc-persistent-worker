@@ -14,11 +14,6 @@ popup size popupTitle content =
       vLimitPercent size $
         borderWithLabel (str $ " " ++ popupTitle ++ " ") content
 
-stripEscSeqs :: String -> String
-stripEscSeqs [] = []
-stripEscSeqs ('\ESC' : '[' : xs) = stripEscSeqs (drop 1 (dropWhile (/= 'm') xs))
-stripEscSeqs (x : xs) = x : stripEscSeqs xs
-
 upsertAscSeq :: (Ord b) => (a -> b) -> a -> Seq.Seq a -> (Int, Seq.Seq a)
 upsertAscSeq meas x as = binSearch 0 (Seq.length as - 1)
  where
