@@ -10,7 +10,7 @@ import Ghc.Ui.Data.Name (Name)
 import Ghc.Ui.Data.Session (SessionState (..), Stats (..), Worker (..))
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Ghc.Ui.Render.Tasks qualified as Tasks
-import Ghc.Ui.Utils (formatBytes, formatPs)
+import Ghc.Ui.Render.Format (formatBytes, formatPs)
 
 drawStats :: Int -> Stats -> Widget Name
 drawStats workerCount Stats{..} =

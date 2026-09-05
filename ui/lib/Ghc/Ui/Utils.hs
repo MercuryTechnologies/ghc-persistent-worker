@@ -1,10 +1,9 @@
 module Ghc.Ui.Utils where
 
-import Brick.Types (Widget)
+import Brick (Widget)
 import Brick.Widgets.Border (borderWithLabel)
 import Brick.Widgets.Center (centerLayer)
 import Brick.Widgets.Core (hLimitPercent, str, vLimitPercent)
-import Data.Fixed (Fixed (..), Pico)
 import Data.Sequence qualified as Seq
 import Ghc.Ui.Data.Name (Name)
 
@@ -14,22 +13,6 @@ popup size popupTitle content =
     hLimitPercent size $
       vLimitPercent size $
         borderWithLabel (str $ " " ++ popupTitle ++ " ") content
-
-formatBytes :: (Integral a, Show a) => a -> String
-formatBytes = format ["b", "Kb", "Mb", "Gb", "Tb", "Pb"]
-
-formatPs :: (Integral a, Show a) => a -> String
-formatPs = format ["ps", "ns", "µs", "ms", "s"]
-
-formatPico :: Pico -> String
-formatPico (MkFixed n) = formatPs n
-
-format :: (Integral a, Show a) => [String] -> a -> String
-format [unit] n = show n ++ unit
-format (unit : units) n
-  | n >= 10_000 = format units (n `div` 1_000)
-  | otherwise = show n ++ unit
-format [] _ = error "No units given"
 
 stripEscSeqs :: String -> String
 stripEscSeqs [] = []

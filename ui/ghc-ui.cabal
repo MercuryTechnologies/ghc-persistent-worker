@@ -46,6 +46,7 @@ library
     Ghc.Ui.Event.Session
     Ghc.Ui.Event.Sessions
     Ghc.Ui.Event.Tasks
+    Ghc.Ui.Render.Format
     Ghc.Ui.GhcDebug
     Ghc.Ui.Grpc
     Ghc.Ui.ModuleSelector
