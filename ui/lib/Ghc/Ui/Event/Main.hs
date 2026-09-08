@@ -1,9 +1,7 @@
 module Ghc.Ui.Event.Main where
 
-import Brick.Forms (FormFieldState, editTextField, formState, newForm, (@@=))
 import Brick.Main (getVtyHandle, halt, suspendAndResume')
 import Brick.Types (BrickEvent (..), EventM)
-import Brick.Widgets.Core (txt, (<+>))
 import Brick.Widgets.List (listSelectedElementL)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
@@ -18,30 +16,24 @@ import Ghc.Ui.Data.ServerApi (ServerApi (..))
 import Ghc.Ui.Data.Session (SessionState, Worker (..))
 import qualified Ghc.Ui.Data.Sessions as Sessions
 import Ghc.Ui.Data.WorkerId (WorkerId (..))
-import Ghc.Ui.Event.Popup (focus, handleForm, handleListEventOf, listKeyEvent, openPopup, popupKeyEvent)
+import Ghc.Ui.Event.Popup (focus, handleListEventOf, listKeyEvent, openPopup)
 import qualified Ghc.Ui.Event.Sessions as Sessions
 import Ghc.Ui.Event.Tasks qualified as Tasks
 import Ghc.Ui.GhcDebug (debug)
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Graphics.Vty (Event (..), Key (..), Output (..), Vty (..))
 import Internal.Debug (debugSocketPath)
-import Lens.Micro.Platform (Traversal', _2, packed, use, zoom, (.=))
-import Types.State (Options (..), defaultOptions)
+import Lens.Micro.Platform (Traversal', _2, use, zoom, (.=))
 import Types.Target (TargetSpec)
 
 initialState :: MainState
 initialState =
   MainState {
     sessions = Sessions.initialState,
-    options = newForm optionFields defaultOptions,
     currentFocus = ModuleSelector,
     previousFocus = ModuleSelector,
     currentTime = UTCTime (fromGregorian 1970 1 1) 0
   }
-
-optionFields :: [Options -> FormFieldState Options Event Name]
-optionFields =
-  [(txt "Extra GHC Options: " <+>) @@= editTextField (#extraGhcOptions . packed) OEExtraGhcOptions (Just 1)]
 
 currentSession :: Traversal' MainState SessionState
 currentSession = #sessions . listSelectedElementL . _2
@@ -82,15 +74,6 @@ forWorkers spec f = do
   workers <- selectWorkers spec <$> use (currentSession . #workers)
   traverse_ f workers
 
-sendOptions ::
-  ServerApi ->
-  Maybe WorkerId ->
-  EventM Name MainState ()
-sendOptions api spec = do
-  opts <- use #options
-  forWorkers spec \ worker ->
-    liftIO $ api.sendOptions worker.connection (formState opts)
-
 triggerBuild :: ServerApi -> WorkerId -> TargetSpec -> EventM Name MainState ()
 triggerBuild api workerId target = do
   forWorkers (Just workerId) \ worker ->
@@ -100,9 +83,6 @@ handleMainEvent :: ServerApi -> MainEvent -> EventM Name MainState ()
 handleMainEvent api = \case
   SetTime t ->
     #currentTime .= t
-
-  SendOptions target ->
-    sendOptions api target
 
   TriggerRebuild worker target ->
     triggerBuild api worker target
@@ -118,9 +98,6 @@ handleGlobalKey api current event = \case
 
   KChar 's' ->
     openPopup Sessions
-
-  KChar 'o' ->
-    openPopup OptionsEditor
 
   KChar 'd' ->
     withTarget \ _ target ->
@@ -154,10 +131,6 @@ vtyEvent :: ServerApi -> Name -> Event -> EventM Name MainState ()
 vtyEvent api = \case
   Sessions ->
     listKeyEvent #sessions True
-
-  OptionsEditor ->
-    popupKeyEvent True (handleForm #options) do
-      sendOptions api Nothing
 
   -- TODO why does this use a list event handler? (and ModuleDetails)
   TaskDetails ->

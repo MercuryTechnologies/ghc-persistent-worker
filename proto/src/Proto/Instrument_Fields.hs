@@ -32,12 +32,6 @@ encoded ::
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "encoded" a) =>
   Lens.Family2.LensLike' f s a
 encoded = Data.ProtoLens.Field.field @"encoded"
-extraGhcOptions ::
-  forall f s a.
-  (Prelude.Functor f,
-   Data.ProtoLens.Field.HasField s "extraGhcOptions" a) =>
-  Lens.Family2.LensLike' f s a
-extraGhcOptions = Data.ProtoLens.Field.field @"extraGhcOptions"
 target ::
   forall f s a.
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "target" a) =>

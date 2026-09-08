@@ -10,8 +10,4 @@ data Name =
   ModuleDetails
   |
   Sessions
-  |
-  OptionsEditor
-  |
-  OEExtraGhcOptions
   deriving stock (Eq, Ord, Show)

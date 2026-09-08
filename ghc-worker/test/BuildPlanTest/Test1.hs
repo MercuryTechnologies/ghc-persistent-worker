@@ -210,7 +210,7 @@ test_buildPlan_make =
     testUnit2 tmp state = do
       (plan2, _) <- evalMaybe =<< liftIO do
         sessionWithDebugLog state (emptyArgs []) {ghcOptions = ghcOptions unit2 [(unit1, Nothing)]} \ env ->
-          withDynFlags env \ dflags _ -> do
+          withDynFlags \ dflags _ -> do
             _ <- prepareMetadataSession env dflags
             runBuildPlan (pureUnitTargets tmp unit2Spec)
       expected2 False === normalize plan2.json

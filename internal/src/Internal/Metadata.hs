@@ -183,7 +183,7 @@ computeMetadata env = do
           liftIO $ modifyMVar env.state \ state -> loadCachedDepUnits env.log dflags bp env.args.features (state, hsc_env)
       pure (Just ())
     logTimed env.log "Computing module graph" do
-      MaybeT $ runSession env $ withDynFlags env \ dflags srcs -> do
+      MaybeT $ runSession env $ withDynFlags \ dflags srcs -> do
         (unit, staticUnits) <- prepareSession dflags
         let target = TargetUnit (UnitTarget unit)
         liftIO $ env.log.setTarget target
@@ -209,5 +209,5 @@ computeMetadata env = do
 -- Skips cache restoration and persistent worker state, directly computing and writing the build plan.
 proxyMetadata :: Env -> IO Bool
 proxyMetadata env =
-  fmap isJust $ runSession env $ withGhcInSession env \ srcs ->
+  fmap isJust $ runSession env $ withGhcInSession \ srcs ->
     Just () <$ writeMetadata env.args mempty (fst <$> srcs)

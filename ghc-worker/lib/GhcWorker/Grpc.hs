@@ -2,7 +2,7 @@ module GhcWorker.Grpc where
 
 import Common.Grpc ()
 import Control.Concurrent.Chan (Chan, dupChan, readChan)
-import Control.Concurrent.MVar (MVar, modifyMVar_, readMVar)
+import Control.Concurrent.MVar (MVar, readMVar)
 import Control.Monad (forever)
 import Data.Binary (encode)
 import Data.ByteString (toStrict)
@@ -24,7 +24,7 @@ import Proto.Instrument (Instrument)
 import Proto.Instrument_Fields qualified as Instr
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
 import Types.Instrument (Event (..))
-import Types.State (WorkerState (..), Options (..))
+import Types.State (WorkerState (..))
 import Types.Target (TargetSpec (..))
 
 -- | Fetch statistics about the current state of the RTS for instrumentation.
@@ -60,20 +60,6 @@ notifyMe stateVar chan callback = do
       defMessage
         & Instr.encoded .~ toStrict (encode msg)
 
--- | Set the options for the server.
-setOptions ::
-  MVar WorkerState ->
-  Proto Instr.Options ->
-  IO (Proto Instr.Empty)
-setOptions stateVar opts = do
-  modifyMVar_ stateVar $ \state ->
-    pure state {
-      options = Options {
-        extraGhcOptions = Text.unpack opts.extraGhcOptions
-      }
-    }
-  pure defMessage
-
 -- | Trigger a rebuild for the given target.
 triggerRebuild ::
   MVar WorkerState ->
@@ -95,5 +81,4 @@ instrumentMethods ::
 instrumentMethods chan stateVar recompile =
   simpleMethods
     (mkServerStreaming (const (notifyMe stateVar chan)))
-    (mkNonStreaming (setOptions stateVar))
     (mkNonStreaming (triggerRebuild stateVar recompile))

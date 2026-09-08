@@ -1,6 +1,5 @@
 module Ghc.Ui.Render.Main where
 
-import Brick.Forms (Form, renderForm)
 import Brick.Types (Widget)
 import Brick.Widgets.Border (borderWithLabel)
 import Brick.Widgets.Border.Style (unicodeRounded)
@@ -14,18 +13,12 @@ import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import qualified Ghc.Ui.Render.Session as Session
 import qualified Ghc.Ui.Render.Sessions as Sessions
 import Ghc.Ui.Render.Tasks qualified as Tasks
-import Ghc.Ui.Render.Popup (popup)
 import Graphics.Vty (italic, withStyle)
-import Types.State (Options (..))
-
-drawOptionsEditor :: Form Options e Name -> Widget Name
-drawOptionsEditor form = popup 50 "Session Options" $ renderForm form
 
 renderMain :: MainState -> [Widget Name]
 renderMain MainState {..} =
   ( case currentFocus of
       Sessions -> [Sessions.draw sessions]
-      OptionsEditor -> [drawOptionsEditor options]
       TaskDetails -> let task = session >>= listSelectedElement . (.activeTasks) in maybe [] (pure . Tasks.drawTaskDetails . snd) task
       ModuleDetails -> let mdl = session >>= listSelectedElement . (.modules) in maybe [] (pure . ModuleSelector.drawModuleDetails . snd) mdl
       _ -> []

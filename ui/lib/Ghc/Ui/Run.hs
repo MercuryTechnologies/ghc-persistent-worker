@@ -53,7 +53,6 @@ listen eventChan instrPath = do
           serverStreaming conn (rpc @(Protobuf Instrument "notifyMe")) defMessage $ \recv -> do
             time <- getModificationTime instrPath
             writeBChan eventChan $ SessionSelectorEvent $ Sessions.AddWorker sessionId workerId time conn
-            writeBChan eventChan (SendOptions (Just workerId))
             whileNext_ recv
               $ writeBChan eventChan
               . SessionSelectorEvent

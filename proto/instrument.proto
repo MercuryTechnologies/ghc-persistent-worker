@@ -8,16 +8,11 @@ message Event {
   bytes encoded = 1;
 }
 
-message Options {
-  string extra_ghc_options = 1;
-}
-
 message RebuildRequest {
   string target = 1;
 }
 
 service Instrument {
   rpc NotifyMe(Empty) returns (stream Event) {};
-  rpc SetOptions(Options) returns (Empty) {};
   rpc TriggerRebuild(RebuildRequest) returns (Empty) {};
 }

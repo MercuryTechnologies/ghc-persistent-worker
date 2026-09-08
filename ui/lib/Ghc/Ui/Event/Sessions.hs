@@ -11,13 +11,12 @@ import qualified Ghc.Ui.Data.Session as Session
 import Ghc.Ui.Data.Session (SessionState (..))
 import Ghc.Ui.Data.Sessions (SessionsEvent (..), SessionsState)
 import qualified Ghc.Ui.Event.Session as Session
-import Lens.Micro.Platform (Traversal', _2, each, filtered, modifying, preuse, zoom, (.=))
+import Lens.Micro.Platform (Traversal', _2, at, each, filtered, modifying, preuse, zoom, (.=), (?=))
 
 sessionLens :: Session.Id -> Traversal' SessionsState SessionState
 sessionLens sid =
   listElementsL . each . filtered ((== sid) . fst) . _2
 
--- TODO \case
 handleEvent :: SessionsEvent -> EventM Name SessionsState ()
 handleEvent (AddWorker sid wid time sendOpts) = do
   session <- preuse (sessionLens sid)
@@ -25,7 +24,7 @@ handleEvent (AddWorker sid wid time sendOpts) = do
     Nothing -> handleEvent (StartSession sid time)
     _ -> pure ()
   zoom (sessionLens sid) $ do
-    modifying #workers (Session.Worker wid sendOpts mempty :)
+    #workers . at wid ?= Session.Worker wid sendOpts mempty
     modifying #sesStartTime (min time)
 handleEvent (RemoveWorker sid wid) = do
   zoom (sessionLens sid) $ Session.removeWorker wid

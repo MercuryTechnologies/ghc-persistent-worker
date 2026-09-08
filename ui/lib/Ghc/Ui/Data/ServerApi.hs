@@ -1,7 +1,6 @@
 module Ghc.Ui.Data.ServerApi where
 
 import Network.GRPC.Client (Connection)
-import Types.State (Options)
 import Types.Target (TargetSpec)
 
 -- | Abstraction of gRPC endpoints.
@@ -9,6 +8,5 @@ import Types.Target (TargetSpec)
 -- @proto-lens@ into scope, which clash with @generic-lens@.
 data ServerApi =
   ServerApi {
-    sendOptions :: Connection -> Options -> IO (),
     triggerRebuild :: Connection -> TargetSpec -> IO ()
   }

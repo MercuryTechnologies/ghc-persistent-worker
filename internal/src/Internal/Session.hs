@@ -2,7 +2,7 @@
 
 module Internal.Session where
 
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, readMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_)
 import Control.Exception (finally)
 import Control.Monad (foldM, unless)
 import Control.Monad.IO.Class (liftIO)
@@ -36,15 +36,7 @@ import GHC.Utils.Panic (panic, pprPanic)
 import GHC.Utils.TmpFs (TempDir (..), cleanTempDirs, cleanTempFiles, initTmpFs)
 import Internal.Cache.Hpt (depsFromModuleGraph, loadCachedDeps, loadHomeUnit)
 import Internal.Compat.GHC914 (hscSetModuleGraph)
-import Internal.DynFlags (
-  buckLocation,
-  initDynFlags,
-  instrumentLocation,
-  mkTargetAsInterpreted,
-  parseFlags,
-  setupPath,
-  updateGlobalFlags,
-  )
+import Internal.DynFlags (buckLocation, initDynFlags, mkTargetAsInterpreted, parseFlags, setupPath, updateGlobalFlags)
 import Internal.Env (withDebugLog)
 import Internal.Error (handleExceptions)
 import Internal.Log (logDebugD)
@@ -56,7 +48,7 @@ import Types.Args (Args (..))
 import Types.BuckArgs (IsInterpreted (Interpreted))
 import Types.Env (Env (..))
 import Types.Log (Logger (..))
-import Types.State (Options (..), WorkerState (..))
+import Types.State (WorkerState (..))
 import Types.State.Make (EModuleGraph (..), MakeState (..))
 import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
 
@@ -70,12 +62,11 @@ setTempDir dir = updateGlobalFlags \ dflags -> dflags {tmpDir = TempDir (fromOsP
 --
 -- TODO Get rid of @prettyPrintGhcErrors@
 -- TODO Why are we popping the log hook here???
-withDynFlags :: Env -> (DynFlags -> [(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
-withDynFlags env prog argv = do
-  state <- liftIO $ readMVar env.state
+withDynFlags :: (DynFlags -> [(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
+withDynFlags prog argv = do
   dflags0 <- GHC.getSessionDynFlags
   logger0 <- getLogger
-  (dflags1, logger, fileish_args, dynamicFlagWarnings) <- liftIO $ parseFlags dflags0 logger0 (argv ++ map instrumentLocation (words state.options.extraGhcOptions))
+  (dflags1, logger, fileish_args, dynamicFlagWarnings) <- liftIO $ parseFlags dflags0 logger0 argv
   result <- prettyPrintGhcErrors logger do
     (dflags, srcs) <- liftIO $ initDynFlags dflags1 logger fileish_args dynamicFlagWarnings
     prog dflags srcs
@@ -85,9 +76,9 @@ withDynFlags env prog argv = do
 -- Passes the unprocessed args to the callback, which usually consist of the file or module names intended for
 -- compilation.
 -- In a Buck compile step these should always be a single path, but in the metadata step they enumerate an entire unit.
-withGhcInSession :: Env -> ([(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
-withGhcInSession env prog =
-  withDynFlags env \ dflags srcs -> do
+withGhcInSession :: ([(String, Maybe Phase)] -> Ghc a) -> [Located String] -> Ghc a
+withGhcInSession prog =
+  withDynFlags \ dflags srcs -> do
     setSessionDynFlags dflags
     prog srcs
 
@@ -156,7 +147,7 @@ runSession env prog = do
 -- | Parse the CLI arguments stored in the 'Env' and run a @Ghc@ program with the resulting 'DynFlags'.
 simpleSession :: Env -> Ghc a -> IO (Maybe a)
 simpleSession env ma =
-  runSession env (withGhcInSession env (const (Just <$> ma)))
+  runSession env (withGhcInSession (const (Just <$> ma)))
 
 -- | Run a @Ghc@ program with a fresh log and print all messages to stderr afterwards.
 sessionWithDebugLog :: MVar WorkerState -> Args -> (Env -> [Located String] -> Ghc a) -> IO (Maybe a)
@@ -168,7 +159,7 @@ sessionWithDebugLog state args use =
 -- messages to stderr afterwards.
 simpleSessionWithDebugLog :: MVar WorkerState -> Args -> Ghc a -> IO (Maybe a)
 simpleSessionWithDebugLog state args ma =
-  sessionWithDebugLog state args \ env -> withGhcInSession env (const ma)
+  sessionWithDebugLog state args \ _ -> withGhcInSession (const ma)
 
 -- | When compiling a source target, the leftover arguments from parsing @DynFlags@ should be a single source file path.
 -- Wrap it in 'Target' or terminate.
@@ -192,7 +183,7 @@ withGhc ::
   (t -> Ghc a) ->
   IO (Maybe b)
 withGhc targetWrapper env prog =
-  runSession env $ withGhcInSession env \ srcs ->
+  runSession env $ withGhcInSession \ srcs ->
     targetWrapper env srcs \ target -> do
       initializeSessionPlugins
       prog target
