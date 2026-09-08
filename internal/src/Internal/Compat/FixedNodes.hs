@@ -65,6 +65,7 @@ downsweepCompat ::
 #if defined(MWB)
 
 downsweepCompat hsc_env summaries cache excl dup =
+  -- Use stock mkModuleGraph when running downsweep directly.
   fmap mkModuleGraph <$> downsweep hsc_env summaries cache excl dup
 
 #elif MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)

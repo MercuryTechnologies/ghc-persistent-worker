@@ -83,6 +83,9 @@ library
                       Internal.Compat.FixedNodes
                       Internal.Compat.GHC914
                       Internal.Compat.LinkDeps
+                      Internal.Compat.ModuleGraph
+                      Internal.Compat.ModuleGraph.GHC910
+                      Internal.Compat.ModuleGraph.GHC914
                       Internal.Compat.UnitIndex
                       Internal.Compile.Make
                       Internal.Debug
