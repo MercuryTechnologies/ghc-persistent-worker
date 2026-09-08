@@ -3,12 +3,10 @@
 module Internal.State.Make where
 
 import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.Graph (UnitEnvGraph (..), unitEnv_insert, unitEnv_lookup)
 import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), NodeKey, mgModSummaries', mkModuleGraph, mkNodeKey)
-import Internal.Compat.GHC914 (edgeTarget, moduleNodeEdge)
 import Internal.State.Stats (logMemStats)
 import Internal.State.UnitIndex (restoreUnitIndex)
 import Types.Log (Logger)
@@ -67,10 +65,8 @@ mergeModuleGraphNodes new oldMap = merged
     !merged = Map.unionWith mergeNodes oldMap newMap
 
     mergeNodes = \cases
-      (ModuleNode oldDeps _) (ModuleNode newDeps summ) -> ModuleNode (moduleNodeEdge <$> (mergeDeps (edgeTarget <$> oldDeps) (edgeTarget <$> newDeps))) summ
+      old@(ModuleNode _oldDeps _oldSumm) (ModuleNode _newDeps _newSumm) -> old
       _ newNode -> newNode
-
-    mergeDeps oldDeps newDeps = Set.toList (Set.fromList oldDeps <> Set.fromList newDeps)
 
     newMap = Map.fromList $ [(mkNodeKey n, n) | n <- new]
 
