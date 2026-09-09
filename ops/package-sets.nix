@@ -30,7 +30,7 @@
     ghc-worker = notest;
   };
 
-  overrides2607 = {hackage, force, source, self, ...}: {
+  overrides2609 = {hackage, force, source, self, ...}: {
     auto-update = hackage "0.2.6" "0sp25j3fcgmfr2zv1ccg1id1iynj3azinjg23g0vy1m1m7gnmkzi";
     crypton-asn1-encoding = hackage "0.10.0" "0h4cxk9yz2xgmx0kl3gg9lixhnhvxqk85gvkwldp0mlfm3mgccvm";
     crypton-asn1-parse = hackage "0.10.0" "0dsyslbb9a3f6wj0na52qc7iimjs9xljhi6wjfch61nb9m33l1kb";
@@ -62,7 +62,8 @@
     time-manager = hackage "0.2.2" "1ja8pimvy07b05ifkrg6q0lzs3kh0k2dmncwjdxl81199r559vf5";
     uuid = force;
     zlib = self.zlib_0_7_1_0;
-    };
+
+  };
 
   overrides_mwb_flag = extra: {enable, ...}: let
 
@@ -83,7 +84,7 @@
 
   defaultEnv = extra: {
     hls.enable = lib.mkForce false;
-    package-set.extends = "mwb-26-07";
+    package-set.extends = "mwb-26-09";
     overrides = commonOverrides ["mwb" "unit-index" "downsweep-cache"] ++ [ipeOverrides] ++ extra;
     ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX"];
   };
@@ -99,23 +100,16 @@ in {
   };
 
   envs.dev = defaultEnv [] // {
-    package-set.extends = "mwb-26-07";
+    package-set.extends = "mwb-26-09";
     buildInputs = pkgs: [pkgs.zlib pkgs.snappy pkgs.protobuf build.envs.dev.toolchain.packages.proto-lens-protoc];
     ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX" "-DFIXED_NODES"];
   };
 
   envs.min = defaultEnv [];
 
-  envs.mwb-26-07-linkables = defaultEnv [] // {
+  envs.mwb-26-09 = defaultEnv [] // {
     expose.scoped = true;
-    package-set.extends = "mwb-26-07-linkables";
-    overrides = commonOverrides ["mwb" "unit-index" "downsweep-cache" "linkables"] ++ [buckBinOverrides ipeOverrides];
-    ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX" "-DFIXED_NODES"];
-  };
-
-  envs.mwb-26-07 = defaultEnv [] // {
-    expose.scoped = true;
-    package-set.extends = "mwb-26-07";
+    package-set.extends = "mwb-26-09";
   };
 
   envs.profiled = defaultEnv [({notest, ...}: { ghc-worker = notest; ghc-server = notest; })];
@@ -173,13 +167,11 @@ in {
     tls = hackage "2.2.2" "1arnw38a3x70264sags3yrq4c01nfcy17sjq3ycasfb2yq6fiflm";
   };
 
-  package-sets.mwb-26-07-linkables = {
-    extends = "mwb-26-07";
-    compiler = "mwb-26-07-linkables";
+  package-sets.mwb-26-09 = {
+    compiler = "mwb-26-09";
     overrides = api@{hackage, force, source, notest, nodoc, nobench, ...}: let
-
       github = mkGithub api;
-    in overrides2607 api // {
+    in overrides2609 api // {
       doctest = github {
         repo = "doctest";
         rev = "f6f0ea80314ae97a550229c95b15333566c35fe0";
@@ -188,27 +180,10 @@ in {
     };
   };
 
-  package-sets.mwb-26-07 = {
-    compiler = "mwb-26-07";
-    overrides = api@{hackage, force, notest, ...}: let
-      github = mkGithub api;
-    in overrides2607 api // {
-      doctest = github {
-        repo = "doctest";
-        owner = "wavewave";
-        # branch: wavewave/0_22_6_fixed_nodes
-        rev = "b2bc53a1ebbb2fa48ca1c6b49cfaad8eea8beabc";
-        hash = "sha256-qdhfA+AkaB/IZsmeQOfsfZyuPxnY8bbYwO/yHcmjzak=";
-      };
-    };
-  };
-
   package-sets.ghc914 = {
     compiler.extends = "ghc914";
     overrides = api@{hackage, force, notest, ...}: let
-
       github = mkGithub api;
-
     in {
       base64 = force;
       bitwise = force;
@@ -244,13 +219,13 @@ in {
   };
 
   envs.hls-db = {
-    package-set.extends = "mwb-26-07";
+    package-set.extends = "mwb-26-09";
   };
 
   commands.hls.env = "hls-db";
 
   envs.hls = {
-    package-set.extends = "mwb-26-07";
+    package-set.extends = "mwb-26-09";
 
     overrides = api@{hackage, fast, force, unbreak, nobench, notest, source, modify, hsLibC, disable, drv, ghcOption, self, ...}: let
 

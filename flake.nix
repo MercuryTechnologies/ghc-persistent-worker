@@ -23,16 +23,7 @@
 
     compilers = {
 
-      mwb-26-07.source.build = {
-        url = "https://github.com/MercuryTechnologies/ghc";
-        version = "9.10.1";
-        flavour = "release+split_sections+ipe";
-        # branch: mercury-ghc9101-20260729-with-haddock
-        rev = "b88dbe7199178fa0991c489df1e84e1006ae01ee";
-        hash = "sha256-xEO44bnUDu+oTsS0Er4dfV1PooTvGOqYYVsGtPsWZe4=";
-      };
-
-      mwb-26-07-linkables.source.build = {
+      mwb-26-09.source.build = {
         url = "https://github.com/MercuryTechnologies/ghc";
         version = "9.10.1";
         flavour = "release+split_sections+ipe";
