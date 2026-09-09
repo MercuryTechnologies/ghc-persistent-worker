@@ -15,7 +15,7 @@ import Data.Bifunctor
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import GHC.Data.Graph.Directed
-import GHC.Data.Graph.Directed.Reachability
+import GHC.Data.Graph.Directed.Reachability (ReachabilityIndex (..))
 import GHC.Data.Maybe
 import GHC.Types.SourceFile (isHsigFile)
 import GHC.Unit.Module
@@ -38,6 +38,7 @@ import GHC.Unit.Module.Graph (
   )
 import GHC.Unit.Module.ModSummary
 import GHC.Utils.Misc (partitionWith)
+import Internal.Compat.ModuleGraph.Reachability (graphReachability)
 
 summaryNodeKey :: SummaryNode -> Int
 summaryNodeKey = node_key

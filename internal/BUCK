@@ -34,6 +34,7 @@ haskell_library(
     strip_prefix = ["src"],
     deps = [
         "//haskell:aeson",
+        "//haskell:array",
         "//haskell:async",
         "//haskell:base",
         "//haskell:bytestring",

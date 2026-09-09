@@ -86,6 +86,7 @@ library
                       Internal.Compat.ModuleGraph
                       Internal.Compat.ModuleGraph.GHC910
                       Internal.Compat.ModuleGraph.GHC914
+                      Internal.Compat.ModuleGraph.Reachability
                       Internal.Compat.UnitIndex
                       Internal.Compile.Make
                       Internal.Debug
@@ -109,6 +110,7 @@ library
                       Internal.ValidateNames
 
     build-depends:    aeson,
+                      array,
                       async,
                       base >= 4.20,
                       buck-worker-types,

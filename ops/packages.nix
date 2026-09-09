@@ -175,6 +175,7 @@
         enable = true;
         dependencies = [
           "aeson"
+          "array"
           "async"
           "buck-worker-types"
           "bytestring"

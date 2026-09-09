@@ -6,6 +6,7 @@ load("@toolchains//:haskell_all.bzl", "haskell_toolchain_all")
     visibility = ["//..."],
 ) for lib in [
     "aeson",
+    "array",
     "async",
     "base",
     "binary",

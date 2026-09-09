@@ -10,7 +10,7 @@ module Internal.Compat.ModuleGraph.GHC914 (
 import Data.Bifunctor
 import qualified Data.Map as Map
 import GHC.Data.Graph.Directed
-import GHC.Data.Graph.Directed.Reachability
+import GHC.Data.Graph.Directed.Reachability (ReachabilityIndex (..))
 import GHC.Data.Maybe
 import GHC.Types.SourceFile (isHsigFile)
 import GHC.Unit.Module.Graph (
@@ -34,6 +34,7 @@ import GHC.Unit.Module.Graph (
   )
 import GHC.Unit.Types
 import GHC.Utils.Misc ( partitionWith )
+import Internal.Compat.ModuleGraph.Reachability (graphReachability, cyclicGraphReachability)
 
 type ZeroSummaryNode = Node Int ZeroScopeKey
 
@@ -181,6 +182,7 @@ extendMG ModuleGraph{..} node =
     , mg_zero_graph = mkTransZeroDeps (node : mg_mss)
     , mg_has_holes = mg_has_holes || maybe False isHsigFile (moduleNodeInfoHscSource =<< mgNodeIsModule node)
     }
+
 
 
 #else
