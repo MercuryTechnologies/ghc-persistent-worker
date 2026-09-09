@@ -1,7 +1,7 @@
 load("@buck2-haskell//:defs.bzl", "haskell_library")
 load("//haskell:defs.bzl", "default_language", "default_extensions")
 
-flags = ["mwb", "fixed-nodes", "linkables"]
+flags = ["mwb", "linkables"]
 
 other_extensions = [
     "OverloadedLabels",
@@ -26,7 +26,7 @@ haskell_library(
         ["-X" + default_language] +
         ["-X" + ext for ext in [default_language] + default_extensions + other_extensions] +
         other_ghc_options +
-        (["-DMWB", "-DDOWNSWEEP_CACHE", "-DUNIT_INDEX"] if "mwb" in flags else []) +
+        (["-DMWB", "-DDOWNSWEEP_CACHE", "-DUNIT_INDEX", "-DFIXED_NODES"] if "mwb" in flags else []) +
         (["-DDOWNSWEEP_CACHE"] if "downsweep-cache" in flags else []) +
         (["-DUNIT_INDEX"] if "unit-index" in flags else []) +
         (["-DFIXED_NODES"] if "fixed-nodes" in flags else []) +
