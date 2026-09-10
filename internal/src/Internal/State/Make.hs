@@ -2,17 +2,20 @@
 
 module Internal.State.Make where
 
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
+import Data.IntMap qualified as IM
+import Data.Map.Strict qualified as Map
+import Data.Maybe
+import Data.Set qualified as Set
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.Graph (UnitEnvGraph (..), unitEnv_insert, unitEnv_lookup)
 import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), NodeKey, mgModSummaries', mkNodeKey)
-import Internal.Compat.ModuleGraph (extendMG')
 import Internal.State.Stats (logMemStats)
 import Internal.State.UnitIndex (restoreUnitIndex)
 import Types.Log (Logger)
-import Types.State.Make (MakeState (..))
+import Types.State.Make (EModuleGraph (..), KeyIndexNodeMap (..), MakeState (..))
+
+import Internal.Compat.ModuleGraph qualified as MG
 
 -- | Restore the shared state used by both @computeMetadata@ and @compileHpt@ from the cache.
 -- See 'loadCacheMakeCompile' for details.
@@ -24,9 +27,9 @@ loadState hsc_env state =
   restoreUnitIndex state (restoreHug (restoreModuleGraph hsc_env))
   where
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
-    restoreModuleGraph e = e {hsc_unit_env = e.hsc_unit_env {ue_module_graph = state.moduleGraph}}
+    restoreModuleGraph e = e {hsc_unit_env = e.hsc_unit_env {ue_module_graph = state.moduleGraphState.moduleGraph}}
 #else
-    restoreModuleGraph e = e {hsc_mod_graph = state.moduleGraph}
+    restoreModuleGraph e = e {hsc_mod_graph = state.moduleGraphState.moduleGraph}
 #endif
 
     restoreHug e = e {hsc_unit_env = e.hsc_unit_env {ue_home_unit_graph = state.hug}}
@@ -72,8 +75,12 @@ mergeModuleGraphNodes new oldMap = merged
 
     newMap = Map.fromList $ [(mkNodeKey n, n) | n <- new]
 
-mergeModuleGraph :: [ModuleGraphNode] -> ModuleGraph -> ModuleGraph
-mergeModuleGraph nodes gr = foldr (flip extendMG') gr nodes
+mergeModuleGraph ::
+  [(NodeKey, (Int, ModuleGraphNode))] ->
+  EModuleGraph ->
+  EModuleGraph
+mergeModuleGraph kinodes egr =
+  foldr MG.extendMG' egr kinodes
 
 storeModuleGraphNodes :: [ModuleGraphNode] -> MakeState -> MakeState
 storeModuleGraphNodes new state =
@@ -87,14 +94,37 @@ storeModuleGraphNodes new state =
 -- once per unit.
 rebuildModuleGraph :: MakeState -> MakeState
 rebuildModuleGraph !state =
-  let old_gr = state.moduleGraph
-      old_keys = state.storedNodes
+  let old_egr = state.moduleGraphState
+      KIN old_kmap old_inodes old_kss old_i2k = state.moduleGraphState.keyIndexNodeMap
+      old_keys = Set.fromList (Map.keys old_kmap)
+      old_n = Set.size old_keys
       all_nodes = state.moduleGraphNodes
-      all_keys = Map.keys all_nodes
-      new_nodes = fmap snd $ filter (\(k, _) -> not (k `Set.member` old_keys)) (Map.toList all_nodes)
+      all_keys = Set.fromList (Map.keys all_nodes)
+      all_n = Set.size all_keys
+      delta_keys = all_keys `Set.difference` old_keys
+      delta_kmap_list = zip (Set.toList delta_keys) [old_n + 1 .. all_n]
+      delta_kmap = Map.fromList delta_kmap_list
+      all_kmap = old_kmap `Map.union` delta_kmap
+      delta_knodes = filter (\(k, _) -> k `Set.member` delta_keys) (Map.toList all_nodes)
 
-      new_gr = mergeModuleGraph new_nodes old_gr
-   in state {moduleGraph = new_gr, storedNodes = Set.fromList all_keys}
+      delta_kinodes_list :: [(NodeKey, (Int, ModuleGraphNode))]
+      delta_kinodes_list = do
+        (k, node) <- delta_knodes
+        i <- maybeToList (Map.lookup k all_kmap)
+        pure (k, (i, node))
+
+      all_inodes = IM.union (IM.fromList (fmap snd delta_kinodes_list)) old_inodes
+
+      delta_i2k = IM.fromList [ (i,k) | (k, (i, _)) <- delta_kinodes_list ]
+      all_i2k = IM.union delta_i2k old_i2k
+
+      -- BE CAREFUL old_kss
+      newKIN = KIN all_kmap all_inodes old_kss all_i2k
+      new_egr = mergeModuleGraph delta_kinodes_list (old_egr {keyIndexNodeMap = newKIN})
+
+   in state {
+     moduleGraphState = new_egr
+   }
 
 -- | Merge the given module graph into the cached graph and derive 'moduleGraph' immediately.
 storeModuleGraph :: ModuleGraph -> MakeState -> MakeState

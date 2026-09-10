@@ -11,48 +11,25 @@ module Internal.Compat.ModuleGraph.GHC910 (
   extendMG',
 ) where
 
-import Data.Bifunctor
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import GHC.Data.Graph.Directed
-import GHC.Data.Graph.Directed.Reachability (ReachabilityIndex (..))
 import GHC.Data.Maybe
 import GHC.Types.SourceFile (isHsigFile)
-import GHC.Unit.Module
 import GHC.Unit.Module.Graph (
   ModuleGraph (..),
   ModuleGraphNode (..),
   ModuleNameHomeMap,
-  ModuleNodeInfo (..),
   NodeKey (..),
   SummaryNode,
-  isBootModuleNodeInfo,
-  mgNodeIsModule,
-  mkNodeKey,
   moduleNodeInfoHscSource,
   moduleNodeInfoModule,
   moduleNodeInfoModuleName,
   nodeDependencies,
-  summaryNodeSummary,
   )
-import GHC.Unit.Module.ModSummary
-import GHC.Utils.Misc (partitionWith)
+import GHC.Unit.Types
 import Internal.Compat.ModuleGraph.Reachability (graphReachability)
-
-summaryNodeKey :: SummaryNode -> Int
-summaryNodeKey = node_key
-
--- | Add an ExtendedModSummary to ModuleGraph. Assumes that the new ModSummary is
--- not an element of the ModuleGraph.
-extendMG :: ModuleGraph -> [NodeKey] -> ModSummary -> ModuleGraph
-extendMG ModuleGraph{..} deps ms = ModuleGraph
-  { mg_mss = new_mss
-  , mg_graph = mkTransDeps new_mss
-  , mg_home_map = mkHomeModuleMap new_mss
-  , mg_has_holes = False
-  }
-  where
-    new_mss = ModuleNode deps (ModuleNodeCompile ms) : mg_mss
+import Types.State.Make (EModuleGraph (..), KeyIndexNodeMap (..))
 
 extendMGInst :: ModuleGraph -> UnitId -> InstantiatedUnit -> ModuleGraph
 extendMGInst mg uid depUnitId = mg
@@ -62,79 +39,76 @@ extendMGInst mg uid depUnitId = mg
 extendMGLink :: ModuleGraph -> UnitId -> [NodeKey] -> ModuleGraph
 extendMGLink mg uid nks = mg { mg_mss = LinkNode nks uid : mg_mss mg }
 
-extendMG' :: ModuleGraph -> ModuleGraphNode -> ModuleGraph
-extendMG' mg = \case
-  InstantiationNode uid depUnitId -> extendMGInst mg uid depUnitId
-  ModuleNode deps (ModuleNodeCompile ms) -> extendMG mg deps ms
-  ModuleNode deps mni -> mg
-    { mg_mss = ModuleNode deps mni : mg_mss mg
-    , mg_graph = mkTransDeps (ModuleNode deps mni : mg_mss mg)
-    , mg_home_map = mkHomeModuleMap (ModuleNode deps mni : mg_mss mg)
-    , mg_has_holes = mg_has_holes mg || maybe False isHsigFile (moduleNodeInfoHscSource mni)
-    }
-  LinkNode deps uid   -> extendMGLink mg uid deps
+extendMG' :: (NodeKey, (Int, ModuleGraphNode)) -> EModuleGraph -> EModuleGraph
+extendMG' kinode@(_, (_, node)) (EModuleGraph {moduleGraph = mg,  keyIndexNodeMap = kinMap}) =
+  case node of
+    InstantiationNode uid depUnitId ->
+      EModuleGraph {
+         moduleGraph = extendMGInst mg uid depUnitId,
+         keyIndexNodeMap = kinMap
+       }
+    LinkNode deps uid ->
+      EModuleGraph {
+         moduleGraph = extendMGLink mg uid deps,
+         keyIndexNodeMap = kinMap
+       }
+    ModuleNode deps mni ->
+      let (kinMap', lookup_node) = moduleGraphNodesIncr kinode kinMap
+          snode_map = keyINodeMap kinMap'
+          snodes = Map.elems snode_map
+          gr = graphFromEdgedVerticesUniq snodes
+          reachIndex = graphReachability gr
+          mg' = mg
+            { mg_mss = node : mg_mss mg,
+              mg_graph = (reachIndex, lookup_node),
+              mg_home_map = mkHomeModuleMapIncr (ModuleNode deps mni) mg,
+              mg_has_holes = mg_has_holes mg || maybe False isHsigFile (moduleNodeInfoHscSource mni)
+            }
+       in EModuleGraph {
+            moduleGraph = mg',
+            keyIndexNodeMap = kinMap'
+          }
 
-moduleGraphNodes :: Bool
-  -> [ModuleGraphNode]
-  -> (Graph SummaryNode, NodeKey -> Maybe SummaryNode)
-moduleGraphNodes drop_hs_boot_nodes summaries =
-  (graphFromEdgedVerticesUniq nodes, lookup_node)
+-- | Turn a list of graph nodes into an efficient queriable graph.
+-- The first boolean parameter indicates whether nodes corresponding to hs-boot files
+-- should be collapsed into their relevant hs nodes.
+moduleGraphNodesIncr ::
+  (NodeKey, (Int, ModuleGraphNode)) ->
+  KeyIndexNodeMap ModuleGraphNode ->
+  (KeyIndexNodeMap ModuleGraphNode, NodeKey -> Maybe SummaryNode)
+moduleGraphNodesIncr (k, (i, node)) kinMap = (kinMap', lookup_node)
   where
-    -- Map from module to extra boot summary dependencies which need to be merged in
-    (!boot_summaries, !nodes) = bimap Map.fromList id $ partitionWith go numbered_summaries
+    key2idx = keyIdxMap kinMap
+    key2inode = keyINodeMap kinMap
 
-      where
-        go (!s, !key) =
-          case s of
-                ModuleNode __deps ms | isBootModuleNodeInfo ms == IsBoot, drop_hs_boot_nodes
-                  -- Using nodeDependencies here converts dependencies on other
-                  -- boot files to dependencies on dependencies on non-boot files.
-                  -> Left (moduleNodeInfoModule ms, nodeDependencies drop_hs_boot_nodes s)
-                _ -> normal_case
-          where
-           normal_case =
-              let lkup_key = moduleNodeInfoModule <$> mgNodeIsModule s
-                  extra = (lkup_key >>= \key -> Map.lookup key boot_summaries)
-
-              in Right $ DigraphNode s key $ out_edge_keys $
-                      (fromMaybe [] extra
-                        ++ nodeDependencies drop_hs_boot_nodes s)
-
-    numbered_summaries = zip summaries [1..]
+    snode = DigraphNode node i (out_edge_idxs (nodeDependencies False node))
 
     lookup_node :: NodeKey -> Maybe SummaryNode
-    lookup_node key = Map.lookup key (unNodeMap node_map)
+    lookup_node = flip Map.lookup node_map
 
-    lookup_key :: NodeKey -> Maybe Int
-    lookup_key = fmap summaryNodeKey . lookup_node
+    lookup_idx :: NodeKey -> Maybe Int
+    lookup_idx = flip Map.lookup key2idx
 
-    node_map :: NodeMap SummaryNode
-    node_map = NodeMap $
-      Map.fromList [ (mkNodeKey s, node)
-                   | node <- nodes
-                   , let s = summaryNodeSummary node
-                   ]
+    node_map :: Map.Map NodeKey SummaryNode
+    node_map = Map.insert k snode key2inode
 
-    out_edge_keys :: [NodeKey] -> [Int]
-    out_edge_keys = mapMaybe lookup_key
-        -- If we want keep_hi_boot_nodes, then we do lookup_key with
-        -- IsBoot; else False
-newtype NodeMap a = NodeMap { unNodeMap :: Map.Map NodeKey a }
-  deriving (Functor, Traversable, Foldable)
+    out_edge_idxs :: [NodeKey] -> [Int]
+    out_edge_idxs = mapMaybe lookup_idx
 
-mkTransDeps :: [ModuleGraphNode] -> (ReachabilityIndex SummaryNode, NodeKey -> Maybe SummaryNode)
-mkTransDeps = first graphReachability {- module graph is acyclic -} . moduleGraphNodes False
+    kinMap' = kinMap { keyINodeMap = node_map }
 
-
-mkHomeModuleMap :: [ModuleGraphNode] -> ModuleNameHomeMap
-mkHomeModuleMap nodes =
+mkHomeModuleMapIncr :: ModuleGraphNode -> ModuleGraph -> ModuleNameHomeMap
+mkHomeModuleMapIncr node mg =
   (complete_units, provider_map)
   where
+    nodes = node : mg_mss mg
+    -- TODO: further incrementalize this part
     provider_map =
       Map.fromListWith Set.union
         [ (moduleNodeInfoModuleName ms, Set.singleton (toUnitId (moduleUnit (moduleNodeInfoModule ms))))
         | ModuleNode _ ms <- nodes
         ]
+    -- TODO: further incrementalize this part
     complete_units =
       Set.fromList
         [ toUnitId (moduleUnit (moduleNodeInfoModule ms))

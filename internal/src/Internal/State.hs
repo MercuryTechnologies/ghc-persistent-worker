@@ -6,8 +6,7 @@ import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, withMVar
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
 import Data.Map.Strict qualified as M
-import Data.Set qualified as S
-import GHC (Ghc, emptyMG, HscEnv)
+import GHC (Ghc, HscEnv)
 import GHC.Driver.Monad (modifySessionM, withSession)
 import GHC.Unit.Home.Graph (unitEnv_new)
 import Internal.Debug (showHugShort, showModGraph)
@@ -17,7 +16,12 @@ import System.Environment (lookupEnv)
 import System.OsPath.Extra (toOsPath)
 import Types.Log (Logger (..))
 import Types.State (BinPath (..), WorkerState (..), defaultOptions)
-import Types.State.Make (MakeState (..), emptyLibLoadState)
+import Types.State.Make (
+  EModuleGraph (..),
+  MakeState (..),
+  emptyEModuleGraph,
+  emptyLibLoadState,
+  )
 
 newState :: IO (MVar WorkerState)
 newState = do
@@ -32,8 +36,7 @@ newState = do
     baseSession = Nothing,
     options = defaultOptions,
     make = MakeState {
-      moduleGraph = emptyMG,
-      storedNodes = S.empty,
+      moduleGraphState = emptyEModuleGraph,
       moduleGraphNodes = M.empty,
       hug = unitEnv_new mempty,
       interp = Nothing,
@@ -85,13 +88,13 @@ dumpState ::
   Maybe String ->
   IO ()
 dumpState logger state exception =
-  withMVar state \ WorkerState {make = MakeState {moduleGraph, hug}} -> do
+  withMVar state \ WorkerState {make = MakeState {moduleGraphState, hug}} -> do
     write "-----------------"
     write "Request failed!"
     traverse_ write exception
     write "-----------------"
     write "Module graph:"
-    writeD (showModGraph moduleGraph)
+    writeD (showModGraph moduleGraphState.moduleGraph)
     write "-----------------"
     write "Home unit graph:"
     writeD =<< showHugShort hug

@@ -57,7 +57,7 @@ import Types.BuckArgs (IsInterpreted (Interpreted))
 import Types.Env (Env (..))
 import Types.Log (Logger (..))
 import Types.State (Options (..), WorkerState (..))
-import Types.State.Make (MakeState (..))
+import Types.State.Make (EModuleGraph (..), MakeState (..))
 import Types.Target (ModuleTarget (..), Target (Target), TargetSpec (..))
 
 setTempDir :: OsPath -> HscEnv -> HscEnv
@@ -250,7 +250,7 @@ withGhcMakeModule interp target =
       maybeArg env.args.homeUnit $
         loadHomeUnit env.log dflags0 env.args.features (moduleUnitId target.mod)
 
-    setSessionModuleGraph (state, hsc_env) = pure (state, hscSetModuleGraph state.make.moduleGraph hsc_env)
+    setSessionModuleGraph (state, hsc_env) = pure (state, hscSetModuleGraph state.make.moduleGraphState.moduleGraph hsc_env)
 
     setActiveUnit (state, hsc_env) = pure (state, hscSetActiveUnitId (moduleUnitId target.mod) hsc_env)
 

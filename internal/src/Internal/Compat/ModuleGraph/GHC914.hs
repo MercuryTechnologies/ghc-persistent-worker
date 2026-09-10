@@ -21,70 +21,48 @@ import GHC.Unit.Module.Graph (
   NodeKey (..),
   SummaryNode,
   ZeroScopeKey(..),
-  isBootModuleNodeInfo,
   mgNodeDependencies,
   mgNodeIsModule,
-  mkNodeKey,
   mnKey,
   moduleNodeInfoHscSource,
-  moduleNodeInfoModule,
-  summaryNodeKey,
-  summaryNodeSummary,
   )
-import GHC.Unit.Types
-import GHC.Utils.Misc ( partitionWith )
-import Internal.Compat.ModuleGraph.Reachability (graphReachability, cyclicGraphReachability)
+-- TODO: use cyclic reachability when it is supported.
+import Internal.Compat.ModuleGraph.Reachability (graphReachability {- , cyclicGraphReachability -})
+import Types.State.Make (EModuleGraph (..), KeyIndexNodeMap (..))
 
 type ZeroSummaryNode = Node Int ZeroScopeKey
+
 
 -- | Turn a list of graph nodes into an efficient queriable graph.
 -- The first boolean parameter indicates whether nodes corresponding to hs-boot files
 -- should be collapsed into their relevant hs nodes.
-moduleGraphNodes :: Bool
-  -> [ModuleGraphNode]
-  -> (Graph SummaryNode, NodeKey -> Maybe SummaryNode)
-moduleGraphNodes drop_hs_boot_nodes summaries =
-  (graphFromEdgedVerticesUniq nodes, lookup_node)
+moduleGraphNodesIncr ::
+  (NodeKey, (Int, ModuleGraphNode)) ->
+  KeyIndexNodeMap ModuleGraphNode ->
+  (KeyIndexNodeMap ModuleGraphNode, NodeKey -> Maybe SummaryNode)
+moduleGraphNodesIncr (k, (i, node)) kinMap = (kinMap', lookup_node)
   where
-    -- Map from module to extra boot summary dependencies which need to be merged in
-    (boot_summaries, nodes) = bimap Map.fromList id $ partitionWith go numbered_summaries
+    key2idx = keyIdxMap kinMap
+    key2inode = keyINodeMap kinMap
 
-      where
-        go (s, key) =
-          case s of
-                ModuleNode __deps ms | isBootModuleNodeInfo ms == IsBoot, drop_hs_boot_nodes
-                  -- Using nodeDependencies here converts dependencies on other
-                  -- boot files to dependencies on dependencies on non-boot files.
-                  -> Left (moduleNodeInfoModule ms, mgNodeDependencies drop_hs_boot_nodes s)
-                _ -> normal_case
-          where
-           normal_case =
-              let lkup_key = moduleNodeInfoModule <$> mgNodeIsModule s
-                  extra = (lkup_key >>= \key -> Map.lookup key boot_summaries)
-
-              in Right $ DigraphNode s key $ out_edge_keys $
-                      (fromMaybe [] extra
-                        ++ mgNodeDependencies drop_hs_boot_nodes s)
-
-    numbered_summaries = zip summaries [1..]
+    -- TODO: GHC 9.14 holds cyclic dependency modgraph, but we are not supporting boot files well yet.
+    --       Revisit this when we support boot files.
+    snode = DigraphNode node i (out_edge_idxs (mgNodeDependencies False {- = drop_hs_boot_nodes -} node))
 
     lookup_node :: NodeKey -> Maybe SummaryNode
-    lookup_node key = Map.lookup key (unNodeMap node_map)
+    lookup_node = flip Map.lookup node_map
 
-    lookup_key :: NodeKey -> Maybe Int
-    lookup_key = fmap summaryNodeKey . lookup_node
+    lookup_idx :: NodeKey -> Maybe Int
+    lookup_idx = flip Map.lookup key2idx
 
-    node_map :: NodeMap SummaryNode
-    node_map = NodeMap $
-      Map.fromList [ (mkNodeKey s, node)
-                   | node <- nodes
-                   , let s = summaryNodeSummary node
-                   ]
+    node_map :: Map.Map NodeKey SummaryNode
+    node_map = Map.insert k snode key2inode
 
-    out_edge_keys :: [NodeKey] -> [Int]
-    out_edge_keys = mapMaybe lookup_key
-        -- If we want keep_hi_boot_nodes, then we do lookup_key with
-        -- IsBoot; else False
+    out_edge_idxs :: [NodeKey] -> [Int]
+    out_edge_idxs = mapMaybe lookup_idx
+
+    kinMap' = kinMap { keyINodeMap = node_map }
+
 
 -- | Turn a list of graph nodes into an efficient queriable graph.
 -- This graph only has edges between level-0 imports
@@ -123,28 +101,17 @@ moduleGraphNodesZero summaries =
     lookup_node key = Map.lookup key node_map
 
     lookup_key :: ZeroScopeKey -> Maybe Int
-    lookup_key = fmap zeroSummaryNodeKey . lookup_node
+    lookup_key = fmap node_key . lookup_node
 
     node_map :: Map.Map ZeroScopeKey ZeroSummaryNode
     node_map =
       Map.fromList [ (s, node)
                    | node <- nodes
-                   , let s = zeroSummaryNodeSummary node
+                   , let s = node_payload node
                    ]
 
     out_edge_keys :: [ZeroScopeKey] -> [Int]
     out_edge_keys = mapMaybe lookup_key
-
-newtype NodeMap a = NodeMap { unNodeMap :: Map.Map NodeKey a }
-  deriving (Functor, Traversable, Foldable)
-
--- | Transitive dependencies, including SOURCE edges
-mkTransDeps :: [ModuleGraphNode] -> (ReachabilityIndex SummaryNode, NodeKey -> Maybe SummaryNode)
-mkTransDeps = first graphReachability {- module graph is acyclic -} . moduleGraphNodes False
-
--- | Transitive dependencies, ignoring SOURCE edges
-mkTransLoopDeps :: [ModuleGraphNode] -> (ReachabilityIndex SummaryNode, NodeKey -> Maybe SummaryNode)
-mkTransLoopDeps = first cyclicGraphReachability . moduleGraphNodes True
 
 -- | Transitive dependencies, but only following "normal" level 0 imports.
 -- This graph can be used to query what the transitive dependencies of a particular
@@ -153,25 +120,29 @@ mkTransZeroDeps :: [ModuleGraphNode] -> (ReachabilityIndex ZeroSummaryNode, Zero
 mkTransZeroDeps = first graphReachability {- module graph is acyclic -} . moduleGraphNodesZero
 
 
-zeroSummaryNodeKey :: ZeroSummaryNode -> Int
-zeroSummaryNodeKey = node_key
-
-zeroSummaryNodeSummary :: ZeroSummaryNode -> ZeroScopeKey
-zeroSummaryNodeSummary = node_payload
-
 -- | Add an ExtendedModSummary to ModuleGraph. Assumes that the new ModSummary is
 -- not an element of the ModuleGraph.
-extendMG :: ModuleGraph -> ModuleGraphNode -> ModuleGraph
-extendMG ModuleGraph{..} node =
-  ModuleGraph
-    { mg_mss = node : mg_mss
-    , mg_graph =  mkTransDeps (node : mg_mss)
-    , mg_loop_graph = mkTransLoopDeps (node : mg_mss)
-    , mg_zero_graph = mkTransZeroDeps (node : mg_mss)
-    , mg_has_holes = mg_has_holes || maybe False isHsigFile (moduleNodeInfoHscSource =<< mgNodeIsModule node)
-    }
-
-
+extendMG :: (NodeKey, (Int, ModuleGraphNode)) -> EModuleGraph -> EModuleGraph
+extendMG kinode@(_, (_, node)) EModuleGraph {moduleGraph = mg, keyIndexNodeMap = kinMap} =
+  EModuleGraph {
+    moduleGraph = mg',
+    keyIndexNodeMap = kinMap'
+  }
+  where
+    (kinMap', lookup_node) = moduleGraphNodesIncr kinode kinMap
+    snode_map = keyINodeMap kinMap'
+    snodes = Map.elems snode_map
+    gr = graphFromEdgedVerticesUniq snodes
+    reachIndex = graphReachability gr
+    -- TODO: Make a correct implementation when cyclic deps are supported.
+    reachIndexLoop = reachIndex {- cyclicGraphReachability gr -}
+    mg' = ModuleGraph
+      { mg_mss = node : mg_mss mg,
+        mg_graph =  (reachIndex, lookup_node),
+        mg_loop_graph = (reachIndexLoop, lookup_node),
+        mg_zero_graph = mkTransZeroDeps (node : mg_mss mg),
+        mg_has_holes = mg_has_holes mg || maybe False isHsigFile (moduleNodeInfoHscSource =<< mgNodeIsModule node)
+      }
 
 #else
 
