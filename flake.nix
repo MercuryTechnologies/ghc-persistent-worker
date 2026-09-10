@@ -27,9 +27,9 @@
         url = "https://github.com/MercuryTechnologies/ghc";
         version = "9.10.1";
         flavour = "release+split_sections+ipe";
-        # branch: wavewave/mercury-ghc9101-linkdeps-with-haddock
-        rev = "12f09f8fb619b443ce6da1275dcf41699f5157c3";
-        hash = "sha256-sUOd6NZXgrnEhWjgfo74OajjS7llJH94FGFXAjvegBE=";
+        # branch: wavewave/20260909-reachable-index-with-haddock
+        rev = "42f0307f6d5ae8023f19572db3ef1abedec390f2";
+        hash = "sha256-EHB9eEgzgIJinKF1sRRVpP6KDEq2InLUo+VEYPGbCho=";
       };
 
       mercury-ghc9141 = {
@@ -38,13 +38,12 @@
           url = "https://github.com/MercuryTechnologies/ghc";
           version = "9.14.1";
           flavour = "release+split_sections+ipe";
-          # GHC 9.14.1 release version
-          rev = "902339d332fb4ce2b3c87dcac1ee6495d41ad886";
-          hash = "sha256-wsClYVCoinEem20jHTFjiTOMgU8MsEaZ1RAgAMsK078=";
+          # branch: wavewave/20260909-ghc914-reachability-index
+          rev = "eed112dfbe9aa5b694b279fee4db858f39797b95";
+          hash = "sha256-iHkrw4Zmj0yFGepStU5+Qi6jVfW7HXJh8PVt7j9CZP8=";
           bootCompiler = "ghc9103";
         };
       };
-
     };
 
     nixpkgs = {
