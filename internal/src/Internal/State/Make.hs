@@ -3,11 +3,12 @@
 module Internal.State.Make where
 
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import GHC.Driver.Env (HscEnv (..))
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.Graph (UnitEnvGraph (..), unitEnv_insert, unitEnv_lookup)
 import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), NodeKey, mgModSummaries', mkNodeKey)
-import Internal.Compat.ModuleGraph (mkModuleGraph)
+import Internal.Compat.ModuleGraph (extendMG')
 import Internal.State.Stats (logMemStats)
 import Internal.State.UnitIndex (restoreUnitIndex)
 import Types.Log (Logger)
@@ -71,6 +72,9 @@ mergeModuleGraphNodes new oldMap = merged
 
     newMap = Map.fromList $ [(mkNodeKey n, n) | n <- new]
 
+mergeModuleGraph :: [ModuleGraphNode] -> ModuleGraph -> ModuleGraph
+mergeModuleGraph nodes gr = foldr (flip extendMG') gr nodes
+
 storeModuleGraphNodes :: [ModuleGraphNode] -> MakeState -> MakeState
 storeModuleGraphNodes new state =
   state {moduleGraphNodes = merged}
@@ -82,8 +86,15 @@ storeModuleGraphNodes new state =
 -- This is @O(size of the index)@, so when a batch of units is restored it must be called once for the batch rather than
 -- once per unit.
 rebuildModuleGraph :: MakeState -> MakeState
-rebuildModuleGraph state =
-  state {moduleGraph = mkModuleGraph (Map.elems state.moduleGraphNodes)}
+rebuildModuleGraph !state =
+  let old_gr = state.moduleGraph
+      old_keys = state.storedNodes
+      all_nodes = state.moduleGraphNodes
+      all_keys = Map.keys all_nodes
+      new_nodes = fmap snd $ filter (\(k, _) -> not (k `Set.member` old_keys)) (Map.toList all_nodes)
+
+      new_gr = mergeModuleGraph new_nodes old_gr
+   in state {moduleGraph = new_gr, storedNodes = Set.fromList all_keys}
 
 -- | Merge the given module graph into the cached graph and derive 'moduleGraph' immediately.
 storeModuleGraph :: ModuleGraph -> MakeState -> MakeState

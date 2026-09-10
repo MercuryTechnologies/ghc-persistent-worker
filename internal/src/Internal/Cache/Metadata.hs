@@ -23,7 +23,7 @@ import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8)
 import Data.Traversable (for)
 import Data.Tuple (swap)
-import GHC (DynFlags (..), IsBootInterface (..), ModuleGraph, ModuleName)
+import GHC (DynFlags (..), IsBootInterface (..), ModuleName)
 import qualified GHC as GHC
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (..))
@@ -38,7 +38,6 @@ import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
 import GHC.Utils.CliOption (Option (..))
 import GHC.Utils.Outputable (comma, hcat, ppr, punctuate, quotes, text, (<+>))
 import Internal.Compat.GHC914 (moduleNodeEdge)
-import Internal.Compat.ModuleGraph (mkModuleGraph)
 import Internal.Compat.UnitIndex (initUnits)
 import Internal.DynFlags (buckLocation, parseFlags, setupPath)
 import Internal.DynFlags.Parse (parseDynFlags)
@@ -46,7 +45,7 @@ import Internal.Error (eitherMessages, unknownErrors)
 import Internal.Log (logDebugD, logTimed, logTimedD)
 import Internal.State (updateMakeState)
 import qualified Internal.State.Make as Make
-import Internal.State.Make (insertUnitEnv, storeModuleGraph, storeModuleGraphNodes)
+import Internal.State.Make (insertUnitEnv, rebuildModuleGraph, storeModuleGraphNodes)
 import System.OsPath.Extra (OsPath, fromOsPath)
 import Types.BuckArgs (CachedBuckArgs (..), parseCachedBuckArgs)
 import Types.CachedDeps (
@@ -257,9 +256,9 @@ loadCachedModules ::
   HscEnv ->
   UnitId ->
   CachedUnit ->
-  IO ModuleGraph
+  IO [ModuleGraphNode]
 loadCachedModules useFixedNodes hsc_env unit CachedUnit {build_plan, cache} =
-  mkModuleGraph <$> traverse (uncurry (loadCachedModule useFixedNodes hsc_env unit)) modules
+  traverse (uncurry (loadCachedModule useFixedNodes hsc_env unit)) modules
   where
     modules = Map.toList (fold (cache <|> build_plan))
 
@@ -281,8 +280,8 @@ loadCachedHomeUnit logger useFixedNodes hsc_env0 unit (cachedUnit, dflags) =
       (hsc_env1, _) <- addHomeUnitTo hsc_env0 dflags
       pure (hscSetActiveUnitId unit hsc_env1)
     modify (updateMakeState (insertUnitEnv hsc_env2))
-    graph <- liftIO $ loadCachedModules useFixedNodes hsc_env2 unit cachedUnit
-    modify (updateMakeState (storeModuleGraph graph))
+    nodes <- liftIO $ loadCachedModules useFixedNodes hsc_env2 unit cachedUnit
+    modify (updateMakeState (rebuildModuleGraph . storeModuleGraphNodes nodes))    
     pure hsc_env2
 
 -- | Intermediate result of the concurrent loading phase.

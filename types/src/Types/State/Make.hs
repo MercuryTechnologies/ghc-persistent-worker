@@ -49,6 +49,8 @@ data MakeState =
     -- into the existing graph.
     moduleGraph :: ModuleGraph,
 
+    storedNodes :: S.Set NodeKey,
+
     -- | moduleGraph nodes indexed by NodeKey.
     moduleGraphNodes :: M.Map NodeKey ModuleGraphNode,
 

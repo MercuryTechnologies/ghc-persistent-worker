@@ -6,6 +6,7 @@ import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, withMVar
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
 import Data.Map.Strict qualified as M
+import Data.Set qualified as S
 import GHC (Ghc, emptyMG, HscEnv)
 import GHC.Driver.Monad (modifySessionM, withSession)
 import GHC.Unit.Home.Graph (unitEnv_new)
@@ -32,6 +33,7 @@ newState = do
     options = defaultOptions,
     make = MakeState {
       moduleGraph = emptyMG,
+      storedNodes = S.empty,
       moduleGraphNodes = M.empty,
       hug = unitEnv_new mempty,
       interp = Nothing,

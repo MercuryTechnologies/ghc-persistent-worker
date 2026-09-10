@@ -4,7 +4,7 @@
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
 module Internal.Compat.ModuleGraph.GHC914 (
-  mkModuleGraph,
+  extendMG,
 ) where
 
 import Data.Bifunctor
@@ -21,7 +21,6 @@ import GHC.Unit.Module.Graph (
   NodeKey (..),
   SummaryNode,
   ZeroScopeKey(..),
-  emptyMG,
   isBootModuleNodeInfo,
   mgNodeDependencies,
   mgNodeIsModule,
@@ -37,17 +36,6 @@ import GHC.Utils.Misc ( partitionWith )
 import Internal.Compat.ModuleGraph.Reachability (graphReachability, cyclicGraphReachability)
 
 type ZeroSummaryNode = Node Int ZeroScopeKey
-
--- | Construct a module graph. This function should be the only entry point for
--- building a 'ModuleGraph', since it is supposed to be built once and never modified.
---
--- If you ever find the need to build a 'ModuleGraph' iteratively, don't
--- add insert and update functions to the API since they become footguns.
--- Instead, design an API that allows iterative construction without posterior
--- modification, perhaps like what is done for building arrays from mutable
--- arrays.
-mkModuleGraph :: [ModuleGraphNode] -> ModuleGraph
-mkModuleGraph = foldr (flip extendMG) emptyMG
 
 -- | Turn a list of graph nodes into an efficient queriable graph.
 -- The first boolean parameter indicates whether nodes corresponding to hs-boot files

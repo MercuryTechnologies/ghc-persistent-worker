@@ -8,7 +8,7 @@ module Internal.Compat.ModuleGraph.GHC910 where
 #else
 
 module Internal.Compat.ModuleGraph.GHC910 (
-  mkModuleGraph,
+  extendMG',
 ) where
 
 import Data.Bifunctor
@@ -26,7 +26,6 @@ import GHC.Unit.Module.Graph (
   ModuleNodeInfo (..),
   NodeKey (..),
   SummaryNode,
-  emptyMG,
   isBootModuleNodeInfo,
   mgNodeIsModule,
   mkNodeKey,
@@ -74,9 +73,6 @@ extendMG' mg = \case
     , mg_has_holes = mg_has_holes mg || maybe False isHsigFile (moduleNodeInfoHscSource mni)
     }
   LinkNode deps uid   -> extendMGLink mg uid deps
-
-mkModuleGraph :: [ModuleGraphNode] -> ModuleGraph
-mkModuleGraph = foldr (flip extendMG') emptyMG
 
 moduleGraphNodes :: Bool
   -> [ModuleGraphNode]
