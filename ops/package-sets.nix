@@ -84,7 +84,7 @@
 
   defaultEnv = extra: {
     hls.enable = lib.mkForce false;
-    package-set.extends = "mwb-26-09";
+    package-set.extends = "mercury-ghc9101";
     overrides = commonOverrides ["mwb" "unit-index" "downsweep-cache"] ++ [ipeOverrides] ++ extra;
     ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX"];
   };
@@ -100,24 +100,23 @@ in {
   };
 
   envs.dev = defaultEnv [] // {
-    package-set.extends = "mwb-26-09";
+    package-set.extends = "mercury-ghc9101";
     buildInputs = pkgs: [pkgs.zlib pkgs.snappy pkgs.protobuf build.envs.dev.toolchain.packages.proto-lens-protoc];
     ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX" "-DFIXED_NODES"];
   };
 
   envs.min = defaultEnv [];
 
-  envs.mwb-26-09 = defaultEnv [] // {
+  envs.mercury-ghc9101 = defaultEnv [] // {
     expose.scoped = true;
-    package-set.extends = "mwb-26-09";
+    package-set.extends = "mercury-ghc9101";
   };
 
   envs.profiled = defaultEnv [({notest, ...}: { ghc-worker = notest; ghc-server = notest; })];
 
-  envs.ghc914 = {
+  envs.mercury-ghc9141 = defaultEnv [buckBinOverrides] // {
     expose.scoped = true;
-    package-set.extends = "ghc914";
-    overrides = commonOverrides [] ++ [buckBinOverrides];
+    package-set.extends = "mercury-ghc9141";
   };
 
   # This environment is for building the worker with an externally provided, impure GHC.
@@ -167,8 +166,8 @@ in {
     tls = hackage "2.2.2" "1arnw38a3x70264sags3yrq4c01nfcy17sjq3ycasfb2yq6fiflm";
   };
 
-  package-sets.mwb-26-09 = {
-    compiler = "mwb-26-09";
+  package-sets.mercury-ghc9101 = {
+    compiler = "mercury-ghc9101";
     overrides = api@{hackage, force, source, notest, nodoc, nobench, ...}: let
       github = mkGithub api;
     in overrides2609 api // {
@@ -180,8 +179,8 @@ in {
     };
   };
 
-  package-sets.ghc914 = {
-    compiler.extends = "ghc914";
+  package-sets.mercury-ghc9141 = {
+    compiler = "mercury-ghc9141";
     overrides = api@{hackage, force, notest, ...}: let
       github = mkGithub api;
     in {
@@ -219,13 +218,13 @@ in {
   };
 
   envs.hls-db = {
-    package-set.extends = "mwb-26-09";
+    package-set.extends = "mercury-ghc9101";
   };
 
   commands.hls.env = "hls-db";
 
   envs.hls = {
-    package-set.extends = "mwb-26-09";
+    package-set.extends = "mercury-ghc9101";
 
     overrides = api@{hackage, fast, force, unbreak, nobench, notest, source, modify, hsLibC, disable, drv, ghcOption, self, ...}: let
 

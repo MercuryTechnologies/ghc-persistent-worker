@@ -16,14 +16,14 @@
   };
 
   outputs = inputs@{hix, ...}: hix [({config, lib, util, ...}: {
-    ghcVersions = ["ghc914"];
+    ghcVersions = [];
     main = "ghc-worker";
     ghci.args = ["-package ghc"];
     hls.genCabal = false;
 
     compilers = {
 
-      mwb-26-09.source.build = {
+      mercury-ghc9101.source.build = {
         url = "https://github.com/MercuryTechnologies/ghc";
         version = "9.10.1";
         flavour = "release+split_sections+ipe";
@@ -32,13 +32,24 @@
         hash = "sha256-sUOd6NZXgrnEhWjgfo74OajjS7llJH94FGFXAjvegBE=";
       };
 
-      ghc914.nixpkgs = "ghc914";
+      mercury-ghc9141 = {
+        nixpkgs = "ghc9141";
+        source.build = {
+          url = "https://github.com/MercuryTechnologies/ghc";
+          version = "9.14.1";
+          flavour = "release+split_sections+ipe";
+          # GHC 9.14.1 release version
+          rev = "902339d332fb4ce2b3c87dcac1ee6495d41ad886";
+          hash = "sha256-wsClYVCoinEem20jHTFjiTOMgU8MsEaZ1RAgAMsK078=";
+          bootCompiler = "ghc9103";
+        };
+      };
 
     };
 
     nixpkgs = {
 
-      ghc914.source = {
+      ghc9141.source = {
         rev = "c6d65881c5624c9cae5ea6cedef24699b0c0a4c0";
         hash = "sha256-WNGcmeOZ8Tr9dq6ztCspYbzWFswr2mPebM9LpsfGxPk=";
       };
