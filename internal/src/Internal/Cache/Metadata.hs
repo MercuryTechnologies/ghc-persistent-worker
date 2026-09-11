@@ -281,7 +281,7 @@ loadCachedHomeUnit logger useFixedNodes hsc_env0 unit (cachedUnit, dflags) =
       pure (hscSetActiveUnitId unit hsc_env1)
     modify (updateMakeState (insertUnitEnv hsc_env2))
     nodes <- liftIO $ loadCachedModules useFixedNodes hsc_env2 unit cachedUnit
-    modify (updateMakeState (rebuildModuleGraph . storeModuleGraphNodes nodes))    
+    modify (updateMakeState (rebuildModuleGraph . storeModuleGraphNodes nodes))
     pure hsc_env2
 
 -- | Intermediate result of the concurrent loading phase.

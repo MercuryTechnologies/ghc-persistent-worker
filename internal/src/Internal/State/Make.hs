@@ -64,7 +64,10 @@ loadStateCompile hsc_env0 state =
 --
 -- In more recent versions of GHC, the function for merging graphs is not exposed anymore.
 -- There was also some issue with node duplication, which is why this function is so convoluted.
-mergeModuleGraphNodes :: [ModuleGraphNode] -> Map.Map NodeKey ModuleGraphNode -> Map.Map NodeKey ModuleGraphNode
+mergeModuleGraphNodes ::
+  [ModuleGraphNode] ->
+  Map.Map NodeKey ModuleGraphNode ->
+  Map.Map NodeKey ModuleGraphNode
 mergeModuleGraphNodes new oldMap = merged
   where
     !merged = Map.unionWith mergeNodes oldMap newMap
@@ -80,13 +83,19 @@ mergeModuleGraph ::
   EModuleGraph ->
   EModuleGraph
 mergeModuleGraph kinodes egr =
-  foldr MG.extendMG' egr kinodes
+  MG.extendReachIndex $ foldr MG.extendMG' egr kinodes
 
 storeModuleGraphNodes :: [ModuleGraphNode] -> MakeState -> MakeState
 storeModuleGraphNodes new state =
-  state {moduleGraphNodes = merged}
+  state {
+    moduleGraphState = egr',
+    moduleGraphNodes = merged
+  }
   where
     !merged = mergeModuleGraphNodes new state.moduleGraphNodes
+    egr = state.moduleGraphState
+    kinMap = egr.keyIndexNodeMap
+    egr' = egr { keyIndexNodeMap = kinMap }
 
 -- | Derive 'moduleGraph' from the node index.
 --
@@ -95,7 +104,7 @@ storeModuleGraphNodes new state =
 rebuildModuleGraph :: MakeState -> MakeState
 rebuildModuleGraph !state =
   let old_egr = state.moduleGraphState
-      KIN old_kmap old_inodes old_kss old_i2k = state.moduleGraphState.keyIndexNodeMap
+      KIN old_kmap old_inodes old_kss old_i2k old_reach = state.moduleGraphState.keyIndexNodeMap
       old_keys = Set.fromList (Map.keys old_kmap)
       old_n = Set.size old_keys
       all_nodes = state.moduleGraphNodes
@@ -118,10 +127,11 @@ rebuildModuleGraph !state =
       delta_i2k = IM.fromList [ (i,k) | (k, (i, _)) <- delta_kinodes_list ]
       all_i2k = IM.union delta_i2k old_i2k
 
-      -- BE CAREFUL old_kss
-      newKIN = KIN all_kmap all_inodes old_kss all_i2k
-      new_egr = mergeModuleGraph delta_kinodes_list (old_egr {keyIndexNodeMap = newKIN})
-
+      -- BE CAREFUL old_kss and old_reach
+      newKIN0 = KIN all_kmap all_inodes old_kss all_i2k old_reach
+      new_egr1 = mergeModuleGraph delta_kinodes_list (old_egr {keyIndexNodeMap = newKIN0})
+      newKIN1 = keyIndexNodeMap new_egr1
+      new_egr = new_egr1 { keyIndexNodeMap = newKIN1 }
    in state {
      moduleGraphState = new_egr
    }

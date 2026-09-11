@@ -10,6 +10,7 @@ import GHC.Unit.Env (HomeUnitGraph)
 import GHC.Unit.Module.Graph (ModuleGraphNode, NodeKey)
 import GHC.Unit.Types (UnitId)
 import Data.IntMap qualified as IM
+import Data.IntSet qualified as IS
 import Data.Map.Strict qualified as M
 import Data.Set qualified as S
 
@@ -50,7 +51,8 @@ data KeyIndexNodeMap node = KIN
     idxNodeMap :: IM.IntMap node,
     -- | key to (idx, graph node) pair.
     keyINodeMap :: M.Map NodeKey (Node Int node),
-    idxKeyMap :: IM.IntMap NodeKey
+    idxKeyMap :: IM.IntMap NodeKey,
+    reachabilityMap :: IM.IntMap IS.IntSet
   }
 
 emptyKINMap :: KeyIndexNodeMap ModuleGraphNode
@@ -58,7 +60,8 @@ emptyKINMap = KIN
   { keyIdxMap = M.empty,
     idxNodeMap = IM.empty,
     keyINodeMap = M.empty,
-    idxKeyMap = IM.empty
+    idxKeyMap = IM.empty,
+    reachabilityMap = IM.empty
   }
 
 data EModuleGraph = EModuleGraph

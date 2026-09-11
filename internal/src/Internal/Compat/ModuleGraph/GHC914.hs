@@ -5,6 +5,7 @@
 
 module Internal.Compat.ModuleGraph.GHC914 (
   extendMG,
+  extendReachIndex,
 ) where
 
 import Data.Bifunctor
@@ -26,8 +27,13 @@ import GHC.Unit.Module.Graph (
   mnKey,
   moduleNodeInfoHscSource,
   )
--- TODO: use cyclic reachability when it is supported.
-import Internal.Compat.ModuleGraph.Reachability (graphReachability {- , cyclicGraphReachability -})
+import Internal.Compat.ModuleGraph.Reachability (
+  -- TODO: use cyclic reachability when it is supported.
+  {- , cyclicGraphReachability -}
+  graphReachability,
+  graphReachabilityIncr,
+  mkFromTo,
+  )
 import Types.State.Make (EModuleGraph (..), KeyIndexNodeMap (..))
 
 type ZeroSummaryNode = Node Int ZeroScopeKey
@@ -130,18 +136,35 @@ extendMG kinode@(_, (_, node)) EModuleGraph {moduleGraph = mg, keyIndexNodeMap =
   }
   where
     (kinMap', lookup_node) = moduleGraphNodesIncr kinode kinMap
-    snode_map = keyINodeMap kinMap'
-    snodes = Map.elems snode_map
-    gr = graphFromEdgedVerticesUniq snodes
-    reachIndex = graphReachability gr
-    -- TODO: Make a correct implementation when cyclic deps are supported.
-    reachIndexLoop = reachIndex {- cyclicGraphReachability gr -}
+    (badReachIndex, _) = mg_graph mg
     mg' = ModuleGraph
       { mg_mss = node : mg_mss mg,
-        mg_graph =  (reachIndex, lookup_node),
-        mg_loop_graph = (reachIndexLoop, lookup_node),
+        mg_graph =  (badReachIndex, lookup_node),
+        mg_loop_graph = (badReachIndex, lookup_node),
+        -- TODO: This is not yet incrementalized.
         mg_zero_graph = mkTransZeroDeps (node : mg_mss mg),
         mg_has_holes = mg_has_holes mg || maybe False isHsigFile (moduleNodeInfoHscSource =<< mgNodeIsModule node)
+      }
+
+extendReachIndex :: EModuleGraph -> EModuleGraph
+extendReachIndex emg0 =
+  let mg0 = emg0.moduleGraph
+      kinMap0 = emg0.keyIndexNodeMap
+      kinMap1 = graphReachabilityIncr kinMap0
+      reachGraph = reachabilityMap kinMap1
+      (from, to) = mkFromTo kinMap1
+      reachIndex = ReachabilityIndex {index = reachGraph, from_vertex = from, to_vertex = to}
+      (_, lookup_node) = mg_graph mg0
+
+      mg1 = mg0 {
+        mg_graph = (reachIndex, lookup_node),
+        mg_loop_graph = (reachIndex, lookup_node)
+        -- TODO: This is not yet incrementalized.
+        -- mg_zero_graph
+      }
+   in EModuleGraph {
+        moduleGraph = mg1,
+        keyIndexNodeMap = kinMap1
       }
 
 #else
