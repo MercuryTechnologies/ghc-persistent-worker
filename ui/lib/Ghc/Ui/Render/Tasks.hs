@@ -3,21 +3,22 @@ module Ghc.Ui.Render.Tasks where
 import Brick.Types (Widget)
 import Brick.Widgets.Core (Padding (..), padRight, str, strWrap, withAttr, (<+>))
 import Brick.Widgets.List (renderList)
+import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime, nominalDiffTimeToSeconds)
 import Ghc.Ui.Attr (canDebugAttr)
 import Ghc.Ui.Data.Name (Name (Tasks))
 import Ghc.Ui.Data.Tasks (Task (..), TasksState)
 import Ghc.Ui.Render.Format (formatPico)
 import Ghc.Ui.Render.Popup (popup)
-import Types.Target (renderTargetSpec)
+import Types.Api (renderTarget)
 
 drawTaskDetails :: Task -> Widget Name
 drawTaskDetails Task {..} =
-  popup 70 (renderTargetSpec target) $ strWrap $ maybe "" id failure
+  popup 70 (Text.unpack (renderTarget target)) $ strWrap $ maybe "" id failure
 
 draw :: Name -> UTCTime -> TasksState -> Widget Name
 draw current now = renderList drawTask (current == Tasks)
  where
   drawTask _ Task {..} =
     (if debuggable then withAttr canDebugAttr else id) $
-      padRight Max (str (renderTargetSpec target)) <+> str (maybe (formatPico $ nominalDiffTimeToSeconds (max 0 (diffUTCTime now startTime))) (const "Failure") failure)
+      padRight Max (str (Text.unpack (renderTarget target))) <+> str (maybe (formatPico $ nominalDiffTimeToSeconds (max 0 (diffUTCTime now startTime))) (const "Failure") failure)

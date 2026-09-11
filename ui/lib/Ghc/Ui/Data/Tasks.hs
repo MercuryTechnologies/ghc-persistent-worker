@@ -5,11 +5,14 @@ import Data.Sequence (Seq)
 import Data.Time (UTCTime)
 import Ghc.Ui.Data.Name (Name (Tasks))
 import Ghc.Ui.Data.WorkerId (WorkerId)
-import Types.Target (TargetSpec (..))
+import Types.Api (RequestId, Target)
 
 data Task =
   Task {
-    target :: TargetSpec,
+    target :: Target,
+    -- | The worker request that compiles the target, which tells apart two compilations of the same target.
+    -- 'Nothing' for a rebuild that the worker did not accept.
+    requestId :: Maybe RequestId,
     startTime :: UTCTime,
     failure :: Maybe String,
     worker :: WorkerId,

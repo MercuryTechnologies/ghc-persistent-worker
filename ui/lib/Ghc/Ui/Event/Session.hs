@@ -15,7 +15,6 @@ import Ghc.Ui.Event.Tasks qualified as Tasks
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Lens.Micro.Platform (each, filtered, modifying, zoom)
 import Types.Api qualified as Api
-import Types.Target (TargetSpec (..))
 
 stripEscSeqs :: String -> String
 stripEscSeqs [] = []
@@ -26,26 +25,24 @@ handleEvent :: SessionEvent -> EventM Name SessionState ()
 handleEvent (InstrEvent wid evt) =
   case evt of
     Api.CompileStart {..} -> do
-      zoom #activeTasks $ Tasks.addTask (TargetUnknown target) wid canDebug
+      zoom #activeTasks $ Tasks.addTask target requestId wid debuggable
     Api.CompileEnd {..} -> do
       let content = stripEscSeqs stderr
-          target' = TargetUnknown $ if target == "" then takeWhile (/= ':') content else target
       if exitCode == 0
       then do
-        start <- zoom #activeTasks $ Tasks.removeTask target'
+        start <- zoom #activeTasks $ Tasks.removeTask target requestId
         end <- liftIO getCurrentTime
         let time = nominalDiffTimeToSeconds . diffUTCTime end <$> start
-        zoom #modules $ ModuleSelector.addModule target' content time wid
+        zoom #modules $ ModuleSelector.addModule target content time wid
       else do
-        zoom #activeTasks $ Tasks.taskFailure target' content
+        zoom #activeTasks $ Tasks.taskFailure target requestId content
     Api.Stats {..} -> do
       modifying (#workers . each . filtered (\w -> w.workerId == wid) . #stats) \ st ->
         st {
-          memory,
+          memory = Map.mapKeys Text.unpack memory,
           gc_cpu_ns = gcCpuNs,
           cpu_ns = cpuNs
         }
-    Api.Halt -> pure ()
 handleEvent (RebuildFailed wid target message) = do
   zoom #modules $ ModuleSelector.enableModule wid target
   zoom #activeTasks $ Tasks.addFailedRebuild target wid ("Rebuild failed: " ++ Text.unpack message)

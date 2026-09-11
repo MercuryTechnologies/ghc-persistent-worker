@@ -1,24 +1,32 @@
 module GhcWorker.Instrumentation where
 
 import Common.Grpc (GrpcHandler (..))
-import Control.Concurrent (MVar, modifyMVar_, readMVar)
+import Control.Concurrent (MVar, modifyMVar, modifyMVar_, readMVar)
 import Control.Concurrent.Chan (Chan, writeChan)
 import Control.Exception (bracket_)
-import Data.Foldable (traverse_)
+import Data.Foldable (for_, traverse_)
 import Data.Int (Int32)
 import GhcWorker.Grpc (mkStats)
 import Internal.Log (dbg)
 import Prelude hiding (log)
+import Types.Api (Event (..), RequestId, Target, targetFromWorkerSpec)
 import Types.BuckArgs (BuckArgs (..))
-import Types.Api (Event (..))
 import Types.State (WorkerState)
-import Types.Target (TargetSpec, renderTargetSpec)
+import Types.Target (TargetSpec)
 
 -- | Rudimentary dummy state for instrumentation, counting concurrently compiling sessions.
 data WorkerStatus =
   WorkerStatus {
-    active :: Int
+    active :: Int,
+    -- | Counter for request IDs, used to associate API events with each other.
+    nextRequestId :: RequestId
   }
+
+-- | Obtain a new ID for the current request.
+startRequest :: MVar WorkerStatus -> IO RequestId
+startRequest var =
+  modifyMVar var \ ws@WorkerStatus {nextRequestId} ->
+    pure (ws {nextRequestId = nextRequestId + 1}, nextRequestId)
 
 -- | Callbacks passed to GHC request handlers that trigger instrumentation events.
 data Hooks =
@@ -66,21 +74,23 @@ finishJob var = do
     pure ws {active = new}
 
 -- | Construct a grapesy message for a "compilation started" event.
-messageCompileStart :: BuckArgs -> TargetSpec -> Event
-messageCompileStart _args target =
-  CompileStart
-    { target = renderTargetSpec target
-    , canDebug = True
-    }
+messageCompileStart :: BuckArgs -> Target -> RequestId -> Event
+messageCompileStart _args target requestId =
+  CompileStart {
+    target,
+    debuggable = True,
+    requestId
+  }
 
 -- | Construct a grapesy message for a "compilation finished" event.
-messageCompileEnd :: Maybe TargetSpec -> Int32 -> [String] -> Event
-messageCompileEnd target exitCode output =
-  CompileEnd
-    { target = maybe "" renderTargetSpec target
-    , exitCode = fromIntegral exitCode
-    , stderr = unlines output
-    }
+messageCompileEnd :: Target -> Int32 -> [String] -> RequestId -> Event
+messageCompileEnd target exitCode output requestId =
+  CompileEnd {
+    target,
+    exitCode = fromIntegral exitCode,
+    stderr = unlines output,
+    requestId
+  }
 
 -- | Run a 'GrpcHandler' with instrumentation enabled.
 --
@@ -98,23 +108,25 @@ withInstrumentation instrChan status stateVar handler =
   GrpcHandler \ commandEnv argv -> do
     state <- readMVar stateVar
     bracket_ (startJob status) (finishJob status) do
+      requestId <- startRequest status
+      let hooks = Hooks {
+            compileStart = compileStart requestId,
+            compileFinish = compileFinish requestId
+          }
       result <- (handler.create hooks).run commandEnv argv
       stats <- mkStats state
       writeChan instrChan stats
       pure result
   where
-    hooks = Hooks {
-      compileStart,
-      compileFinish
-    }
+    compileStart requestId =
+      \ args -> traverse_ \ spec ->
+        for_ (targetFromWorkerSpec spec) \ target ->
+          writeChan instrChan $ messageCompileStart args target requestId
 
-    compileStart =
-      \ args -> traverse_ \ target ->
-        writeChan instrChan $ messageCompileStart args target
-
-    compileFinish =
-      traverse_ \ (target, output, exitCode) -> do
-        writeChan instrChan $ messageCompileEnd target exitCode output
+    compileFinish requestId =
+      traverse_ \ (spec, output, exitCode) -> do
+        for_ (targetFromWorkerSpec =<< spec) \ target ->
+          writeChan instrChan $ messageCompileEnd target exitCode output requestId
 
 -- | Construct a 'GrpcHandler' by passing functioning 'Hooks' to an 'InstrumentedHandler' if the third argument contains
 -- 'Just' a message channel, or passing no-op 'Hooks' otherwise.

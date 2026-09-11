@@ -113,7 +113,7 @@ createMethods state features status traceId = do
 runWorker :: CliOptions -> IO ()
 runWorker CliOptions {serve, features} = do
   state <- newState
-  status <- newMVar WorkerStatus {active = 0}
+  status <- newMVar WorkerStatus {active = 0, nextRequestId = 0}
   methods <- createMethods state features status traceId
   runCentralGhcSpawned methods serve
   where

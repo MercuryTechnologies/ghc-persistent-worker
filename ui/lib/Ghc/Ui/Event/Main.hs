@@ -9,6 +9,7 @@ import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (maybeToList)
 import Data.Monoid (First (..))
+import qualified Data.Text as Text
 import Data.Time (UTCTime (..), fromGregorian)
 import Ghc.Ui.Data.Main (MainEvent (..), MainState (..))
 import Ghc.Ui.Data.Name (Name (..))
@@ -24,7 +25,8 @@ import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Graphics.Vty (Event (..), Key (..), Output (..), Vty (..))
 import Internal.Debug (debugSocketPath)
 import Lens.Micro.Platform (Traversal', _1, _2, preuse, use, zoom, (.=))
-import Types.Target (TargetSpec)
+import Types.Api (Target, renderTarget)
+import Types.Target (TargetSpec (TargetUnknown))
 
 initialState :: MainState
 initialState =
@@ -44,7 +46,7 @@ beep = do
   vty <- getVtyHandle
   liftIO $ vty.outputIface.ringTerminalBell
 
-withTarget' :: Bool -> (WorkerId -> TargetSpec -> EventM Name MainState ()) -> EventM Name MainState ()
+withTarget' :: Bool -> (WorkerId -> Target -> EventM Name MainState ()) -> EventM Name MainState ()
 withTarget' forRebuild handler = do
   current <- use #currentFocus
   First mtarget <- case current of
@@ -55,10 +57,10 @@ withTarget' forRebuild handler = do
     Nothing -> beep
     Just (wid, target) -> handler wid target
 
-withTarget :: (WorkerId -> TargetSpec -> EventM Name MainState ()) -> EventM Name MainState ()
+withTarget :: (WorkerId -> Target -> EventM Name MainState ()) -> EventM Name MainState ()
 withTarget = withTarget' False
 
-withTargetForRebuild :: (WorkerId -> TargetSpec -> EventM Name MainState ()) -> EventM Name MainState ()
+withTargetForRebuild :: (WorkerId -> Target -> EventM Name MainState ()) -> EventM Name MainState ()
 withTargetForRebuild = withTarget' True
 
 selectWorkers :: Maybe WorkerId -> Map WorkerId Worker -> [Worker]
@@ -74,7 +76,7 @@ forWorkers spec f = do
   workers <- selectWorkers spec <$> use (currentSession . #workers)
   traverse_ f workers
 
-triggerBuild :: ServerApi -> WorkerId -> TargetSpec -> EventM Name MainState ()
+triggerBuild :: ServerApi -> WorkerId -> Target -> EventM Name MainState ()
 triggerBuild api workerId target = do
   session <- preuse (#sessions . listSelectedElementL . _1)
   for_ session \ sid ->
@@ -101,9 +103,10 @@ handleGlobalKey api current event = \case
   KChar 's' ->
     openPopup Sessions
 
+  -- The worker names a debug socket after the rendered module target, which renders like the module in 'Target'.
   KChar 'd' ->
     withTarget \ _ target ->
-      suspendAndResume' $ debug (debugSocketPath target)
+      suspendAndResume' $ debug (debugSocketPath (TargetUnknown (Text.unpack (renderTarget target))))
 
   KChar 'r' ->
     withTargetForRebuild \ wid target ->

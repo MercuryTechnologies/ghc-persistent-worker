@@ -133,10 +133,30 @@ data ApiResponse =
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
-data Event
-  = CompileStart { target :: String, canDebug :: Bool }
-  | CompileEnd { target :: String, exitCode :: Int, stderr :: String }
-  | Stats { memory :: Map String Int, cpuNs :: Int, gcCpuNs :: Int }
-  | Halt
+newtype RequestId =
+  RequestId { number :: Int }
+  deriving stock (Eq, Show)
+  deriving newtype (Num, Real, Enum, Integral, Ord, FromJSON, ToJSON, Binary)
+
+-- | Events emitted during task execution, to be consumed by clients like the UI.
+data Event =
+  CompileStart {
+    target :: Target,
+    debuggable :: Bool,
+    requestId :: RequestId
+  }
+  |
+  CompileEnd {
+    target :: Target,
+    exitCode :: Int,
+    stderr :: String,
+    requestId :: RequestId
+  }
+  |
+  Stats {
+    memory :: Map Text Int,
+    cpuNs :: Int,
+    gcCpuNs :: Int
+  }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Binary)

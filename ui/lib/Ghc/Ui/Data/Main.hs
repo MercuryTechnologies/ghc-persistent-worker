@@ -5,14 +5,14 @@ import GHC.Generics (Generic)
 import Ghc.Ui.Data.Name (Name (..))
 import Ghc.Ui.Data.Sessions (SessionsEvent, SessionsState)
 import Ghc.Ui.Data.WorkerId (WorkerId)
-import Types.Target (TargetSpec)
+import Types.Api (Target)
 
 data MainEvent =
   SetTime UTCTime
   |
   SessionSelectorEvent SessionsEvent
   |
-  TriggerRebuild WorkerId TargetSpec
+  TriggerRebuild WorkerId Target
 
 data MainState =
   MainState {

@@ -6,6 +6,7 @@ import Brick.Widgets.List (GenericList, list, listElementsL, listSelectedElement
 import Control.Monad (when)
 import Data.Fixed (Fixed (..), Pico)
 import Data.Sequence qualified as Seq
+import qualified Data.Text as Text
 import Ghc.Ui.Attr (disabledAttr)
 import Ghc.Ui.Data.Name (Name (ModuleSelector))
 import Ghc.Ui.Data.WorkerId (WorkerId)
@@ -13,7 +14,7 @@ import Ghc.Ui.Render.Format (formatPico, formatPs)
 import Ghc.Ui.Render.Popup (popup)
 import Ghc.Ui.Utils (upsertAscSeq)
 import Lens.Micro.Platform (modifying, preuse, use, (.=))
-import Types.Target (TargetSpec (..), renderTargetSpec)
+import Types.Api (Target, renderTarget)
 
 type State = GenericList Name Seq.Seq Module
 
@@ -22,7 +23,7 @@ initialState = list ModuleSelector Seq.empty 1
 
 data Module =
   Module {
-    modTarget :: TargetSpec,
+    modTarget :: Target,
     content :: String,
     modCompileTime :: Maybe Pico,
     fromWorker :: WorkerId,
@@ -34,24 +35,24 @@ draw current = renderList drawModule (current == ModuleSelector)
  where
   drawModule _ Module{modTarget = name, ..} =
     (if disabled then withAttr disabledAttr else id) $
-      padRight Max (str (renderTargetSpec name)) <+> str (maybe "" formatPico modCompileTime)
+      padRight Max (str (Text.unpack (renderTarget name))) <+> str (maybe "" formatPico modCompileTime)
 
 drawModuleDetails :: Module -> Widget Name
 drawModuleDetails Module{modTarget = name, ..} =
-  popup 70 (renderTargetSpec name) $
+  popup 70 (Text.unpack (renderTarget name)) $
     vBox
       [ str $ "Compile time: " ++ maybe "" (formatPs . (\(MkFixed n) -> n)) modCompileTime
       , strWrap content
       ]
 
-addModule :: TargetSpec -> String -> Maybe Pico -> WorkerId -> EventM Name State ()
+addModule :: Target -> String -> Maybe Pico -> WorkerId -> EventM Name State ()
 addModule target content compileTime wid = do
   mods <- use listElementsL
   let (i, mods') = upsertAscSeq (.modTarget) (Module target content compileTime wid False) mods
   listElementsL .= mods'
   modifying listSelectedL (Just . maybe i (\i' -> if i' >= i then i' + 1 else i'))
 
-getSelectedTarget :: Bool -> EventM Name State (Maybe (WorkerId, TargetSpec))
+getSelectedTarget :: Bool -> EventM Name State (Maybe (WorkerId, Target))
 getSelectedTarget forRebuild = do
   mtask <- preuse listSelectedElementL
   when forRebuild $ modifying listSelectedElementL (\m -> m {disabled = True})
@@ -63,7 +64,7 @@ removeWorker wid = do
     fmap (\m -> if m.fromWorker == wid then m{disabled = True} else m) mods
 
 -- | Make the target selectable for a rebuild again, after the worker did not accept one.
-enableModule :: WorkerId -> TargetSpec -> EventM Name State ()
+enableModule :: WorkerId -> Target -> EventM Name State ()
 enableModule wid target =
   modifying listElementsL $ fmap \ m ->
     if m.fromWorker == wid && m.modTarget == target then m {disabled = False} else m

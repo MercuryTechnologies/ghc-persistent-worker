@@ -17,9 +17,7 @@ import Network.GRPC.Client (Connection, rpc)
 import Network.GRPC.Client.StreamType.IO (nonStreaming)
 import Network.GRPC.Common.Protobuf (Protobuf, defMessage, (&), (.~))
 import Proto.Worker_Fields qualified as Fields
-import Types.Api (ApiRequest (..), ApiResponse (..), HomeModule (..), ModuleName (..), TaskKind (..), TaskTrigger (..), UnitName (..))
-import qualified Types.Api as Api
-import Types.Target (TargetSpec, renderTargetSpec)
+import Types.Api (ApiRequest (..), ApiResponse (..), Target, TaskKind (..), TaskTrigger (..))
 
 -- | Send a request to the worker's @Api@ method and decode the response.
 -- A failed call, or a response that does not decode, is returned as 'ApiFailure'.
@@ -34,19 +32,10 @@ apiRequest conn request = do
       either (ApiFailure . ("api: failed to decode response: " <>) . Text.pack) id $
         eitherDecodeStrict response.payload
 
--- | The API's target for a target that the worker reported as text: @unit@, @unit:Module@, or
--- @unit:Module:<interpreted>@.
-apiTarget :: TargetSpec -> Api.Target
-apiTarget spec =
-  case Text.breakOn ":" (renderTargetSpec spec) of
-    (unit, name)
-      | Text.null name -> Api.TargetUnit {name = UnitName unit}
-      | otherwise -> Api.TargetModule {key = HomeModule {unit = UnitName unit, name = ModuleName (Text.takeWhile (/= ':') (Text.drop 1 name))}}
-
-triggerRebuild :: BChan MainEvent -> Session.Id -> WorkerId -> Connection -> TargetSpec -> IO ()
+triggerRebuild :: BChan MainEvent -> Session.Id -> WorkerId -> Connection -> Target -> IO ()
 triggerRebuild chan sid wid conn target =
   void $ forkIO do
-    apiRequest conn (TriggerTask TaskTrigger {target = apiTarget target, task = Build {rebuild = True}}) >>= \case
+    apiRequest conn (TriggerTask TaskTrigger {target, task = Build {rebuild = True}}) >>= \case
       ApiSuccess -> pure ()
       ApiFailure {message} ->
         writeBChan chan $ SessionSelectorEvent $ Sessions.Session sid $ Session.RebuildFailed wid target message
