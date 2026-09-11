@@ -13,7 +13,7 @@ import Ghc.Ui.Data.WorkerId (WorkerId)
 import Ghc.Ui.Event.Tasks qualified as Tasks
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Lens.Micro.Platform (each, filtered, modifying, zoom)
-import Types.Instrument qualified as Instr
+import Types.Api qualified as Api
 import Types.Target (TargetSpec (..))
 
 stripEscSeqs :: String -> String
@@ -24,9 +24,9 @@ stripEscSeqs (x : xs) = x : stripEscSeqs xs
 handleEvent :: SessionEvent -> EventM Name SessionState ()
 handleEvent (InstrEvent wid evt) =
   case evt of
-    Instr.CompileStart {..} -> do
+    Api.CompileStart {..} -> do
       zoom #activeTasks $ Tasks.addTask (TargetUnknown target) wid canDebug
-    Instr.CompileEnd {..} -> do
+    Api.CompileEnd {..} -> do
       let content = stripEscSeqs stderr
           target' = TargetUnknown $ if target == "" then takeWhile (/= ':') content else target
       if exitCode == 0
@@ -37,14 +37,14 @@ handleEvent (InstrEvent wid evt) =
         zoom #modules $ ModuleSelector.addModule target' content time wid
       else do
         zoom #activeTasks $ Tasks.taskFailure target' content
-    Instr.Stats {..} -> do
+    Api.Stats {..} -> do
       modifying (#workers . each . filtered (\w -> w.workerId == wid) . #stats) \ st ->
         st {
           memory,
           gc_cpu_ns = gcCpuNs,
           cpu_ns = cpuNs
         }
-    Instr.Halt -> pure ()
+    Api.Halt -> pure ()
 
 removeWorker :: WorkerId -> EventM Name SessionState ()
 removeWorker target = do

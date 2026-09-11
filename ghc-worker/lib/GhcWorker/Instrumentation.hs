@@ -10,7 +10,7 @@ import GhcWorker.Grpc (mkStats)
 import Internal.Log (dbg)
 import Prelude hiding (log)
 import Types.BuckArgs (BuckArgs (..))
-import Types.Instrument (Event (..))
+import Types.Api (Event (..))
 import Types.State (WorkerState)
 import Types.Target (TargetSpec, renderTargetSpec)
 

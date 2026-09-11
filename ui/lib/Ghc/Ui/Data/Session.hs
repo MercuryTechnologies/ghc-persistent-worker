@@ -11,7 +11,7 @@ import Ghc.Ui.Data.Tasks (TasksState)
 import Ghc.Ui.Data.WorkerId (WorkerId)
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Network.GRPC.Client (Connection)
-import Types.Instrument qualified as Shared
+import Types.Api (Event)
 
 newtype Id =
   Id { text :: Text }
@@ -60,7 +60,7 @@ data SessionState =
   }
   deriving stock (Generic)
 
-data SessionEvent = InstrEvent WorkerId Shared.Event
+data SessionEvent = InstrEvent WorkerId Event
 
 initialState :: String -> UTCTime -> SessionState
 initialState title startTime =

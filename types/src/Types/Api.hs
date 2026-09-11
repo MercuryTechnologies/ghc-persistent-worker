@@ -1,4 +1,4 @@
-module Types.Instrument where
+module Types.Api where
 
 import Data.Binary (Binary)
 import Data.Map (Map)

@@ -13,17 +13,12 @@ import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import Network.GRPC.Common (NextElem (..))
 import Network.GRPC.Common.Protobuf (Proto, defMessage, (&), (.~))
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
-import Network.GRPC.Server.StreamType (
-  Methods (..),
-  mkNonStreaming,
-  mkServerStreaming,
-  simpleMethods,
-  )
+import Network.GRPC.Server.StreamType (Methods (..), mkNonStreaming, mkServerStreaming, simpleMethods)
 import qualified Proto.Instrument as Instr
 import Proto.Instrument (Instrument)
 import Proto.Instrument_Fields qualified as Instr
+import Types.Api (Event (..))
 import Types.Grpc (CommandEnv (..), RequestArgs (..))
-import Types.Instrument (Event (..))
 import Types.State (WorkerState (..))
 import Types.Target (TargetSpec (..))
 

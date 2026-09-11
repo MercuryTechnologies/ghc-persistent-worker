@@ -34,7 +34,7 @@ import Options.Applicative (
   )
 import Types.FeatureFlags (FeatureFlag (..), FeatureFlags (..), defaultFeatureFlags, parseByteSize)
 import Types.Grpc (CommandEnv, RequestArgs)
-import Types.Instrument (Event)
+import Types.Api (Event)
 import Types.Log (TraceId (..))
 import Types.Orchestration (ServerSocketPath (..), serverSocketFromPath)
 import Types.State (WorkerState (..))
