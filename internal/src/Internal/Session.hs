@@ -239,21 +239,21 @@ withGhcMakeModule interp target =
 
     restoreCachedHomeUnit env dflags0 =
       maybeArg env.args.homeUnit $
-        loadHomeUnit env.log dflags0 env.args.features (moduleUnitId target.mod)
+        loadHomeUnit env.log dflags0 env.args.features (moduleUnitId target.module_)
 
     setSessionModuleGraph (state, hsc_env) = pure (state, hscSetModuleGraph state.make.moduleGraphState.moduleGraph hsc_env)
 
-    setActiveUnit (state, hsc_env) = pure (state, hscSetActiveUnitId (moduleUnitId target.mod) hsc_env)
+    setActiveUnit (state, hsc_env) = pure (state, hscSetActiveUnitId (moduleUnitId target.module_) hsc_env)
 
     -- When the dependency closure is not provided with --dep-modules, compute it from the module graph.
     restoreCachedModules env (state, hsc_env) =
       liftIO (loadCachedDeps env.log env.args.features interp (state, hsc_env) deps)
       where
-        deps = fromMaybe (depsFromModuleGraph state.make.moduleGraphNodes target.mod) env.args.cachedDeps
+        deps = fromMaybe (depsFromModuleGraph state.make.moduleGraphNodes target.module_) env.args.cachedDeps
 
     maybeArg :: Maybe a -> (b -> a -> IO b) -> b -> IO b
     maybeArg arg f z = fromMaybe z <$> traverse (liftIO . f z) arg
 
     (targetSpec, setTarget)
-      | Interpreted <- interp = (TargetModuleInterp, mkTargetAsInterpreted target.mod)
+      | Interpreted <- interp = (TargetModuleInterp, mkTargetAsInterpreted target.module_)
       | otherwise = (TargetModule, id)

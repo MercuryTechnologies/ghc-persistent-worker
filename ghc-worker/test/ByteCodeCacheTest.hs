@@ -45,7 +45,7 @@ allModules =
   Map.fromList [(m.key, moduleSource m) | m <- [modA, modB, modC, modD]]
 
 moduleFor :: ModuleKey -> Module
-moduleFor key = (compileTarget key).mod
+moduleFor key = (compileTarget key).module_
 
 buildUpToB :: SessionEnv -> IO ()
 buildUpToB sessionEnv = do

@@ -87,7 +87,7 @@ runMetadata env mkArgs unit = do
 compileTarget :: ModuleKey -> ModuleTarget
 compileTarget key =
   ModuleTarget {
-    mod = mkModule (stringToUnit (unitName key.unit)) (mkModuleName (moduleName key))
+    module_ = mkModule (stringToUnit (unitName key.unit)) (mkModuleName (moduleName key))
   }
 
 -- | Execute a compile task.

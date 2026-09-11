@@ -17,7 +17,7 @@ instance Outputable Target where
   ppr (Target path) = text (fromOsPath path)
 
 newtype ModuleTarget =
-  ModuleTarget { mod :: Module }
+  ModuleTarget { module_ :: Module }
   deriving stock (Eq)
   deriving newtype (Outputable)
 
