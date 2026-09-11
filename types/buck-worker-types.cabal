@@ -55,6 +55,7 @@ library
     Types.State
     Types.State.Make
     Types.Target
+    Types.Text
     System.OsPath.Extra
   build-depends:
     aeson,

@@ -1,8 +1,10 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
+
 module System.OsPath.Extra
   ( OsPathDecodingException (..)
   , OsPathEncodingException (..)
   , fromOsPath
+  , pathText
   , toOsPath
   , encodeUtf
   , decodeUtf
@@ -13,6 +15,8 @@ import Control.Exception (Exception, SomeException, throw)
 import Control.Monad.Catch (MonadThrow, throwM)
 import Data.Aeson (FromJSON (..), FromJSONKey, ToJSON (..), ToJSONKey, Value (..), withText)
 import qualified Data.Text as T
+import qualified Data.Text as Text
+import Data.Text (Text)
 import qualified System.OsPath as OsPath (decodeUtf, encodeUtf)
 import System.OsPath as OsPathReexport hiding (decodeUtf, encodeUtf)
 
@@ -30,6 +34,9 @@ instance Exception OsPathEncodingException where
 -- and the exception provides the filepath as context.
 fromOsPath :: OsPath -> String
 fromOsPath = either throw id . decodeUtf
+
+pathText :: OsPath -> Text
+pathText = Text.pack . fromOsPath
 
 -- | Like 'encodeUtf' but throws an exception instead of returning an Either
 -- and the exception provides the filepath as context.
