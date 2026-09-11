@@ -43,6 +43,7 @@ import Types.Args (Args (..), buildPlanAll)
 import Types.BuildPlan (BuildPlan (..))
 import Types.CachedDeps (CachedBuildPlans)
 import Types.Env (Env (..))
+import Types.FeatureFlags (FeatureFlags (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
 import Types.Target (TargetSpec (..), UnitTarget (..))
@@ -188,7 +189,7 @@ computeMetadata env = do
         module_graph <- writeMetadata env.args staticUnits (fst <$> srcs)
         liftIO do
           unless (transientUnit env) $
-            updateMakeStateVar env.state (storeModuleGraph module_graph)
+            updateMakeStateVar env.state (storeModuleGraph env.args.features.useIncrModGraph module_graph)
           for_ dflags.stubDir \ stubdir -> do
             env.log.debug ("Creating stubdir: " ++ stubdir)
             createDirectoryIfMissing False stubdir

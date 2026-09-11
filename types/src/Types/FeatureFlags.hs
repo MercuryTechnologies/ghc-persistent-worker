@@ -23,7 +23,9 @@ data FeatureFlags =
     concurrentInitUnits :: Bool,
     -- | Integrated with accompanying monitoring instrument app
     instrument :: Bool,
-    lazyByteCode :: Bool
+    lazyByteCode :: Bool,
+    -- | Use incremental update of ModuleGraph.
+    useIncrModGraph :: Bool
   }
   deriving stock (Eq, Show)
 
@@ -34,5 +36,6 @@ defaultFeatureFlags =
     flagParser = False,
     concurrentInitUnits = True,
     instrument = False,
-    lazyByteCode = True
+    lazyByteCode = True,
+    useIncrModGraph = True
   }

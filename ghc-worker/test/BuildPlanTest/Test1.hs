@@ -217,7 +217,9 @@ test_buildPlan_make =
 
     persist state plan hsc_env =
       liftIO do
-        updateMakeStateVar state (storeModuleGraph plan.graph)
+        -- TODO: currently testing only incremental one here.
+        let useIncrModGraph = True
+        updateMakeStateVar state (storeModuleGraph useIncrModGraph plan.graph)
         updateMakeStateVar state (insertUnitEnv hsc_env)
 
 -- | Like 'test_buildPlan_make', but simulates oneshot mode orchestration without persistent worker state.

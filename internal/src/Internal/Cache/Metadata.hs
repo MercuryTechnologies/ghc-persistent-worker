@@ -269,11 +269,12 @@ loadCachedModules useFixedNodes hsc_env unit CachedUnit {build_plan, cache} =
 loadCachedHomeUnit ::
   Logger ->
   Bool ->
+  Bool ->
   HscEnv ->
   UnitId ->
   (CachedUnit, DynFlags) ->
   StateT WorkerState IO HscEnv
-loadCachedHomeUnit logger useFixedNodes hsc_env0 unit (cachedUnit, dflags) =
+loadCachedHomeUnit logger useFixedNodes useIncrModGraph hsc_env0 unit (cachedUnit, dflags) =
   logTimedD logger (text "Loading cached home unit" <+> quotes (ppr unit)) do
     traverse_ loadCachedArgs cachedUnit.unit_buck_args
     hsc_env2 <- liftIO do
@@ -281,7 +282,7 @@ loadCachedHomeUnit logger useFixedNodes hsc_env0 unit (cachedUnit, dflags) =
       pure (hscSetActiveUnitId unit hsc_env1)
     modify (updateMakeState (insertUnitEnv hsc_env2))
     nodes <- liftIO $ loadCachedModules useFixedNodes hsc_env2 unit cachedUnit
-    modify (updateMakeState (rebuildModuleGraph . storeModuleGraphNodes nodes))
+    modify (updateMakeState (rebuildModuleGraph useIncrModGraph . storeModuleGraphNodes nodes))
     pure hsc_env2
 
 -- | Intermediate result of the concurrent loading phase.
@@ -388,6 +389,6 @@ loadCachedDepUnits logger dflags0 (CachedBuildPlans buildPlans) features (state0
     let (total, missing) = compareUnits hsc_env1 buildPlans
     prepared <- catMaybes <$> traverser (loadCachedBuildPlan hsc_env1 dflags0 features total) missing
     (hsc_env2, state1) <- runStateT (foldM (insertPreparedUnit logger features) hsc_env1 prepared) state0
-    pure (hsc_env2, updateMakeState Make.rebuildModuleGraph state1)
+    pure (hsc_env2, updateMakeState (Make.rebuildModuleGraph features.useIncrModGraph) state1)
   where
     traverser = if features.concurrentInitUnits then processConcurrent else traverse

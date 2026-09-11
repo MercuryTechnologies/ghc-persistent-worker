@@ -10,6 +10,7 @@ import GHC.Driver.Env (HscEnv (..))
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.Graph (UnitEnvGraph (..), unitEnv_insert, unitEnv_lookup)
 import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), NodeKey, mgModSummaries', mkNodeKey)
+import GHC.Unit.Module.Graph qualified as GHC.MG (mkModuleGraph)
 import Internal.State.Stats (logMemStats)
 import Internal.State.UnitIndex (restoreUnitIndex)
 import Types.Log (Logger)
@@ -101,8 +102,22 @@ storeModuleGraphNodes new state =
 --
 -- This is @O(size of the index)@, so when a batch of units is restored it must be called once for the batch rather than
 -- once per unit.
-rebuildModuleGraph :: MakeState -> MakeState
-rebuildModuleGraph !state =
+rebuildModuleGraph :: Bool -> MakeState -> MakeState
+rebuildModuleGraph use_incr !state
+  | use_incr = rebuildModuleGraphIncr state
+  | otherwise = rebuildModuleGraphNonIncr state
+
+rebuildModuleGraphNonIncr :: MakeState -> MakeState
+rebuildModuleGraphNonIncr !state =
+  let old_egr = state.moduleGraphState
+      new_gr = GHC.MG.mkModuleGraph (Map.elems state.moduleGraphNodes)
+      new_egr = old_egr {
+        moduleGraph = new_gr
+      }
+   in state {moduleGraphState = new_egr}
+
+rebuildModuleGraphIncr :: MakeState -> MakeState
+rebuildModuleGraphIncr !state =
   let old_egr = state.moduleGraphState
       KIN old_kmap old_inodes old_kss old_i2k old_reach = state.moduleGraphState.keyIndexNodeMap
       old_keys = Set.fromList (Map.keys old_kmap)
@@ -137,9 +152,9 @@ rebuildModuleGraph !state =
    }
 
 -- | Merge the given module graph into the cached graph and derive 'moduleGraph' immediately.
-storeModuleGraph :: ModuleGraph -> MakeState -> MakeState
-storeModuleGraph new =
-  rebuildModuleGraph . storeModuleGraphNodes (mgModSummaries' new)
+storeModuleGraph :: Bool -> ModuleGraph -> MakeState -> MakeState
+storeModuleGraph use_incr new =
+  rebuildModuleGraph use_incr . storeModuleGraphNodes (mgModSummaries' new)
 
 -- | Extract the unit env of the currently active unit and store it in the cache.
 -- This is used by the make mode worker after the metadata step has initialized the new unit.

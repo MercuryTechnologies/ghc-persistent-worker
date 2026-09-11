@@ -432,4 +432,4 @@ loadHomeUnit log dflags0 features unit (state0, hsc_env0) path
       loadCachedDepUnits log dflags0 deps features (state0, hsc_env0)
     dflags <- maybe (pure dflags0) (readParseGHCArgs features.flagParser hsc_env1 dflags0) unit_args
     logTimed log "Loading cached home unit" $ fmap swap do
-      runStateT (loadCachedHomeUnit log features.fixedNodesCache hsc_env1 unit (cachedUnit, dflags)) state1
+      runStateT (loadCachedHomeUnit log features.fixedNodesCache features.useIncrModGraph hsc_env1 unit (cachedUnit, dflags)) state1
