@@ -11,6 +11,8 @@ import Data.Text (Text)
 import qualified GHC
 import GHC.Generics (Generic)
 import GHC.Unit (Module, UnitId, mkModuleName, moduleName, moduleNameString, moduleUnitId, stringToUnitId, unitIdString)
+import qualified Types.Target as Worker
+import Types.Target (ModuleTarget (..), TargetSpec, UnitTarget (..))
 
 newtype UnitName =
   UnitName { text :: Text }
@@ -60,6 +62,76 @@ data UnitSummary =
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Binary)
+
+-- | Specification for selecting build targets by names, especially from the UI.
+data Target =
+  TargetProject
+  |
+  TargetUnit { name :: UnitName }
+  |
+  TargetModule { key :: HomeModule }
+  deriving stock (Eq, Show, Ord, Generic)
+  deriving anyclass (Binary, FromJSON, ToJSON)
+
+homeModuleMatchTarget :: HomeModule -> Target -> Bool
+homeModuleMatchTarget candidate = \case
+  TargetProject -> True
+  TargetUnit {name} -> candidate.unit == name
+  TargetModule {key} -> candidate == key
+
+renderTarget :: Target -> Text
+renderTarget = \case
+  TargetProject -> "the project"
+  TargetUnit {name = UnitName name} -> name
+  TargetModule {key = HomeModule {unit = UnitName unit, name = ModuleName name}} -> unit <> ":" <> name
+
+-- | Whether the second target is included in the first.
+targetContains :: Target -> Target -> Bool
+targetContains = \cases
+  TargetProject _ -> True
+  TargetUnit {name} TargetUnit {name = candidate} -> name == candidate
+  TargetUnit {name} TargetModule {key = candidate} -> name == candidate.unit
+  reference candidate -> reference == candidate
+
+targetFromWorkerSpec :: TargetSpec -> Maybe Target
+targetFromWorkerSpec = \case
+  Worker.TargetModule ModuleTarget {module_} -> Just TargetModule {key = homeModuleFromGhc module_}
+  Worker.TargetModuleInterp ModuleTarget {module_} -> Just TargetModule {key = homeModuleFromGhc module_}
+  Worker.TargetUnit UnitTarget {unit} -> Just TargetUnit {name = UnitName (Text.pack (unitIdString unit))}
+  _ -> Nothing
+
+data TaskKind =
+  Metadata
+  |
+  Build { rebuild :: Bool }
+  |
+  Execute
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Binary, FromJSON, ToJSON)
+
+data TaskTrigger =
+  TaskTrigger {
+    target :: Target,
+    task :: TaskKind
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (Binary, FromJSON, ToJSON)
+
+data ApiRequest =
+  TriggerTask TaskTrigger
+  |
+  EvictBytecode Target
+  |
+  Clean Target
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+data ApiResponse =
+  ApiSuccess
+  |
+  ApiFailure { message :: Text }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
 
 data Event
   = CompileStart { target :: String, canDebug :: Bool }
