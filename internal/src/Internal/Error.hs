@@ -1,8 +1,11 @@
 module Internal.Error where
 
-import Control.Exception (AsyncException (..), Exception (..), throwIO)
+import Control.Exception (AsyncException (..), Exception (..), SomeException, throwIO)
 import qualified Control.Monad.Catch as MC
+import Control.Monad.Catch (MonadThrow, throwM)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import qualified Data.Text as Text
+import Data.Text (Text)
 import GHC (DynFlags, Ghc, GhcException (..), GhcMonad, getSessionDynFlags, noSrcSpan, printException)
 import GHC.Data.Bag (listToBag)
 import GHC.Data.FastString (mkFastString)
@@ -134,3 +137,28 @@ workerErrorIO ::
   IO a
 workerErrorIO hsc_env reason = do
   throwErrors (GhcDriverMessage <$> unknownErrors (Just "worker") hsc_env.hsc_dflags reason)
+
+eitherWorkerError ::
+  GhcMonad m =>
+  Either SDoc a ->
+  m a
+eitherWorkerError =
+  either workerError pure
+
+throwText :: MonadIO m => Text -> m a
+throwText err =
+  liftIO $ throwIO $ userError (Text.unpack err)
+
+throwTextLeft :: MonadIO m => Either Text a -> m a
+throwTextLeft =
+  either throwText pure
+
+nonAsync ::
+  MonadThrow m =>
+  (Text -> m a) ->
+  SomeException ->
+  m a
+nonAsync handler e =
+  case fromException @AsyncException e of
+    Just _ -> throwM e
+    Nothing -> handler (Text.pack (displayException e))
