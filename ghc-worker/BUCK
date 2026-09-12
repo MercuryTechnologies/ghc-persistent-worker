@@ -107,12 +107,27 @@ haskell_binary(
         "//internal:buck-worker-internal",
         "//test-common:ghc-worker-test-common",
         "//types:buck-worker-types",
+
+        "//haskell:directory",
     ],
     visibility = ["PUBLIC"],
     allow_worker = False,
 )
 
+genrule(
+    name = "ghc-worker-test_sh",
+    srcs = [
+        "run.sh.tpl",
+    ],
+    out = "ghc-worker-test.sh",
+    bash = """
+sed -e 's|%exe%|$(exe :ghc-worker-test)|g' run.sh.tpl > $OUT
+chmod +x $OUT
+    """,
+)
+
+
 sh_test(
     name = "test_ghc-worker-test",
-    test = ":ghc-worker-test",
+    test = ":ghc-worker-test_sh",
 )
