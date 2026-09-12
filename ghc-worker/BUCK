@@ -77,3 +77,42 @@ haskell_binary(
     visibility = ["PUBLIC"],
     allow_worker = False,
 )
+
+haskell_binary(
+    name = "ghc-worker-test",
+    src_main = "test/Main.hs",
+    srcs = glob(["test/**/*.hs"]),
+    compiler_flags =
+        ["-X" + default_language] +
+        ["-X" + ext for ext in [default_language] + default_extensions + other_extensions] +
+        other_common_ghc_options +
+        (["-DMWB", "-DDOWNSWEEP_CACHE", "-DUNIT_INDEX"] if "mwb" in flags else []),
+    linker_flags = ["-threaded", "-rtsopts", "\"-with-rtsopts=-N -T\""],
+    strip_prefix = ["test"],
+    deps = [
+        "//haskell:base",
+        "//haskell:bytestring",
+        "//haskell:containers",
+        "//haskell:exceptions",
+        "//haskell:extra",
+        "//haskell:filepath",
+        "//haskell:ghc",
+        "//haskell:ghc-boot",
+        "//haskell:ghc-paths",
+        "//haskell:hedgehog",
+        "//haskell:tasty",
+        "//haskell:tasty-hedgehog",
+        "//haskell:text",
+        ":ghc-worker-lib",
+        "//internal:buck-worker-internal",
+        "//test-common:ghc-worker-test-common",
+        "//types:buck-worker-types",
+    ],
+    visibility = ["PUBLIC"],
+    allow_worker = False,
+)
+
+sh_test(
+    name = "test_ghc-worker-test",
+    test = ":ghc-worker-test",
+)

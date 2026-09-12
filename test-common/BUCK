@@ -1,0 +1,44 @@
+load("@buck2-haskell//:defs.bzl", "haskell_library", "haskell_binary")
+load("//haskell:defs.bzl", "default_language", "default_extensions")
+
+other_extensions = [
+    "NoFieldSelectors",
+    "OverloadedLabels",
+    "QuasiQuotes",
+]
+
+haskell_library(
+    name = "ghc-worker-test-common",
+    srcs = glob(["lib/**/*.hs"]),
+    compiler_flags =
+        ["-X" + default_language] +
+        ["-X" + ext for ext in [default_language] + default_extensions + other_extensions],
+    strip_prefix = ["lib"],
+    deps = [
+        "//haskell:aeson",
+        "//haskell:async",
+        "//haskell:base",
+        "//haskell:bytestring",
+        "//haskell:containers",
+        "//haskell:directory",
+        "//haskell:file-io",
+        "//haskell:filepath",
+        "//haskell:extra",
+        "//haskell:generic-lens",
+        "//haskell:ghc",
+        "//haskell:ghc-paths",
+        "//haskell:hedgehog",
+        "//haskell:lens",
+        "//haskell:mtl",
+        "//haskell:tasty",
+        "//haskell:tasty-hedgehog",
+        "//haskell:temporary",
+        "//haskell:text",
+        "//haskell:time",
+        "//haskell:typed-process",
+        "//internal:buck-worker-internal",
+        "//types:buck-worker-types",
+    ],
+    visibility = ["PUBLIC"],
+    allow_worker = False,
+)
