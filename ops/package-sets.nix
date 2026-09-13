@@ -82,11 +82,13 @@
     (overrides_mwb_flag flags)
   ];
 
+  defaultGhciArgs = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX" "-DFIXED_NODES"];
+
   defaultEnv = extra: {
     hls.enable = lib.mkForce false;
     package-set.extends = "mercury-ghc9101";
     overrides = commonOverrides ["mwb" "unit-index" "downsweep-cache"] ++ [ipeOverrides] ++ extra;
-    ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX"];
+    ghci.args = defaultGhciArgs;
   };
 
   mkGithub = {force, source, nodoc, ...}: {owner ? "tek", repo, rev, hash, path ? ""}:
@@ -102,7 +104,6 @@ in {
   envs.dev = defaultEnv [] // {
     package-set.extends = "mercury-ghc9101";
     buildInputs = pkgs: [pkgs.zlib pkgs.snappy pkgs.protobuf build.envs.dev.toolchain.packages.proto-lens-protoc];
-    ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX" "-DFIXED_NODES"];
   };
 
   envs.min = defaultEnv [];

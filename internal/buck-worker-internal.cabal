@@ -82,7 +82,6 @@ library
                       Internal.Cache.Metadata
                       Internal.Compat.FixedNodes
                       Internal.Compat.GHC914
-                      Internal.Compat.LinkDeps
                       Internal.Compat.Linkables
                       Internal.Compat.ModuleGraph
                       Internal.Compat.ModuleGraph.GHC910

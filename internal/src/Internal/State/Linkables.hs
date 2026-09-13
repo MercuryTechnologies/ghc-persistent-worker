@@ -18,15 +18,16 @@ import GHC (Module)
 import GHC.Driver.Config.Finder (initFinderOpts)
 import GHC.Driver.DynFlags (targetPlatform)
 import GHC.Driver.Env (hscInterp, hsc_home_unit, hsc_units)
-import qualified GHC.Driver.Env.Types as GHC
-import GHC.Driver.Env.Types (HscEnv (..), LinkDeps, Linkables (Linkables))
-import GHC.Linker.Deps (LinkDepsOpts)
+import GHC.Driver.Env.Types (HscEnv (..))
+import GHC.Linker.Deps (LinkDepsOpts, LinkModule (..), ldUseByteCode, resolveLinkDeps, selectLinkDeps)
 import GHC.Linker.Loader (initLinkDepsOpts)
-import GHC.Linker.Types (Linkable (..), LoaderState)
+import qualified GHC.Linker.Types
+import GHC.Linker.Types (LinkDeps, Linkable (..), Linkables (Linkables), LoaderState)
 import GHC.Platform (platformSOName)
 import GHC.Runtime.Interpreter (Interp, loadDLL)
 import GHC.Types.SrcLoc (SrcSpan)
-import GHC.Unit (moduleUnitId)
+import GHC.Types.Unique.DSet (UniqDSet)
+import GHC.Unit (UnitId, moduleUnitId)
 import GHC.Unit.Finder (findExactModule)
 import GHC.Unit.Finder.Types (FinderCache, FinderOpts, InstalledFindResult (..))
 import GHC.Unit.Home.Graph (HomeUnitEnv (..), HomeUnitGraph, UnitEnvGraph, unitEnv_lookup_maybe)
@@ -37,7 +38,6 @@ import GHC.Unit.Module.ModIface (mi_module)
 import GHC.Unit.Types (toUnitId)
 import GHC.Utils.Outputable (parens, ppr, text, (<+>))
 import Internal.Cache.Hpt (loadCachedByteCodeFrom)
-import Internal.Compat.LinkDeps (getLinkDeps)
 import Internal.Error (workerErrorIO)
 import Internal.State (modifyMakeState)
 import Language.Haskell.Syntax.ImpExp (IsBootInterface (..))
@@ -105,10 +105,21 @@ loadDLL_ hsc_env interp lib_paths lib = do
     emitError msg =
       workerErrorIO hsc_env ("Loading DLL error:" <+> msg)
 
-ensureLibraries :: MVar WorkerState -> HscEnv -> Interp -> GHC.LinkDeps -> IO ()
+addLazyByteCode ::
+  Logger ->
+  MVar WorkerState ->
+  HscEnv ->
+  LinkModule ->
+  IO LinkModule
+addLazyByteCode logger stateVar hsc_env = \case
+  LinkHomeModule hmi@HomeModInfo {hm_linkable = HomeModLinkable {homeMod_bytecode = Nothing}} -> do
+    homeMod_bytecode <- lazyLoadByteCode logger stateVar hsc_env hmi
+    pure (LinkHomeModule hmi {hm_linkable = hmi.hm_linkable {homeMod_bytecode}})
+  lm -> pure lm
+
+ensureLibraries :: MVar WorkerState -> HscEnv -> Interp -> [LinkModule] -> IO ()
 ensureLibraries stateVar hsc_env interp deps =
-  let unitIds = fmap (moduleUnitId . linkableModule) (GHC.ldNeededLinkables deps)
-   in for_ unitIds \unit_id -> do
+  for_ unitIds \unit_id ->
     modifyMakeState stateVar \make -> do
       let m = make.extraLib.requested
       case M.lookup unit_id m of
@@ -119,24 +130,27 @@ ensureLibraries stateVar hsc_env interp deps =
                 | otherwise = loadDLL_ hsc_env interp lib_paths lib >> pure (S.insert lib loaded)
           loaded' <- foldM load make.extraLib.loaded libs
           pure (make {extraLib = LibLoadState m loaded'}, ())
+  where
+    unitIds = [moduleUnitId (mi_module hm_iface) | LinkHomeModule HomeModInfo {hm_iface} <- deps]
 
+-- | Wrap the native 'resolveLinkDeps' to lazily load bytecode for all home modules that lack it.
 linkablesResolve ::
   Logger ->
   MVar WorkerState ->
   HscEnv ->
   LinkDepsOpts ->
-  Interp ->
   LoaderState ->
   SrcSpan ->
   [Module] ->
-  IO LinkDeps
-linkablesResolve logger stateVar hsc_env o interp l s m = do
-  deps <- getLinkDeps o interp l (lazyLoadByteCode logger stateVar hsc_env) s m
-  ensureLibraries stateVar hsc_env interp deps
-  pure deps
-
-linkablesSelect :: LinkDeps -> IO LinkDeps
-linkablesSelect deps = pure deps
+  IO ([Linkable], [LinkModule], UniqDSet UnitId, [UnitId])
+linkablesResolve logger stateVar hsc_env opts pls srcSpan mods = do
+  (loaded, needed, allUnits, neededUnits) <- resolveLinkDeps opts pls srcSpan mods
+  neededWithLazy <-
+    if ldUseByteCode opts
+    then traverse (addLazyByteCode logger stateVar hsc_env) needed
+    else pure needed
+  ensureLibraries stateVar hsc_env (hscInterp hsc_env) neededWithLazy
+  pure (loaded, neededWithLazy, allUnits, neededUnits)
 
 newLinkables ::
   Logger ->
@@ -146,8 +160,8 @@ newLinkables ::
   IO Linkables
 newLinkables logger stateVar hsc_env pls = do
   pure Linkables {
-    linkablesResolve = linkablesResolve logger stateVar hsc_env (initLinkDepsOpts hsc_env) (hscInterp hsc_env) pls,
-    linkablesSelect
+    linkablesResolve = linkablesResolve logger stateVar hsc_env (initLinkDepsOpts hsc_env) pls,
+    linkablesSelect = selectLinkDeps (initLinkDepsOpts hsc_env) (hscInterp hsc_env)
   }
 
 #endif

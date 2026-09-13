@@ -27,9 +27,9 @@
         url = "https://github.com/MercuryTechnologies/ghc";
         version = "9.10.1";
         flavour = "release+split_sections+ipe";
-        # branch: wavewave/20260909-reachable-index-with-haddock
-        rev = "42f0307f6d5ae8023f19572db3ef1abedec390f2";
-        hash = "sha256-EHB9eEgzgIJinKF1sRRVpP6KDEq2InLUo+VEYPGbCho=";
+        # branch: wavewave/20260912-new
+        rev = "da7b82a0a3ce414b1d9efa94dad518a2e2c50dac";
+        hash = "sha256-8LPVP7jru1mwb28KLOb7XFb5Bmr/GQSqtNScbq2sKFY=";
       };
 
       mercury-ghc9141 = {
