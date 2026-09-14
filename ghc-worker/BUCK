@@ -1,7 +1,14 @@
 load("@buck2-haskell//:defs.bzl", "haskell_library", "haskell_binary")
 load("//haskell:defs.bzl", "default_language", "default_extensions")
+load("//haskell:flags.bzl", "extension_flags", "flag_set")
 
 flags = ["mwb"]
+
+flag_config = {
+    "mwb": ["-DMWB", "-DDOWNSWEEP_CACHE", "-DUNIT_INDEX"],
+    "ghc-debug": ["-DGHC_DEBUG"],
+    "debug": ["-D__DEBUG__"],
+}
 
 other_extensions = [
     "NoFieldSelectors",
@@ -23,13 +30,10 @@ haskell_library(
     name = "ghc-worker-lib",
     srcs = glob(["lib/**/*.hs"]),
     compiler_flags =
-        ["-X" + default_language] +
-        ["-X" + ext for ext in [default_language] + default_extensions + other_extensions] +
+        extension_flags(default_language, default_extensions + other_extensions) +
         other_common_ghc_options +
         ["-O2"] +
-        (["-DMWB", "-DDOWNSWEEP_CACHE", "-DUNIT_INDEX"] if "mwb" in flags else []) +
-        (["-DGHC_DEBUG"] if "ghc-debug" in flags else []) +
-        (["-D__DEBUG__"] if "debug" in flags else []),
+        flag_set(flag_config, flags),
     strip_prefix = ["lib"],
     deps = [
         "//haskell:async",
@@ -60,8 +64,7 @@ haskell_binary(
     name = "ghc-worker",
     srcs = glob(["app/**/*.hs"]),
     compiler_flags =
-        ["-X" + default_language] +
-        ["-X" + ext for ext in [default_language] + default_extensions + other_extensions] +
+        extension_flags(default_language, default_extensions + other_extensions) +
         other_common_ghc_options +
         ["-O2"]  +
         (["-DMWB", "-DDOWNSWEEP_CACHE", "-DUNIT_INDEX"] if "mwb" in flags else []),
@@ -83,10 +86,9 @@ haskell_binary(
     src_main = "test/Main.hs",
     srcs = glob(["test/**/*.hs"]),
     compiler_flags =
-        ["-X" + default_language] +
-        ["-X" + ext for ext in [default_language] + default_extensions + other_extensions] +
+        extension_flags(default_language, default_extensions + other_extensions) +
         other_common_ghc_options +
-        (["-DMWB", "-DDOWNSWEEP_CACHE", "-DUNIT_INDEX"] if "mwb" in flags else []),
+        flag_set(flag_config, flags),
     linker_flags = ["-threaded", "-rtsopts", "\"-with-rtsopts=-N -T\""],
     strip_prefix = ["test"],
     deps = [
