@@ -20,3 +20,7 @@ data TestLog =
     fatal :: [String],
     messages :: [String]
   }
+
+emptyTestLog :: TestLog
+emptyTestLog =
+  TestLog {target = Nothing, diagnostics = [], fatal = [], messages = []}

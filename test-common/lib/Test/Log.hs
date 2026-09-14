@@ -9,11 +9,11 @@ import GHC.Utils.Logger (LogAction)
 import GHC.Utils.Outputable (showPprUnsafe)
 import Internal.Log (dbg, decorateDiagnostic, renderLogMessage)
 import Prelude hiding (log)
-import Test.Data.TestLog (DiagnosticEntry (..), TestLog (..))
+import Test.Data.TestLog (DiagnosticEntry (..), TestLog (..), emptyTestLog)
 import qualified Types.Log as Log
 import Types.Log (Logger (Logger))
 
-modifyLog :: IORef TestLog -> (TestLog -> TestLog) -> IO ()
+modifyLog :: IORef a -> (a -> a) -> IO ()
 modifyLog logVar f =
   atomicModifyIORef' logVar \ l -> (f l, ())
 
@@ -22,7 +22,7 @@ modifyLog logVar f =
 testLogFlush :: IORef TestLog -> IO [String]
 testLogFlush logVar = do
   TestLog {..} <- readIORef logVar
-  pure (reverse messages ++ [d.rendered | d <- diagnostics] ++ fatal)
+  pure (reverse (messages ++ [d.rendered | d <- diagnostics] ++ fatal))
 
 -- | Only process messages we care about: diagnostics and fatal errors.
 testGhcAction :: IORef TestLog -> LogAction
@@ -59,7 +59,7 @@ testLogger logVar =
 
 newTestLog :: IO (Logger, IORef TestLog)
 newTestLog = do
-  logVar <- newIORef TestLog {target = Nothing, diagnostics = [], fatal = [], messages = []}
+  logVar <- newIORef emptyTestLog
   pure (testLogger logVar, logVar)
 
 dumpTestLog :: String -> Logger -> IO ()
