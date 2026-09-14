@@ -22,7 +22,7 @@ import GHC.Driver.Env.Types (HscEnv (..))
 import GHC.Linker.Deps (LinkDepsOpts, LinkModule (..), ldUseByteCode, resolveLinkDeps, selectLinkDeps)
 import GHC.Linker.Loader (initLinkDepsOpts)
 import qualified GHC.Linker.Types
-import GHC.Linker.Types (LinkDeps, Linkable (..), Linkables (Linkables), LoaderState)
+import GHC.Linker.Types (Linkable (..), Linkables (Linkables), LoaderState)
 import GHC.Platform (platformSOName)
 import GHC.Runtime.Interpreter (Interp, loadDLL)
 import GHC.Types.SrcLoc (SrcSpan)

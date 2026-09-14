@@ -21,7 +21,6 @@ import Test.Tasty (
   defaultMainWithIngredients,
   dependentTestGroup,
   includingOptions,
-  testGroup,
   )
 
 -- | Some tests require our GHC patches.

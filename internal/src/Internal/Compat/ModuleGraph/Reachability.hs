@@ -1,18 +1,16 @@
 module Internal.Compat.ModuleGraph.Reachability where
 
 import Data.Array ((!))
-import Data.Graph ( Vertex, SCC(..) )
-
 import qualified Data.Graph as G
+import Data.Graph (SCC (..), Vertex)
 import qualified Data.IntMap as IM
 import qualified Data.IntSet as IS
 import Data.List ((\\))
 import qualified Data.Map as Map
-import GHC.Data.Graph.Directed (Node (node_key, node_dependencies))
+import GHC.Data.Graph.Directed (Node (node_dependencies, node_key))
 import GHC.Data.Graph.Directed.Internal (Graph (..), scc)
 import GHC.Data.Graph.Directed.Reachability (ReachabilityIndex (..))
-import GHC.Data.Maybe
-import GHC.Unit.Module.Graph (SummaryNode)
+import GHC.Data.Maybe (fromMaybe, mapMaybe)
 import Types.State.Make (KeyIndexNodeMap (..))
 
 -- | Construct a 'ReachabilityIndex' from an acyclic 'Graph'.
@@ -30,7 +28,6 @@ graphReachability (Graph g from to) =
 mkFromTo :: KeyIndexNodeMap node -> (G.Vertex -> Node Int node, Node Int node -> Maybe G.Vertex)
 mkFromTo kinMap = (from, to)
   where
-    k2i = keyIdxMap kinMap
     i2k = idxKeyMap kinMap
     k2s = keyINodeMap kinMap
     from i = fromMaybe (error "graphReachabilityIncr") do
@@ -43,13 +40,8 @@ graphReachabilityIncr ::
   KeyIndexNodeMap node
 graphReachabilityIncr kinMap = kinMap {reachabilityMap = reachGraph}
     where
-      k2i = keyIdxMap kinMap
       i2k = idxKeyMap kinMap
       k2s = keyINodeMap kinMap
-      from i = fromMaybe (error "graphReachabilityIncr") do
-        k <- IM.lookup i i2k
-        Map.lookup k k2s
-      to = Just . node_key
 
       reachGraph0 = reachabilityMap kinMap
 
@@ -59,12 +51,6 @@ graphReachabilityIncr kinMap = kinMap {reachabilityMap = reachGraph}
 
       reachGraph :: IM.IntMap IS.IntSet
       reachGraph = reachGraph0 `IM.union` IM.fromList [(i, do_one i) | !i <- newIdxs]
-
-      allIdxSize = length allIdxs
-      allIdxSize2 = Map.size k2s
-      oldIdxSize = length oldIdxs
-      newIdxSize = length newIdxs
-      reachGraphSize = (IM.size reachGraph, sum (fmap IS.size reachGraph))
 
       getDeps i = fromMaybe [] do
         k <- IM.lookup i i2k
