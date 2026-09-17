@@ -1,13 +1,13 @@
 load("@buck2-haskell//:defs.bzl", "haskell_toolchain_library")
 load("@toolchains//:haskell_all.bzl", "haskell_toolchain_all")
 
+# Boot libraries
 [haskell_toolchain_library(
     name = lib,
+#   package_db = "/path/to/ghc/_build/stage1/lib/package.conf.d",
     visibility = ["//..."],
 ) for lib in [
-    "aeson",
     "array",
-    "async",
     "base",
     "binary",
     "bytestring",
@@ -15,13 +15,31 @@ load("@toolchains//:haskell_all.bzl", "haskell_toolchain_all")
     "deepseq",
     "directory",
     "exceptions",
-    "extra",
     "filepath",
+    "ghc",
+    "ghc-boot",
+    "os-string",
+    "process",
+    "text",
+    "time",
+    "transformers",
+    "unix",
+]]
+
+# Third-party dependencies.
+# Separating these from the boot libraries makes it convenient to change the
+# package_db path to point to a different store.
+[haskell_toolchain_library(
+    name = lib,
+#   package_db = "/path/to/store/ghc-9.10.3-inplace/package.db",
+    visibility = ["//..."],
+) for lib in [
+    "aeson",
+    "async",
+    "extra",
     "file-io",
     "flatparse",
     "generic-lens",
-    "ghc",
-    "ghc-boot",
     "ghc-paths",
     "grapesy",
     "hashable",
@@ -30,17 +48,11 @@ load("@toolchains//:haskell_all.bzl", "haskell_toolchain_all")
     "mtl",
     "lens-family",
     "optparse-applicative",
-    "os-string",
-    "process",
     "proto-lens",
     "split",
     "tasty",
     "tasty-hedgehog",
-    "text",
-    "time",
-    "transformers",
     "temporary",
     "typed-process",
-    "unix",
     "vector",
 ]]
