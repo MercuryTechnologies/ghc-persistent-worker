@@ -1,8 +1,6 @@
 load("@buck2-haskell//:defs.bzl", "haskell_library", "haskell_binary")
 load("//haskell:defs.bzl", "default_language", "default_extensions")
 
-flags = ["mwb"]
-
 other_extensions = []
 
 other_common_ghc_options = [

@@ -1,8 +1,16 @@
 load("@buck2-haskell//:defs.bzl", "haskell_library", "haskell_binary")
 load("//haskell:defs.bzl", "default_language", "default_extensions")
-load("//haskell:flags.bzl", "extension_flags", "flag_set")
+load(
+    "//haskell:flags.bzl",
+    "cpp_flags_when",
+    "extension_flags",
+    "flag_set",
+)
 
-flags = ["mwb"]
+flags = select({
+    "root//constraints/ghc:ghc_version[ghc910]": ["mwb"],
+    "root//constraints/ghc:ghc_version[ghc914]": [],
+})
 
 flag_config = {
     "mwb": ["-DMWB", "-DDOWNSWEEP_CACHE", "-DUNIT_INDEX"],
@@ -33,7 +41,7 @@ haskell_library(
         extension_flags(default_language, default_extensions + other_extensions) +
         other_common_ghc_options +
         ["-O2"] +
-        flag_set(flag_config, flags),
+        select_map(flags, lambda fs: flag_set(flag_config, fs)),
     strip_prefix = ["lib"],
     deps = [
         "//haskell:async",
@@ -55,7 +63,7 @@ haskell_library(
         "//proto:buck-worker-proto",
         "//types:buck-worker-types",
     ] +
-    (["//haskell:ghc-debug-stub"] if "ghc-debug" in flags else []),
+    select_map(flags, lambda fs: ["//haskell:ghc-debug-stub"] if "ghc-debug" in fs else []),
     visibility = ["PUBLIC"],
     allow_worker = False,
 )
@@ -67,7 +75,7 @@ haskell_binary(
         extension_flags(default_language, default_extensions + other_extensions) +
         other_common_ghc_options +
         ["-O2"]  +
-        (["-DMWB", "-DDOWNSWEEP_CACHE", "-DUNIT_INDEX"] if "mwb" in flags else []),
+        select_map(flags, lambda fs: cpp_flags_when("mwb" in fs, ["MWB", "DOWNSWEEP_CACHE", "UNIT_INDEX"])),
     linker_flags = select({
         "prelude//os:linux": ["-O2", "-threaded", "-with-rtsopts=\"-K512M -I5 -A128M -T -N -xm40000000 -xp\""],
         "prelude//os:macos": ["-O2", "-threaded", "-with-rtsopts=\"-K512M -I5 -A128M -T -N\""],
@@ -88,7 +96,7 @@ haskell_binary(
     compiler_flags =
         extension_flags(default_language, default_extensions + other_extensions) +
         other_common_ghc_options +
-        flag_set(flag_config, flags),
+        select_map(flags, lambda fs: flag_set(flag_config, fs)),
     linker_flags = ["-threaded", "-rtsopts", "\"-with-rtsopts=-N -T\""],
     strip_prefix = ["test"],
     deps = [

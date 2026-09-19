@@ -1,7 +1,11 @@
 load("@buck2-haskell//:defs.bzl", "haskell_library")
 load("//haskell:defs.bzl", "default_language", "default_extensions")
+load("//haskell:flags.bzl", "cpp_flags_when")
 
-flags = ["mwb"]
+flags = select({
+    "root//constraints/ghc:ghc_version[ghc910]": ["mwb"],
+    "root//constraints/ghc:ghc_version[ghc914]": ["fixed-nodes"],
+})
 
 other_extensions = [
     "OverloadedLabels",
@@ -26,11 +30,11 @@ haskell_library(
         ["-X" + default_language] +
         ["-X" + ext for ext in [default_language] + default_extensions + other_extensions] +
         other_ghc_options +
-        (["-DMWB", "-DDOWNSWEEP_CACHE", "-DUNIT_INDEX", "-DFIXED_NODES", "-DLINKABLES"] if "mwb" in flags else []) +
-        (["-DDOWNSWEEP_CACHE"] if "downsweep-cache" in flags else []) +
-        (["-DUNIT_INDEX"] if "unit-index" in flags else []) +
-        (["-DFIXED_NODES"] if "fixed-nodes" in flags else []) +
-        (["-DLINKABLES"] if "linkables" in flags else []),
+        select_map(flags, lambda fs: cpp_flags_when("mwb" in fs, ["MWB", "DOWNSWEEP_CACHE", "UNIT_INDEX", "FIXED_NODES", "LINKABLES"])) +
+        select_map(flags, lambda fs: cpp_flags_when("downsweep-cache" in fs, ["DOWNSWEEP_CACHE"])) +
+        select_map(flags, lambda fs: cpp_flags_when("unit-index" in fs, ["UNIT_INDEX"])) +
+        select_map(flags, lambda fs: cpp_flags_when("fixed-nodes" in fs, ["FIXED_NODES"])) +
+        select_map(flags, lambda fs: cpp_flags_when("linkables" in fs, ["LINKABLES"])),
     strip_prefix = ["src"],
     deps = [
         "//haskell:aeson",

@@ -1,7 +1,11 @@
 load("@buck2-haskell//:defs.bzl", "haskell_library")
 load("//haskell:defs.bzl", "default_language", "default_extensions")
+load("//haskell:flags.bzl", "cpp_flags_when")
 
-flags = ["mwb"]
+flags = select({
+    "root//constraints/ghc:ghc_version[ghc910]": ["mwb"],
+    "root//constraints/ghc:ghc_version[ghc914]": [],
+})
 
 other_ghc_options = [
     "-Wall",
@@ -21,8 +25,8 @@ haskell_library(
         ["-X" + default_language] +
         ["-X" + ext for ext in [default_language] + default_extensions] +
         other_ghc_options +
-        (["-DMWB", "-DUNIT_INDEX"] if "mwb" in flags else []) +
-        (["-DUNIT_INDEX"] if "unit-index" in flags else []),
+        select_map(flags, lambda fs: cpp_flags_when("mwb" in fs, ["MWB", "UNIT_INDEX"])) +
+        select_map(flags, lambda fs: cpp_flags_when("unit-index" in fs, ["UNIT_INDEX"])),
     strip_prefix = ["src"],
     deps = [
         "//haskell:aeson",
