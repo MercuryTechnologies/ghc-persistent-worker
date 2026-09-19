@@ -123,7 +123,7 @@ genrule(
     ],
     out = "ghc-worker-test.sh",
     bash = """
-sed -e 's|%exe%|$(exe :ghc-worker-test)|g' run.sh.tpl > $OUT
+sed -e 's|%exe%|$(exe_target :ghc-worker-test)|g' run.sh.tpl > $OUT
 chmod +x $OUT
     """,
 )
