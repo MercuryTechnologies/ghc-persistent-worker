@@ -49,6 +49,7 @@ import Internal.Env (withDebugLog)
 import Internal.Error (handleExceptions)
 import Internal.Log (logDebugD)
 import Internal.State (withState)
+import qualified Internal.State.Make as Make
 import Internal.State.Linkables (installLinkables)
 import Prelude hiding (log)
 import System.OsPath.Extra (OsPath, fromOsPath, toOsPath)
@@ -239,12 +240,19 @@ withGhcMakeModule interp target =
   where
     setup env dflags0 (state0, hsc_env0) =
       foldM @[] (&) (state0, hsc_env0) [
+        dropTargetInterp env,
         pure . fmap setTarget,
         restoreCachedHomeUnit env dflags0,
         setSessionModuleGraph,
         setActiveUnit,
         restoreCachedModules env
       ]
+
+    -- The module about to be recompiled keeps running its old code inside a later splice if the interpreter has it
+    -- loaded, so drop the interpreter before the compile that replaces it.
+    dropTargetInterp env (state, hsc_env) = do
+      make <- Make.dropInterpIfLinked env.log target.mod state.make
+      pure (state {make}, hsc_env)
 
     restoreCachedHomeUnit env dflags0 =
       maybeArg env.args.homeUnit $

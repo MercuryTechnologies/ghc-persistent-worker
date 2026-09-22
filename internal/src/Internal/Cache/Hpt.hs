@@ -3,20 +3,25 @@
 module Internal.Cache.Hpt where
 
 import Control.Concurrent (MVar, newEmptyMVar, putMVar, readMVar)
+import Control.Exception (evaluate)
 import Control.Monad (foldM)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.State.Strict (StateT (..), execStateT, get, put)
+import Control.Monad.Trans.State.Strict (StateT (..), execStateT, put)
+import qualified Control.Monad.Trans.State.Strict as State
+import qualified Data.ByteString as BS
+import Data.Char (isSpace)
 import Data.Foldable (for_, toList)
 import Data.Function (on)
 import Data.Functor ((<&>))
 import Data.List (isSuffixOf)
 import Data.List.NonEmpty (NonEmpty ((:|)), groupBy)
-import Data.Map.Strict qualified as M (Map, insert, lookup)
+import Data.Map.Strict qualified as M (Map, delete, insert, lookup)
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Set qualified as Set (insert, member, singleton)
 import Data.Time (getCurrentTime)
 import Data.Traversable (for)
 import Data.Tuple (swap)
+import Data.Word (Word32)
 import GHC (DynFlags, GhcException (..), IsBootInterface (..), ModIface, ModIface_ (..), ModLocation (..), Module, ModuleName, mkModule, mkModuleName, moduleName, moduleNameString)
 import GHC.Data.Bag (emptyBag)
 import GHC.Data.Maybe (MaybeErr (..))
@@ -24,6 +29,7 @@ import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hsc_HPT
 import GHC.Driver.Main (initModDetails)
 import GHC.Driver.Make (ModNodeKeyWithUid (..))
 import GHC.Driver.Session (dynHiSuf_, dynamicNow, hiDir, hiSuf_, targetProfile)
+import GHC.Fingerprint (Fingerprint)
 import GHC.Iface.Binary (CheckHiWay (..), TraceBinIFace (QuietBinIFace), readBinIface)
 import GHC.Iface.Errors.Ppr (readInterfaceErrorDiagnostic)
 import GHC.Iface.Errors.Types (ReadInterfaceError (..))
@@ -36,22 +42,27 @@ import GHC.Unit (Definite (..), GenUnit (..), GenWithIsBoot (..), UnitId, module
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.Graph (unitEnv_lookup_maybe)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..), homeModInfoByteCode)
-import GHC.Unit.Home.PackageTable (HomePackageTable, addHomeModInfoToHpt, lookupHpt)
+import GHC.Unit.Home.PackageTable (addHomeModInfoToHpt, lookupHpt)
 import GHC.Unit.Module (moduleNameSlashes)
 import GHC.Unit.Module.Graph (ModuleGraphNode, NodeKey (..))
 import GHC.Unit.Module.Location (addBootSuffix, pattern ModLocation)
 import GHC.Unit.Module.ModDetails (ModDetails (..))
 import GHC.Unit.Module.ModIface (IfaceTopEnv (..), set_mi_top_env)
 import GHC.Unit.Module.WholeCoreBindings (WholeCoreBindings (..))
+import GHC.Utils.Binary (FixedLengthEncoding (..), get, unsafeUnpackBinBuffer)
 import GHC.Utils.Misc (modificationTimeIfExists)
-import GHC.Utils.Outputable (ppr, ($+$))
+import GHC.Utils.Outputable (ppr, showPprUnsafe, ($+$))
 import GHC.Utils.Panic (throwGhcExceptionIO, tryMost)
-import Internal.Cache.Metadata (loadCachedHomeUnit, loadCachedDepUnits, readParseGHCArgs)
+import Internal.AbiHash (showAbiHash)
+import Internal.Cache.Metadata (Verdict (..), loadCachedHomeUnit, loadCachedDepUnits, readParseGHCArgs, validateStoredUnit)
 import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, deps)
 import Internal.Compat.GHC914 (edgeTarget, setExtraDecls)
 import Internal.Log (logTimed)
+import Internal.State (updateMakeState)
+import qualified Internal.State.Make as Make
 import Prelude hiding (log)
 import System.FilePath ((<.>), (</>))
+import System.IO (IOMode (ReadMode), withBinaryFile)
 import System.OsPath.Extra (OsPath, fromOsPath, toOsPath)
 import Types.BuckArgs (IsInterpreted (Compiled, Interpreted), decodeJsonArg)
 import Types.CachedDeps (CachedDep (..), CachedDeps (..), CachedUnit (..), JsonFs (..))
@@ -174,22 +185,72 @@ data ModuleLoadState =
   |
   RequestBCO (MVar ()) HomeModInfo
 
+-- | The source hash the interface's header records, parsed from a 1 KiB prefix: the magic number, the version and
+-- way strings, then the hash, which is the sequence 'readBinIfaceHeader' reads before the body. That function reads the
+-- whole file first, and interfaces that carry bytecode run to megabytes, while a request checks every dependency in its
+-- closure. A short or foreign file fails to parse and is reported, so the caller can fail closed.
+readIfaceHeader :: FilePath -> IO (Either String Fingerprint)
+readIfaceHeader path =
+  tryMost header <&> \case
+    Right fp -> Right fp
+    Left e -> Left (show e)
+  where
+    header =
+      withBinaryFile path ReadMode \ h -> do
+        bh <- unsafeUnpackBinBuffer =<< BS.hGet h 1024
+        _magic <- get bh :: IO (FixedLengthEncoding Word32)
+        _version <- get bh :: IO String
+        _way <- get bh :: IO String
+        evaluate =<< get bh
+
+-- | Why an in-memory 'HomeModInfo' may no longer stand in for the interface on disk, or 'Nothing' when it may. Fail
+-- closed: an unreadable interface, or a missing @.hash@ sidecar, counts as stale. The header's source hash catches a
+-- source edit whose ABI did not move (a value-only change); the sidecar, which the compile wrote with @--abi-out@,
+-- catches an ABI change under an unchanged source, such as a CPP-gated export toggled by a unit flag.
+interfaceStale :: HscEnv -> HomeModInfo -> OsPath -> IO (Maybe String)
+interfaceStale hsc_env hmi ifaceFile =
+  readIfaceHeader (fromOsPath ifaceFile) >>= \case
+    Left e -> pure (Just ("interface unreadable: " ++ e))
+    Right srcHash
+      | srcHash /= mi_src_hash hmi.hm_iface -> pure (Just "source hash changed")
+      | otherwise ->
+          readSidecar (fromOsPath ifaceFile ++ ".hash") <&> \case
+            Nothing -> Just "no .hash beside the interface"
+            Just recorded
+              | norm recorded == norm (showAbiHash hsc_env hmi.hm_iface) -> Nothing
+              | otherwise -> Just "ABI hash changed"
+  where
+    readSidecar p = tryMost (readFile p >>= \ s -> length s `seq` pure s) <&> either (const Nothing) Just
+    norm = filter (not . isSpace)
+
 prepareHmiLoader ::
-  HomePackageTable ->
+  Logger ->
+  HscEnv ->
   ModuleName ->
+  OsPath ->
   StateT WorkerState IO ModuleLoadState
-prepareHmiLoader hpt name = do
+prepareHmiLoader logger hsc_env name ifaceFile = do
   existing <- liftIO (lookupHpt hpt name)
   case existing of
     Just hmi ->
-      case homeModInfoByteCode hmi of
-        Just _ -> pure Loaded
-        Nothing -> updateBcoState
+      liftIO (interfaceStale hsc_env hmi ifaceFile) >>= \case
+        Nothing
+          | isJust (homeModInfoByteCode hmi) -> pure Loaded
+          | otherwise -> updateBcoState
+        Just reason -> do
+          let modu = mi_module hmi.hm_iface
+          liftIO $ logger.info ("ghc-worker: reload " ++ showPprUnsafe modu ++ ": " ++ reason)
+          s <- State.get
+          make' <- liftIO (Make.dropInterpIfLinked logger modu s.make)
+          put s {make = make' {bcoLoadState = M.delete name make'.bcoLoadState}}
+          updateBcoState
     Nothing -> updateBcoState
   where
+    hpt = hsc_HPT hsc_env
+
     updateBcoState = do
       new_lock <- liftIO newEmptyMVar
-      s <- get
+      s <- State.get
       let make = s.make
           m = make.bcoLoadState
           mlock = M.lookup name m
@@ -402,8 +463,8 @@ loadCachedDeps log features interp (state0, hsc_env0) (CachedDeps deps) =
           loadCachedDep log features interp hsc_env name iface mod_load_state'
 
     prepareDep hsc_env CachedDep {name = JsonFs name, package = JsonFs uid} = do
-      mod_load_state <- prepareHmiLoader (hsc_HPT hsc_env) name
       iface <- maybe (missingHiDir uid name) pure (canonicalInterfacePath (hsc_dflags hsc_env) name)
+      mod_load_state <- prepareHmiLoader log hsc_env name iface
       pure (name, iface, mod_load_state)
 
     missingHiDir uid name =
@@ -421,15 +482,22 @@ loadHomeUnit ::
   (WorkerState, HscEnv) ->
   OsPath ->
   IO (WorkerState, HscEnv)
-loadHomeUnit log dflags0 features unit (state0, hsc_env0) path
+loadHomeUnit log dflags0 features unit sw@(state0, hsc_env0) path
   | hasUnit unit hsc_env0
-  = pure (state0, hsc_env0)
+  = validateStoredUnit log features hsc_env0 state0.make unit path >>= \case
+      Valid Nothing -> pure sw
+      Valid (Just fp) -> pure (updateMakeState (Make.storeUnitFingerprint unit fp) state0, hsc_env0)
+      Stale _ -> do
+        let state0' = updateMakeState (Make.evictUnit features.useIncrModGraph unit) state0
+        restore (state0', Make.loadState hsc_env0 state0'.make)
   | otherwise
-  = do
-    cachedUnit@CachedUnit {unit_args} <- decodeJsonArg "--home-unit" path
-    (state1, hsc_env1) <- fmap (fromMaybe (state0, hsc_env0)) $ for cachedUnit.dep_units \ file -> do
-      deps <- decodeJsonArg "--home-unit" file
-      loadCachedDepUnits log dflags0 deps features (state0, hsc_env0)
-    dflags <- maybe (pure dflags0) (readParseGHCArgs features.flagParser hsc_env1 dflags0) unit_args
-    logTimed log "Loading cached home unit" $ fmap swap do
-      runStateT (loadCachedHomeUnit log features.fixedNodesCache features.useIncrModGraph hsc_env1 unit (cachedUnit, dflags)) state1
+  = restore sw
+  where
+    restore (s0, h0) = do
+      cachedUnit@CachedUnit {unit_args} <- decodeJsonArg "--home-unit" path
+      (state1, hsc_env1) <- fmap (fromMaybe (s0, h0)) $ for cachedUnit.dep_units \ file -> do
+        deps <- decodeJsonArg "--home-unit" file
+        loadCachedDepUnits log dflags0 deps features (s0, h0)
+      dflags <- maybe (pure dflags0) (readParseGHCArgs features.flagParser hsc_env1 dflags0) unit_args
+      logTimed log "Loading cached home unit" $ fmap swap do
+        runStateT (loadCachedHomeUnit log features.fixedNodesCache features.useIncrModGraph hsc_env1 unit path (cachedUnit, dflags)) state1

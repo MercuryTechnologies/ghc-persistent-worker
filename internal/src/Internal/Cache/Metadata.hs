@@ -6,7 +6,7 @@ import Control.Applicative ((<|>))
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (forConcurrently)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
-import Control.Exception (bracket_, throwIO)
+import Control.Exception (SomeException, bracket_, throwIO, try)
 import Control.Monad (foldM, (>=>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State.Strict (StateT (..), modify, modifyM)
@@ -23,20 +23,24 @@ import qualified Data.Text as Text
 import Data.Text.Encoding (decodeUtf8)
 import Data.Traversable (for)
 import Data.Tuple (swap)
-import GHC (DynFlags (..), IsBootInterface (..), ModuleName)
+import GHC (DynFlags (..), IsBootInterface (..), ModuleName, mkModule, mkModuleName)
 import qualified GHC as GHC
+import GHC.Driver.DynFlags (PackageDBFlag (..), PackageFlag (..), PkgDbRef (..))
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (..))
 import GHC.Driver.Make (ModNodeKeyWithUid (..), summariseFile)
-import GHC.Driver.Session (updatePlatformConstants)
+import GHC.Driver.Session (topDir, updatePlatformConstants)
+import GHC.Fingerprint (Fingerprint, fingerprintFingerprints, getFileHash)
+import GHC.Iface.Recomp.Binary (computeFingerprint, putNameLiterally)
+import GHC.Iface.Recomp.Flags (fingerprintDynFlags, fingerprintHpcFlags, fingerprintOptFlags)
 import GHC.Types.SourceError (throwErrors)
-import GHC.Unit (GenWithIsBoot (..), HomeUnit, UnitDatabase, UnitId (..), UnitState)
+import GHC.Unit (Definite (..), GenUnit (..), GenWithIsBoot (..), HomeUnit, UnitDatabase, UnitId (..), UnitState)
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), updateHug)
 import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
 import GHC.Unit.Home.PackageTable (emptyHomePackageTable)
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
 import GHC.Utils.CliOption (Option (..))
-import GHC.Utils.Outputable (comma, hcat, ppr, punctuate, quotes, text, (<+>))
+import GHC.Utils.Outputable (comma, hcat, ppr, punctuate, quotes, showPprUnsafe, text, (<+>))
 import Internal.Compat.GHC914 (moduleNodeEdge)
 import Internal.Compat.UnitIndex (initUnits)
 import Internal.DynFlags (buckLocation, parseFlags, setupPath)
@@ -59,7 +63,7 @@ import Types.CachedDeps (
 import Types.FeatureFlags (FeatureFlags (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
-import Types.State.Make (LibLoadState (..), MakeState (..))
+import Types.State.Make (LibLoadState (..), MakeState (..), PlanFiles (..), UnitFingerprint (..))
 
 #if defined(FIXED_NODES) || defined(MWB)
 
@@ -141,6 +145,107 @@ decodeJsonBuildPlan =
   eitherDecodeFileStrict' . fromOsPath >=> \case
     Right a -> pure a
     Left err -> throwIO (userError err)
+
+-- | GHC's own recompilation fingerprint of a unit's flags, the check @--make@ runs before it trusts an interface,
+-- extended with the inputs GHC leaves out of the flag hash but the worker builds the unit state from: the package
+-- flags, the package databases and the GHC libdir. The active unit must already be in the session, since
+-- 'fingerprintDynFlags' reads the home unit; the flags being fingerprinted are set on 'hsc_dflags' here rather than
+-- taken from the stored unit. GHC's flag hash excludes @-odir@ and @-hidir@, so two execution roots do not differ;
+-- @initUnits@ does not touch the fields fingerprinted here, so the parsed args suffice whether or not the unit state
+-- has been resolved.
+flagsFingerprint :: HscEnv -> UnitId -> DynFlags -> IO Fingerprint
+flagsFingerprint hsc_env unit dflags = do
+  dyn <- fingerprintDynFlags env this_mod putNameLiterally
+  opt <- fingerprintOptFlags dflags putNameLiterally
+  hpc <- fingerprintHpcFlags dflags putNameLiterally
+  extra <- computeFingerprint putNameLiterally (dbs, pkgs, topDir dflags)
+  pure (fingerprintFingerprints [dyn, opt, hpc, extra])
+  where
+    env = (hscSetActiveUnitId unit hsc_env) {hsc_dflags = dflags}
+    this_mod = mkModule (RealUnit (Definite unit)) (mkModuleName "Main")
+    dbs = renderDb <$> packageDBFlags dflags
+    pkgs = renderPkg <$> packageFlags dflags
+
+    renderDb = \case
+      PackageDB ref -> "db:" ++ renderRef ref
+      NoUserPackageDB -> "no-user-db"
+      NoGlobalPackageDB -> "no-global-db"
+      ClearPackageDBs -> "clear-dbs"
+
+    renderRef = \case
+      GlobalPkgDb -> "global"
+      UserPkgDb -> "user"
+      PkgDbPath p -> fromOsPath p
+
+    renderPkg = \case
+      ExposePackage raw _ _ -> "expose:" ++ raw
+      HidePackage p -> "hide:" ++ p
+
+planModules :: CachedUnit -> Set ModuleName
+planModules CachedUnit {build_plan, cache} =
+  Set.fromList (coerce <$> Map.keys (fold (cache <|> build_plan)))
+
+planFilesHash :: OsPath -> Maybe OsPath -> IO PlanFiles
+planFilesHash planPath argsPath = do
+  plan <- getFileHash (fromOsPath planPath)
+  args <- for argsPath \ p -> (p,) <$> getFileHash (fromOsPath p)
+  pure PlanFiles {plan, args}
+
+unitFingerprint :: HscEnv -> UnitId -> DynFlags -> Set ModuleName -> Maybe PlanFiles -> IO UnitFingerprint
+unitFingerprint hsc_env unit dflags modules planFiles = do
+  flags <- flagsFingerprint hsc_env unit dflags
+  pure UnitFingerprint {flags, modules, planFiles}
+
+-- | Whether a known unit's kept state may serve a request that names this plan.
+-- 'Valid' carries a refreshed record when the byte fast path missed but the semantic check passed, so the next request
+-- takes the fast path again.
+data Verdict =
+  Valid (Maybe UnitFingerprint)
+  |
+  Stale String
+
+-- | Decide a 'Verdict' for a unit already present in the session. Fail closed: a unit with no stored record, or a plan
+-- or args file that cannot be read, is 'Stale'. The fast path compares the plan and args file hashes with the stored
+-- ones; on a miss the plan is decoded and its flags and module set are compared with the stored fingerprint.
+validateStoredUnit :: Logger -> FeatureFlags -> HscEnv -> MakeState -> UnitId -> OsPath -> IO Verdict
+validateStoredUnit logger features hsc_env make unit planPath =
+  case Map.lookup unit make.unitFingerprints of
+    Nothing -> stale "no fingerprint recorded"
+    Just stored ->
+      try @SomeException (verdict stored) >>= \case
+        Left e -> stale ("plan or args file unreadable: " ++ show e)
+        Right v -> pure v
+  where
+    verdict stored = do
+      planHash <- getFileHash (fromOsPath planPath)
+      case stored.planFiles of
+        Just pf | pf.plan == planHash -> do
+          argsMatch <- case pf.args of
+            Nothing -> pure True
+            Just (ap, ah) -> (== ah) <$> getFileHash (fromOsPath ap)
+          if argsMatch then pure (Valid Nothing) else semantic stored
+        _ -> semantic stored
+
+    semantic stored = do
+      cachedUnit <- decodeJsonBuildPlan planPath
+      dflags <- maybe (pure hsc_env.hsc_dflags) (readParseGHCArgs features.flagParser hsc_env hsc_env.hsc_dflags) cachedUnit.unit_args
+      newFlags <- flagsFingerprint hsc_env unit dflags
+      let newMods = planModules cachedUnit
+      if newFlags /= stored.flags
+        then stale "flags changed"
+        else if newMods /= stored.modules
+          then stale ("module set changed: " ++ moduleSetDiff stored.modules newMods)
+          else do
+            pf <- planFilesHash planPath cachedUnit.unit_args
+            pure (Valid (Just UnitFingerprint {flags = newFlags, modules = newMods, planFiles = Just pf}))
+
+    stale reason = do
+      logger.info ("ghc-worker: evict unit " ++ showPprUnsafe unit ++ ": " ++ reason)
+      pure (Stale reason)
+
+    moduleSetDiff old new =
+      unwords (["+" ++ showPprUnsafe m | m <- Set.toAscList (Set.difference new old)]
+        ++ ["-" ++ showPprUnsafe m | m <- Set.toAscList (Set.difference old new)])
 
 -- | Construct a 'ModuleGraphNode' from data obtained from the Buck cache and add its location to the @Finder@.
 --
@@ -272,9 +377,10 @@ loadCachedHomeUnit ::
   Bool ->
   HscEnv ->
   UnitId ->
+  OsPath ->
   (CachedUnit, DynFlags) ->
   StateT WorkerState IO HscEnv
-loadCachedHomeUnit logger useFixedNodes useIncrModGraph hsc_env0 unit (cachedUnit, dflags) =
+loadCachedHomeUnit logger useFixedNodes useIncrModGraph hsc_env0 unit planPath (cachedUnit, dflags) =
   logTimedD logger (text "Loading cached home unit" <+> quotes (ppr unit)) do
     traverse_ loadCachedArgs cachedUnit.unit_buck_args
     hsc_env2 <- liftIO do
@@ -283,6 +389,10 @@ loadCachedHomeUnit logger useFixedNodes useIncrModGraph hsc_env0 unit (cachedUni
     modify (updateMakeState (insertUnitEnv hsc_env2))
     nodes <- liftIO $ loadCachedModules useFixedNodes hsc_env2 unit cachedUnit
     modify (updateMakeState (rebuildModuleGraph useIncrModGraph . storeModuleGraphNodes nodes))
+    fp <- liftIO do
+      planFiles <- planFilesHash planPath cachedUnit.unit_args
+      unitFingerprint hsc_env2 unit dflags (planModules cachedUnit) (Just planFiles)
+    modify (updateMakeState (Make.storeUnitFingerprint unit fp))
     pure hsc_env2
 
 -- | Intermediate result of the concurrent loading phase.
@@ -294,7 +404,8 @@ data PreparedUnit =
     unitState :: UnitState,
     homeUnit :: HomeUnit,
     moduleEntries :: [(JsonFs ModuleName, CachedModule)],
-    buckArgs :: Maybe OsPath
+    buckArgs :: Maybe OsPath,
+    planFiles :: PlanFiles
   }
 
 insertPreparedUnit :: Logger -> FeatureFlags -> HscEnv -> PreparedUnit -> StateT WorkerState IO HscEnv
@@ -316,6 +427,8 @@ insertPreparedUnit logger features hsc_env pu = do
   modify (updateMakeState (updateExtraLibs . insertUnitEnv hsc_env2))
   nodes <- liftIO $ traverse (uncurry (loadCachedModule features.fixedNodesCache hsc_env2 pu.unitId)) pu.moduleEntries
   modify (updateMakeState (storeModuleGraphNodes nodes))
+  fp <- liftIO $ unitFingerprint hsc_env2 pu.unitId pu.dflags (Set.fromList (coerce . fst <$> pu.moduleEntries)) (Just pu.planFiles)
+  modify (updateMakeState (Make.storeUnitFingerprint pu.unitId fp))
   pure hsc_env2
 
 loadCachedBuildPlan ::
@@ -330,6 +443,7 @@ loadCachedBuildPlan hsc_env1 dflags0 features allUnitIds CachedBuildPlan {name =
   for unit_args \ argsFile -> do
     dflags1 <- readParseGHCArgs features.flagParser hsc_env1 dflags0 argsFile
     (dflags2, dbs, unitState, homeUnit) <- initUnitsAndPlatform hsc_env1 dflags1 allUnitIds
+    planFiles <- planFilesHash build_plan cachedUnit.unit_args
     let moduleEntries = Map.toList (fold (cachedUnit.cache <|> cachedUnit.build_plan))
     pure PreparedUnit {
       unitId,
@@ -338,7 +452,8 @@ loadCachedBuildPlan hsc_env1 dflags0 features allUnitIds CachedBuildPlan {name =
       unitState,
       homeUnit,
       moduleEntries,
-      buckArgs = cachedUnit.unit_buck_args
+      buckArgs = cachedUnit.unit_buck_args,
+      planFiles
     }
 
 -- | Determine the set of build plans that need to be restored from cache because they aren't present in the state's
@@ -385,10 +500,23 @@ loadCachedDepUnits ::
   IO (WorkerState, HscEnv)
 loadCachedDepUnits logger dflags0 (CachedBuildPlans buildPlans) features (state0, hsc_env0) = do
   let hsc_env1 = Make.loadState hsc_env0 state0.make
+      known = unitEnv_keys (ue_home_unit_graph hsc_env1.hsc_unit_env)
+  state0' <- foldM (revalidateUnit logger features hsc_env1) state0
+    [(unit, build_plan) | CachedBuildPlan {name = JsonFs unit, build_plan} <- buildPlans, Set.member unit known]
+  let hsc_env1' = Make.loadState hsc_env0 state0'.make
   logTimed logger "Loading cached dep units" $ fmap swap do
-    let (total, missing) = compareUnits hsc_env1 buildPlans
-    prepared <- catMaybes <$> traverser (loadCachedBuildPlan hsc_env1 dflags0 features total) missing
-    (hsc_env2, state1) <- runStateT (foldM (insertPreparedUnit logger features) hsc_env1 prepared) state0
+    let (total, missing) = compareUnits hsc_env1' buildPlans
+    prepared <- catMaybes <$> traverser (loadCachedBuildPlan hsc_env1' dflags0 features total) missing
+    (hsc_env2, state1) <- runStateT (foldM (insertPreparedUnit logger features) hsc_env1' prepared) state0'
     pure (hsc_env2, updateMakeState (Make.rebuildModuleGraph features.useIncrModGraph) state1)
   where
     traverser = if features.concurrentInitUnits then processConcurrent else traverse
+
+-- | A known dependency unit keeps its kept state only while its plan still validates; otherwise it is evicted here so
+-- 'compareUnits' then treats it as missing and restores it in dependency order.
+revalidateUnit :: Logger -> FeatureFlags -> HscEnv -> WorkerState -> (UnitId, OsPath) -> IO WorkerState
+revalidateUnit logger features hsc_env state (unit, planPath) =
+  validateStoredUnit logger features hsc_env state.make unit planPath >>= \case
+    Valid Nothing -> pure state
+    Valid (Just fp) -> pure (updateMakeState (Make.storeUnitFingerprint unit fp) state)
+    Stale _ -> pure (updateMakeState (Make.evictUnit features.useIncrModGraph unit) state)
