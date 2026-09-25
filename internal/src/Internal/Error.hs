@@ -1,6 +1,6 @@
 module Internal.Error where
 
-import Control.Exception (AsyncException (..), Exception (..), IOException, throwIO)
+import Control.Exception (AsyncException (..), Exception (..), throwIO)
 import qualified Control.Monad.Catch as MC
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import GHC (DynFlags, Ghc, GhcException (..), GhcMonad, getSessionDynFlags, noSrcSpan, printException)
@@ -24,8 +24,6 @@ import GHC.Types.SrcLoc (mkGeneralSrcSpan)
 import GHC.Utils.Error (mkPlainMsgEnvelope)
 import GHC.Utils.Outputable (Outputable (..), SDoc, text)
 import Prelude hiding (log)
-import System.Environment (getProgName)
-import System.Exit (ExitCode)
 import Types.Log (Logger (..))
 
 handleExceptions :: Logger -> a -> Ghc a -> Ghc a
@@ -38,29 +36,13 @@ handleExceptions logger errResult =
       | Just (se :: SourceError) <- fromException exception
       = printException se
 
-      | Just (ioe :: IOException) <- fromException exception
-      = fm (show ioe)
-
       | Just UserInterrupt <- fromException exception
       = liftIO $ throwIO UserInterrupt
 
-      | Just StackOverflow <- fromException exception
-      = fm "stack overflow: use +RTS -K<size> to increase it"
-
-      | Just (ex :: ExitCode) <- fromException exception
-      = liftIO $ throwIO ex
-
-      | Just ge <- fromException exception
-      = case ge of
-        Signal _ -> pure ()
-        ProgramError _ -> fm (show ge)
-        CmdLineError _ -> fm ("<command line>: " ++ show ge)
-        _ -> do
-          progName <- liftIO getProgName
-          fm (progName ++ ": " ++ show ge)
-
       | otherwise
-      = fm (show (Panic (show exception)))
+      = do
+        fm (show (Panic (show exception)))
+        liftIO $ throwIO exception
 
     fm = liftIO . logger.fatal . text
 
