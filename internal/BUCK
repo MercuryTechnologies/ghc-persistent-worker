@@ -4,7 +4,7 @@ load("//haskell:flags.bzl", "cpp_flags_when")
 
 flags = select({
     "root//constraints/ghc:ghc_version[ghc910]": ["mwb"],
-    "root//constraints/ghc:ghc_version[ghc914]": ["fixed-nodes"],
+    "root//constraints/ghc:ghc_version[ghc914]": ["fixed-nodes", "unit-index"],
 })
 
 other_extensions = [

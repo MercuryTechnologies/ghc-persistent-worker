@@ -42,11 +42,19 @@ import GHC.Types.Unique.Map
 import GHC.Types.Unique.Set (UniqSet)
 import GHC.Unit.Env
 import GHC.Unit.Module
-import GHC.Unit.State
-import qualified GHC.Unit.State as GHC
+import GHC.Unit.State hiding (readUnitDatabase)
+import qualified GHC.Unit.State as GHC (newUnitIndex)
+import Internal.Compat.UnitIndex (readUnitDatabase)
 import Internal.State.UnitIndex.Update (Provider (..), Providers, unitOverrides, updateProviders)
 import Prelude hiding ((<>))
 import System.OsPath.Extra (OsPath)
+
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+
+import System.OsPath.Extra (encodeUtf)
+
+#endif
+
 import Types.State.Make (MakeState (..))
 
 enableSharedProviders :: Bool
@@ -167,6 +175,7 @@ readDatabasesShared ref logger _ cfg =
     conf_refs <- getUnitDbRefs cfg
     confs <- catMaybes <$> mapM (resolveUnitDatabase cfg) conf_refs
     let
+      loadDb :: Map OsPath (UnitDatabase UnitId) -> OsPath -> IO (Map OsPath (UnitDatabase UnitId), UnitDatabase UnitId)
       loadDb z path =
         if enableSharedDatabases
         then case z !? path of
@@ -177,7 +186,12 @@ readDatabasesShared ref logger _ cfg =
         else do
           db <- readUnitDatabase logger cfg path
           pure (z, db)
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+    confs' <- traverse encodeUtf confs
+    (newDatabases, dbs) <- mapAccumM loadDb state.databases confs'
+#else
     (newDatabases, dbs) <- mapAccumM loadDb state.databases confs
+#endif
     pure (state {databases = newDatabases}, dbs)
 
 -- | Handler for 'computeProviders' that splits module name providers into a shared map of 'Provider' and more granular

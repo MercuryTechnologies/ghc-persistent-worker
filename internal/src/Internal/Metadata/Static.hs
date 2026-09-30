@@ -62,7 +62,11 @@ readStaticUnits (CachedBuildPlans units) =
 staticUnitDatabase :: [(UnitId, [ModuleName])] -> UnitDatabase UnitId
 staticUnitDatabase units =
   UnitDatabase {
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+    unitDatabasePath = "<static-dep-units>",
+#else
     unitDatabasePath = toOsPath "<static-dep-units>",
+#endif
     unitDatabaseUnits = [staticUnitInfo unit modules | (unit, modules) <- units]
   }
 

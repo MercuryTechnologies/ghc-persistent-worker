@@ -16,6 +16,7 @@ import GHC.Unit.Module.Graph (ModuleGraph)
 import GHC.Unit.Module.ModSummary (isBootSummary)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (Outputable, SDoc, hang, hcat, ppr, text, vcat, (<+>))
+import Internal.Compat.GHC914 (hscModuleGraph)
 import System.FilePath ((</>))
 import Types.Target (TargetSpec, renderTargetSpec)
 
@@ -43,7 +44,7 @@ import GHC (
   moduleUnit,
   ms_mod_name,
   )
-import GHC.Driver.Env (HscEnv (..), hscUnitIndexQuery, hsc_units)
+import GHC.Driver.Env (HscEnv (..), hscUnitIndexQuery, hsc_mod_graph, hsc_units)
 import GHC.Types.Unique.Map (nonDetUniqMapToList)
 import GHC.Unit (ModuleOrigin (..))
 import GHC.Unit.Finder (FindResult (..), findImportedModule)
@@ -185,7 +186,7 @@ debugLookupModuleHsc hsc_env name = do
   dbg ""
   dbg ("# Debugging module lookup for '" ++ moduleNameString name ++ "' in " ++ modeName ++ " mode")
   dbg ""
-  case filter msMatch (mgModSummaries hsc_env.hsc_mod_graph) of
+  case filter msMatch (mgModSummaries (hscModuleGraph hsc_env)) of
     [] -> dbg "* Not in the module graph"
     [summary] -> dbg ("* In module graph for unit " ++ summaryUnit summary)
     mods -> dbg ("* Multiple module graph nodes in units: " ++ intercalate ", " (summaryUnit <$> mods))
