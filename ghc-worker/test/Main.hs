@@ -19,6 +19,7 @@ import Test.Tasty (
   after,
   defaultIngredients,
   defaultMainWithIngredients,
+  dependentTestGroup,
   includingOptions,
   testGroup,
   )
@@ -52,9 +53,9 @@ testsGeneral =
 
 tests :: TestTree
 tests =
-  testGroup "all" [
+  dependentTestGroup "all" AllFinish [
     test_resources,
-    afterResources (testGroup "general" testsGeneral)
+    afterResources (dependentTestGroup "general" AllFinish testsGeneral)
   ]
   where
     -- tasty 1.5 has @sequentialTestGroup@, but the current Nix env has 1.4, so we'll make do with this for now.

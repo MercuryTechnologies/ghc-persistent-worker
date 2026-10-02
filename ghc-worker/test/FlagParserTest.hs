@@ -31,7 +31,7 @@ import Hedgehog (TestT, assert, evalEither, failure, (===))
 import Internal.DynFlags.Parse (parseDynFlags)
 import System.OsPath.Extra (toOsPath)
 import Test.Run (assertJust, unitTest)
-import Test.Tasty (TestTree, testGroup)
+import Test.Tasty (DependencyType (AllFinish), TestTree, dependentTestGroup)
 
 newtype DbRef =
   DbRef PkgDbRef
@@ -300,7 +300,7 @@ test_flagParser_unknownPartial =
 
 test_parseBuckArgs :: TestTree
 test_parseBuckArgs =
-  testGroup "flag parser" [
+  dependentTestGroup "flag parser" AllFinish [
     unitTest "successful" test_flagParser_success,
     unitTest "missing argument" test_flagParser_missingArg,
     unitTest "invalid extension" test_flagParser_invalidExtension,
