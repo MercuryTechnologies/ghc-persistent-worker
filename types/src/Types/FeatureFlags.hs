@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Types.FeatureFlags where
 
 data FeatureFlag =
@@ -36,6 +38,10 @@ defaultFeatureFlags =
     flagParser = False,
     concurrentInitUnits = True,
     instrument = False,
+#if defined(LINKABLES)
     lazyByteCode = True,
+#else
+    lazyByteCode = False,
+#endif
     useIncrModGraph = True
   }

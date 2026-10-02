@@ -87,7 +87,7 @@
   defaultEnv = extra: {
     hls.enable = lib.mkForce false;
     package-set.extends = "mercury-ghc9101";
-    overrides = commonOverrides ["mwb" "unit-index" "downsweep-cache"] ++ [ipeOverrides] ++ extra;
+    overrides = commonOverrides ["mwb" "unit-index" "downsweep-cache" "linkables"] ++ [ipeOverrides] ++ extra;
     ghci.args = defaultGhciArgs;
   };
 
