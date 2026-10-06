@@ -78,7 +78,7 @@ library
   if (flag(ghc-debug))
     build-depends:
        ghc-debug-stub
-    ghc-options: -DGHC_DEBUG
+    cpp-options: -DGHC_DEBUG
 
   if (flag(debug))
       cpp-options: -D__DEBUG__
