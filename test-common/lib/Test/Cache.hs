@@ -123,16 +123,42 @@ buildPlanEntry env unit module_ =
 -- For metadata steps, the 'CachedBuildPlans' are decoded in "Types.BuckArgs", so we can pass it to the handler as data.
 writeUnitCache ::
   SessionEnv ->
+  [UnitKey] ->
   GenUnit BuildModule ->
   IO CachedBuildPlans
-writeUnitCache env unit = do
+writeUnitCache env deps unit = do
   argsFile <- writeUnitArgs env.tempDir ((metadataArgs env unit).ghcOptions) unit.key
-  (depUnitsFile, buildPlans) <- writeBuildPlans env.tempDir unit.key (toList unit.depUnits)
+  (depUnitsFile, buildPlans) <- writeBuildPlans env.tempDir unit.key deps
   Aeson.encodeFile outFile (cachedUnit buildPlan argsFile depUnitsFile)
   pure buildPlans
   where
     buildPlan = Map.fromList (buildPlanEntry env unit.key <$> unit.modules)
     outFile = fromOsPath (env.tempDir </> cachedUnitPath unit.key)
+
+-- | The transitive dependencies of a node (excluding the node itself) in dependency postorder, i.e. every node is
+-- preceded by all of its own dependencies.
+depClosurePostorder :: Ord k => Map k (Set k) -> k -> [k]
+depClosurePostorder deps root =
+  reverse (snd (foldl' visit ([root], []) (nodeDeps root)))
+  where
+    -- When @(seen', acc') = visit (seen, acc) k@:
+    --
+    -- Preconditions
+    -- * @fromList acc `isSubsetOf` seen@
+    --
+    -- Postconditions
+    -- * @member k seen'@
+    -- * @descendentsOf k `isSubsetOf` seen'@
+    -- * @seen `isSubsetOf` seen'@
+    -- * @fromList acc' `isSubsetOf` seen'@
+    -- * @descendantsOf k `isSubsetOf` dropWhile (/= k) acc'@
+    visit (seen, acc) k
+      | Set.member k seen = (seen, acc)
+      | otherwise =
+          let (seen', acc') = foldl' visit (Set.insert k seen, acc) (nodeDeps k)
+          in (seen', k : acc')
+
+    nodeDeps k = Map.findWithDefault Set.empty k deps
 
 -- | Construct all module-related cache data.
 --
@@ -142,10 +168,10 @@ writeUnitCache env unit = do
 -- is decoded in "Types.BuckArgs", so we can pass it as data.
 moduleCache ::
   SessionEnv ->
+  Map TaskKey (Set TaskKey) ->
   ModuleKey ->
-  Set TaskKey ->
   (OsPath, CachedDeps)
-moduleCache env key deps =
+moduleCache env taskDeps key =
   (unitPath, CachedDeps (mkCachedDep <$> depKeys))
   where
     mkCachedDep dc =
@@ -156,22 +182,26 @@ moduleCache env key deps =
 
     unitPath = env.tempDir </> cachedUnitPath key.unit
 
-    depKeys = [m | TaskCompile m <- Set.toList deps]
+    depKeys = [m | TaskCompile m <- depClosurePostorder taskDeps (TaskCompile key)]
 
 -- | Bundle a build task with its associated cache data for the resume build.
 cacheTask ::
   SessionEnv ->
+  -- | Dep graph of units.
+  Map UnitKey (Set UnitKey) ->
+  -- | Dep graph of tasks, consisting of units and modules.
+  Map TaskKey (Set TaskKey) ->
   Task TaskKey Component ->
   IO (Task TaskKey ResumeComponent)
-cacheTask env task =
+cacheTask env directDeps taskDeps task =
   case task.value of
     ComponentUnit unit -> do
-      cachedBuildPlans <- Just <$> writeUnitCache env unit
+      cachedBuildPlans <- Just <$> writeUnitCache env (depClosurePostorder directDeps unit.key) unit
       pure task {value = ResumeUnit unit (UnitCache {cachedBuildPlans})}
     ComponentModule moduleKey ->
       pure task {value = ResumeModule moduleKey (ModuleCache {cachedUnit = unitPath, cachedDeps})}
       where
-        (unitPath, cachedDeps) = moduleCache env moduleKey task.deps
+        (unitPath, cachedDeps) = moduleCache env taskDeps moduleKey
 
 -- | Transform a schedule for the resume build by constructing and writing all required cache data and JSON files and
 -- bundling that data with the tasks.
@@ -180,4 +210,7 @@ writeResumeCache ::
   Schedule TaskKey Component ->
   IO (Schedule TaskKey ResumeComponent)
 writeResumeCache env (Schedule tasks) =
-  Schedule <$> traverse (cacheTask env) tasks
+  Schedule <$> traverse (cacheTask env directDeps taskDeps) tasks
+  where
+    taskDeps = Map.fromList [(task.key, task.deps) | task <- tasks]
+    directDeps = Map.fromList [(unit.key, unit.depUnits) | Task {value = ComponentUnit unit} <- tasks]
