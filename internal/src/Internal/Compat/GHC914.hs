@@ -7,15 +7,14 @@ import GHC.Driver.Env (HscEnv (..))
 import qualified GHC.Driver.Session as GHC
 import GHC.Iface.Syntax (IfaceBindingX, IfaceMaybeRhs, IfaceTopBndrInfo)
 import GHC.LanguageExtensions (Extension)
-import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey)
+import GHC.Unit.Module.Graph (NodeKey)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
 import Data.Functor ((<&>))
 import GHC.Driver.Flags (OnOff (..))
 import GHC.Unit.Env (UnitEnv (..))
-import GHC.Unit.Module.Graph
-    (ModuleNodeEdge, ModuleNodeInfo(..), edgeTargetKey, mkNormalEdge, mgMapM)
+import GHC.Unit.Module.Graph (ModuleNodeEdge, ModuleNodeInfo (..), edgeTargetKey, mgMapM, mkNormalEdge)
 import GHC.Unit.Module.ModIface (IfaceSimplifiedCore (..), set_mi_simplified_core)
 import GHC.Unit.Module.WholeCoreBindings (emptyIfaceForeign)
 
@@ -56,11 +55,11 @@ impliedXFlags =
 #else
 
 import Control.Monad (forM)
-import GHC.Unit.Module.Graph (ModuleGraph(..))
+import GHC.Unit.Module.Graph (ModuleGraph (..))
 
 #if defined(FIXED_NODES)
 
-import GHC.Unit.Module.Graph (ModuleNodeInfo(..))
+import GHC.Unit.Module.Graph (ModuleGraphNode (..), ModuleNodeInfo (..))
 
 #endif
 

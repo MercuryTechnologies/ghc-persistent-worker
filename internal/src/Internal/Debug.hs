@@ -12,7 +12,7 @@ import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..))
 import GHC.Unit.External (ExternalPackageState (..), eucEPS)
 import GHC.Unit.Home.Graph (UnitEnvGraph (..))
 import GHC.Unit.Home.PackageTable (HomePackageTable (..), pprHPT)
-import GHC.Unit.Module.Graph (ModuleGraph)
+import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), mgModSummaries')
 import GHC.Unit.Module.ModSummary (isBootSummary)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (Outputable, SDoc, hang, hcat, ppr, text, vcat, (<+>))
@@ -25,8 +25,6 @@ import Types.Target (TargetSpec, renderTargetSpec)
 import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 
 #endif
-
-import GHC.Unit.Module.Graph (ModuleGraphNode (..), mgModSummaries')
 
 #if defined(UNIT_INDEX)
 
@@ -44,7 +42,7 @@ import GHC (
   moduleUnit,
   ms_mod_name,
   )
-import GHC.Driver.Env (HscEnv (..), hscUnitIndexQuery, hsc_mod_graph, hsc_units)
+import GHC.Driver.Env (HscEnv (..), hscUnitIndexQuery, hsc_units)
 import GHC.Types.Unique.Map (nonDetUniqMapToList)
 import GHC.Unit (ModuleOrigin (..))
 import GHC.Unit.Finder (FindResult (..), findImportedModule)

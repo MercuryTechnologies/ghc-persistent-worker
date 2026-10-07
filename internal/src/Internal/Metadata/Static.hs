@@ -21,13 +21,19 @@ import GHC.Unit (GenericUnitInfo (..), PackageId (..), PackageName (..), UnitDat
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Finder (initFinderCache)
 import GHC.Unit.State (UnitIndex (..))
-import System.OsPath.Extra (fromOsPath, toOsPath)
+import System.OsPath.Extra (fromOsPath)
 import Types.CachedDeps (CachedBuildPlan (..), JsonFs (..))
 
 #else
 
 import GHC (GhcException (..))
 import GHC.Utils.Panic (throwGhcExceptionIO)
+
+#endif
+
+#if !MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+
+import System.OsPath.Extra (toOsPath)
 
 #endif
 

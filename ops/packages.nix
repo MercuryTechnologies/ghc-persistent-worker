@@ -29,7 +29,6 @@
           "containers"
           "deepseq"
           "directory"
-          "filepath"
           "file-io"
           "ghc"
           "ghc-debug-stub"

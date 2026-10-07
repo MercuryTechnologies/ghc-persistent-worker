@@ -53,12 +53,6 @@ import GHC.Settings (ToolSettings (..))
 import GHC.Unit.Module.Warnings (WarningCategory)
 import Internal.Compat.GHC914 (impliedXFlags)
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
-
-import GHC.Driver.Flags (OnOff (..))
-
-#endif
-
 #if defined(MWB)
 
 import System.OsPath (unsafeEncodeUtf)

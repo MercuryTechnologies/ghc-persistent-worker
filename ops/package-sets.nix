@@ -114,9 +114,10 @@ in {
 
   envs.profiled = defaultEnv [({notest, ...}: { ghc-worker = notest; ghc-server = notest; })];
 
-  envs.mercury-ghc9141 = defaultEnv [buckBinOverrides] // {
+  envs.mercury-ghc9141 = defaultEnv [] // {
     expose.scoped = true;
     package-set.extends = "mercury-ghc9141";
+    overrides = commonOverrides ["unit-index" "downsweep-cache"] ++ [ipeOverrides buckBinOverrides];
   };
 
   # This environment is for building the worker with an externally provided, impure GHC.
