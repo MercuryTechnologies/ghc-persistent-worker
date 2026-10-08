@@ -5,7 +5,9 @@ module Main where
 import qualified BuildPlanTest.Test1 (test_buildPlan)
 import qualified BuildPlanTest.Test2 (test_buildPlan)
 import BuildThTest (test_buildTh)
+#if defined(LINKABLES)
 import ByteCodeCacheTest (test_evictBySize, test_touchNoEviction)
+#endif
 import DepFilesTest (test_depFiles)
 import FlagParserTest (test_parseBuckArgs)
 import InterfacePathTest (test_interfacePath)
@@ -22,7 +24,6 @@ import Test.Tasty (
   defaultMainWithIngredients,
   dependentTestGroup,
   includingOptions,
-  testGroup,
   )
 
 -- | Some tests require our GHC patches.

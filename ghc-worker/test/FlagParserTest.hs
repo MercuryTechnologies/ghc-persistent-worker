@@ -29,7 +29,9 @@ import GHC.Utils.Error (pprMessages)
 import GHC.Utils.Outputable (Outputable (..), showPprUnsafe)
 import Hedgehog (TestT, assert, evalEither, failure, (===))
 import Internal.DynFlags.Parse (parseDynFlags)
+#if !MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 import System.OsPath.Extra (toOsPath)
+#endif
 import Test.Run (assertJust, unitTest)
 import Test.Tasty (DependencyType (AllFinish), TestTree, dependentTestGroup)
 

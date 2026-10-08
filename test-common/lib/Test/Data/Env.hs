@@ -2,7 +2,6 @@ module Test.Data.Env where
 
 import Data.Set (Set)
 import Data.Proxy (Proxy (..))
-import Data.Typeable (Typeable)
 import System.OsPath.Extra (OsPath)
 import Test.Tasty (TestTree, askOption)
 import Test.Tasty.Options (IsOption (..), OptionDescription (..), safeRead)
@@ -11,7 +10,7 @@ import Types.Env (Env)
 
 newtype MaxUnits =
   MaxUnits Int
-  deriving stock (Eq, Show, Typeable)
+  deriving stock (Eq, Show)
   deriving newtype (Num, Real, Enum, Integral, Ord)
 
 instance IsOption MaxUnits where
@@ -22,7 +21,7 @@ instance IsOption MaxUnits where
 
 newtype MaxModulesPerUnit =
   MaxModulesPerUnit Int
-  deriving stock (Eq, Show, Typeable)
+  deriving stock (Eq, Show)
   deriving newtype (Num, Real, Enum, Integral, Ord)
 
 instance IsOption MaxModulesPerUnit where
@@ -33,7 +32,7 @@ instance IsOption MaxModulesPerUnit where
 
 newtype MaxJobs =
   MaxJobs Int
-  deriving stock (Eq, Show, Typeable)
+  deriving stock (Eq, Show)
   deriving newtype (Num, Real, Enum, Integral, Ord)
 
 instance IsOption MaxJobs where
