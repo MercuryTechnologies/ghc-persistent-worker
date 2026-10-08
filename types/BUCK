@@ -25,8 +25,9 @@ haskell_library(
         ["-X" + default_language] +
         ["-X" + ext for ext in [default_language] + default_extensions] +
         other_ghc_options +
-        select_map(flags, lambda fs: cpp_flags_when("mwb" in fs, ["MWB", "UNIT_INDEX"])) +
-        select_map(flags, lambda fs: cpp_flags_when("unit-index" in fs, ["UNIT_INDEX"])),
+        select_map(flags, lambda fs: cpp_flags_when("mwb" in fs, ["MWB", "UNIT_INDEX", "LINKABLES"])) +
+        select_map(flags, lambda fs: cpp_flags_when("unit-index" in fs, ["UNIT_INDEX"])) +
+        select_map(flags, lambda fs: cpp_flags_when("linkables" in fs, ["LINKABLES"])),
     strip_prefix = ["src"],
     deps = [
         "//haskell:aeson",
