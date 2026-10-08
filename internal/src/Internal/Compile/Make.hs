@@ -26,6 +26,7 @@ import GHC.Driver.Pipeline (compileOne)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit.Env (ue_unsafeHomeUnit)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
+import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
@@ -38,12 +39,6 @@ import Internal.Log (logTimedD)
 import System.OsPath.Extra (fromOsPath)
 import Types.Log (Logger (..))
 import Types.Target (ModuleTarget (..), Target (..), TargetSpec (..))
-
-#if FIXED_NODES
-
-import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
-
-#endif
 
 -- | Update the location of the result of @summariseFile@ to point to the locations specified on the command line, since
 -- these are placed in the source file's directory by that function.
@@ -86,7 +81,6 @@ lookupSummary _logger hsc_env target =
       ++
       showPprUnsafe (pprModuleFull target NotBoot)
 
-#if FIXED_NODES
     check = \case
       ModuleNodeCompile ms -> pure ms
       ModuleNodeFixed _ OsPathModLocation {ml_hs_file_ospath} ->
@@ -95,9 +89,6 @@ lookupSummary _logger hsc_env target =
             computeSummary _logger hsc_env (fromOsPath src)
           Nothing ->
             throwGhcExceptionIO (PprProgramError "Fixed node without source path" (ppr target))
-#else
-    check = pure
-#endif
 
 -- | Obtain a `ModSummary` for the current target.
 -- If the target was specified by module name, we assume that the new workflow is used, in which the module graph is

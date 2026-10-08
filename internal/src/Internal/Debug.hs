@@ -12,19 +12,13 @@ import GHC.Unit.Env (HomeUnitEnv (..), HomeUnitGraph, UnitEnv (..))
 import GHC.Unit.External (ExternalPackageState (..), eucEPS)
 import GHC.Unit.Home.Graph (UnitEnvGraph (..))
 import GHC.Unit.Home.PackageTable (HomePackageTable (..), pprHPT)
-import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), mgModSummaries')
+import GHC.Unit.Module.Graph (ModuleGraph, ModuleGraphNode (..), ModuleNodeInfo (..), mgModSummaries')
 import GHC.Unit.Module.ModSummary (isBootSummary)
 import qualified GHC.Utils.Outputable as Outputable
 import GHC.Utils.Outputable (Outputable, SDoc, hang, hcat, ppr, text, vcat, (<+>))
 import Internal.Compat.GHC914 (hscModuleGraph)
 import System.FilePath ((</>))
 import Types.Target (TargetSpec, renderTargetSpec)
-
-#if defined(FIXED_NODES)
-
-import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
-
-#endif
 
 #if defined(UNIT_INDEX)
 
@@ -74,8 +68,6 @@ pprModuleFull m boot =
   ppr (moduleUnitId m) Outputable.<> ":" Outputable.<> ppr (moduleName m) Outputable.<>
   (if boot == IsBoot then " {-# SOURCE #-}" else "")
 
-#if defined(FIXED_NODES)
-
 showModGraph :: ModuleGraph -> SDoc
 showModGraph g =
   vcat (concatMap showOne (mgModSummaries' g))
@@ -86,18 +78,6 @@ showModGraph g =
       LinkNode deps unit -> [hang (ppr unit <+> "->") 2 (vcat (ppr <$> deps))]
       -- UnitNode deps unit -> [hang (ppr unit <+> "->") 2 (vcat (ppr <$> deps))]
       _ -> []
-
-#elif defined(MWB)
-
-showModGraph :: ModuleGraph -> SDoc
-showModGraph g =
-  vcat (showOne <$> mgModSummaries' g)
-  where
-    showOne = \case
-      ModuleNode deps ms -> hang (pprModuleFull (ms_mod ms) (isBootSummary ms) <+> "->") 2 (vcat (ppr <$> deps))
-      _ -> ""
-
-#endif
 
 showEps :: ExternalPackageState -> IO SDoc
 showEps EPS {..} = do

@@ -346,12 +346,6 @@
           default = false;
         };
 
-        fixed-nodes = {
-          description = "GHC contains the patch for fixed module graph nodes";
-          manual = true;
-          default = false;
-        };
-
         linkables = {
           description = "GHC contains the patch for abstract getLinkDeps";
           manual = true;
@@ -363,7 +357,7 @@
       when = [
         {
           condition = "flag(mwb)";
-          cpp-options = ["-DMWB" "-DUNIT_INDEX" "-DDOWNSWEEP_CACHE" "-DFIXED_NODES"];
+          cpp-options = ["-DMWB" "-DUNIT_INDEX" "-DDOWNSWEEP_CACHE"];
         }
         {
           condition = "flag(downsweep-cache)";
@@ -372,10 +366,6 @@
         {
           condition = "flag(unit-index)";
           cpp-options = ["-DUNIT_INDEX"];
-        }
-        {
-          condition = "flag(fixed-nodes) || impl(ghc >= 9.14)";
-          cpp-options = ["-DFIXED_NODES"];
         }
         {
           condition = "flag(linkables)";

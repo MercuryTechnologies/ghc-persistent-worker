@@ -55,13 +55,7 @@ impliedXFlags =
 #else
 
 import Control.Monad (forM)
-import GHC.Unit.Module.Graph (ModuleGraph (..))
-
-#if defined(FIXED_NODES)
-
-import GHC.Unit.Module.Graph (ModuleGraphNode (..), ModuleNodeInfo (..))
-
-#endif
+import GHC.Unit.Module.Graph (ModuleGraph (..), ModuleGraphNode (..), ModuleNodeInfo (..))
 
 #if defined(MWB)
 
@@ -94,8 +88,6 @@ edgeTarget = id
 textualImports :: (PkgQual, Located ModuleName) -> (PkgQual, Located ModuleName)
 textualImports = id
 
-#if defined(FIXED_NODES)
-
 mgMapM :: (ModuleNodeInfo -> IO ModuleNodeInfo) -> ModuleGraph -> IO ModuleGraph
 mgMapM f mg = do
   mgns <- forM (mg_mss mg) $ \mgn -> case mgn of
@@ -108,18 +100,6 @@ mapMGM :: (ModSummary -> IO ModSummary) -> ModuleGraph -> IO ModuleGraph
 mapMGM f = mgMapM $ \mni -> case mni of
   ModuleNodeCompile ms -> ModuleNodeCompile <$> f ms
   _ -> pure mni
-
-#else
-
--- | Like 'mapMG', but monadic.
-mapMGM :: (ModSummary -> IO ModSummary) -> ModuleGraph -> IO ModuleGraph
-mapMGM f mg = do
-  mgns <- forM (mg_mss mg) $ \mgn -> case mgn of
-      ModuleNode deps ms  -> ModuleNode deps <$> f ms
-      _ -> pure mgn
-  pure mg { mg_mss = mgns }
-
-#endif
 
 impliedXFlags :: [(Extension, Bool, Extension)]
 impliedXFlags = GHC.impliedXFlags

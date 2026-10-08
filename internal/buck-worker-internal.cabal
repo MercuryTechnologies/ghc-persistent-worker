@@ -24,11 +24,6 @@ flag unit-index
     manual: True
     default: False
 
-flag fixed-nodes
-    description: GHC contains the patch for fixed module graph ndoes
-    manual: True
-    default: False
-
 flag linkables
   description: GHC contains patch for abstract getLinkDeps
   manual: True
@@ -57,16 +52,13 @@ common all
     base ==4.*
 
   if (flag(mwb))
-      cpp-options: -DMWB -DDOWNSWEEP_CACHE -DUNIT_INDEX -DFIXED_NODES -DLINKABLES
+      cpp-options: -DMWB -DDOWNSWEEP_CACHE -DUNIT_INDEX -DLINKABLES
 
   if (flag(downsweep-cache))
       cpp-options: -DDOWNSWEEP_CACHE
 
   if (flag(unit-index))
       cpp-options: -DUNIT_INDEX
-
-  if (flag(fixed-nodes) || impl(ghc >= 9.14))
-      cpp-options: -DFIXED_NODES
 
   if (flag(linkables))
       cpp-options: -DLINKABLES

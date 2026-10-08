@@ -80,16 +80,7 @@ Cabal Flags
 
 The project has a few optional features that depend on recent or experimental patches in GHC.
 These can be toggled by specifying corresponding Cabal flags, which enable CPP defines during the build.
-For example, running `cabal build -ffixed-nodes` enables the fixed nodes feature.
-
-* Fixed nodes `-ffixed-nodes`/`-DFIXED_NODES`
-
-  This feature takes advantage of the new lightweight module graph nodes to reduce the time it takes to restore module
-  graphs from the file system cache.
-  Fixed nodes only store the path to a module's interface, rather than requiring the parsed AST like conventional module
-  graph nodes, but can not be used to compile the module.
-  We use this node type when a module and its dependencies haven't been modified since the last build, so it can be
-  expected that it won't be requested for compilation.
+For example, running `cabal build -funit-index` enables the unit-index feature.
 
 * Unit index `-funit-index`/`-DUNIT_INDEX`
 

@@ -87,9 +87,9 @@
     overrides = commonOverrides ["mwb" "unit-index" "downsweep-cache"] ++ [ipeOverrides] ++ extra;
   };
 
-  latestEnv = extra: defaultEnv (extra ++ [(overrides_mwb_flag ["fixed-nodes" "linkables"])]) // {
+  latestEnv = extra: defaultEnv (extra ++ [(overrides_mwb_flag ["linkables"])]) // {
     package-set.extends = "mercury-ghc9101";
-    ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX" "-DFIXED_NODES" "-DLINKABLES"];
+    ghci.args = ["-DMWB" "-DDOWNSWEEP_CACHE" "-DUNIT_INDEX" "-DLINKABLES"];
   };
 
   mkGithub = {force, source, nodoc, ...}: {owner ? "tek", repo, rev, hash, path ? ""}:

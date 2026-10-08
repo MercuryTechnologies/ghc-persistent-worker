@@ -5,7 +5,7 @@ module Internal.Compat.FixedNodes where
 import GHC (HscEnv, ModSummary, ModuleGraph, ModuleName)
 import GHC.Driver.Errors.Types (DriverMessages)
 import GHC.Driver.Make (downsweep)
-import GHC.Unit.Module.Graph (ModNodeKeyWithUid, ModuleGraphNode (..))
+import GHC.Unit.Module.Graph (ModNodeKeyWithUid, ModuleGraphNode (..), ModuleNodeInfo (..))
 import GHC.Unit.Module.Location (ModLocation)
 
 #if defined(MWB)
@@ -17,10 +17,6 @@ import GHC.Unit.Module.Graph (mkModuleGraph)
 import GHC.Types.Error (mkUnknownDiagnostic)
 
 #endif
-
-#if defined(FIXED_NODES)
-
-import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
@@ -41,18 +37,6 @@ pattern CompileNode {deps, summary} <- ModuleNode !deps (ModuleNodeCompile !summ
 
 pattern FixedNode :: [Edge] -> ModNodeKeyWithUid -> ModLocation -> ModuleGraphNode
 pattern FixedNode {deps, key, location} <- ModuleNode !deps (ModuleNodeFixed !key !location)
-
-#else
-
-import GHC.Unit.Module.Graph (NodeKey)
-
-pattern CompileNode :: [NodeKey] -> ModSummary -> ModuleGraphNode
-pattern CompileNode {deps, summary} <- ModuleNode !deps !summary
-
-pattern FixedNode :: [NodeKey] -> ModNodeKeyWithUid -> ModLocation -> ModuleGraphNode
-pattern FixedNode {deps, key, location} <- (const Nothing -> Just (deps, key, location))
-
-#endif
 
 downsweepCompat ::
   HscEnv ->

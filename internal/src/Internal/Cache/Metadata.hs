@@ -29,12 +29,16 @@ import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
 import GHC.Driver.Errors.Types (DriverMessages, GhcMessage (..))
 import GHC.Driver.Make (ModNodeKeyWithUid (..), summariseFile)
 import GHC.Driver.Session (updatePlatformConstants)
+import GHC.Driver.Config.Finder (initFinderOpts)
 import GHC.Types.SourceError (throwErrors)
+import GHC.Types.SourceFile (HscSource (HsSrcFile))
 import GHC.Unit (GenWithIsBoot (..), HomeUnit, UnitDatabase, UnitId (..), UnitState)
 import GHC.Unit.Env (HomeUnitEnv (..), UnitEnv (..), updateHug)
+import GHC.Unit.Finder (addHomeModuleToFinder, mkHomeModLocation)
 import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
+import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_keys)
 import GHC.Unit.Home.PackageTable (emptyHomePackageTable)
-import GHC.Unit.Module.Graph (ModuleGraphNode (..), NodeKey (..))
+import GHC.Unit.Module.Graph (ModuleGraphNode (..), ModuleNodeInfo (..), NodeKey (..))
 import GHC.Utils.CliOption (Option (..))
 import GHC.Utils.Outputable (comma, hcat, ppr, punctuate, quotes, text, (<+>))
 import Internal.Compat.GHC914 (moduleNodeEdge)
@@ -47,6 +51,7 @@ import Internal.State (updateMakeState)
 import qualified Internal.State.Make as Make
 import Internal.State.Make (insertUnitEnv, rebuildModuleGraph, storeModuleGraphNodes)
 import System.OsPath.Extra (OsPath, fromOsPath)
+import System.OsPath.Extra (splitExtension)
 import Types.BuckArgs (CachedBuckArgs (..), parseCachedBuckArgs)
 import Types.CachedDeps (
   CachedBuildPlan (..),
@@ -61,25 +66,6 @@ import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
 import Types.State.Make (LibLoadState (..), MakeState (..))
 
-#if defined(FIXED_NODES) || defined(MWB)
-
-import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_keys)
-
-#else
-
-import GHC.Unit.Env (unitEnv_insert, unitEnv_keys, unitEnv_lookup_maybe)
-
-#endif
-
-#if defined(FIXED_NODES)
-
-import GHC.Driver.Config.Finder (initFinderOpts)
-import GHC.Types.SourceFile (HscSource (HsSrcFile))
-import GHC.Unit.Finder (addHomeModuleToFinder, mkHomeModLocation)
-import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
-import System.OsPath.Extra (splitExtension)
-
-#endif
 
 -- | Add a fresh 'HomeUnitEnv' to the home unit graph using the supplied unit state and dependencies.
 insertHomeUnit ::
@@ -172,8 +158,6 @@ loadCachedModule useFixedNodes hsc_env unit (JsonFs modName) CachedModule {sourc
       | otherwise
       = createNodeCompile src
 
-#if defined(FIXED_NODES)
-
     createNodeFixed src name = do
       _ <- addHomeModuleToFinder hsc_env.hsc_FC (DefiniteHomeUnit unit Nothing) name location HsSrcFile
       pure $ ModuleNodeFixed (ModNodeKeyWithUid (GWIB name NotBoot) unit) location
@@ -183,14 +167,6 @@ loadCachedModule useFixedNodes hsc_env unit (JsonFs modName) CachedModule {sourc
         location = mkHomeModLocation fopts name basename extension HsSrcFile
 
     createNodeCompile src = ModuleNodeCompile <$> createNodeLegacy src
-
-#else
-
-    createNodeFixed src _ = createNodeLegacy src
-
-    createNodeCompile = createNodeLegacy
-
-#endif
 
     createNodeLegacy src = do
       summResult <- summariseFile hsc_env (DefiniteHomeUnit unit Nothing) mempty (fromOsPath src) Nothing Nothing
