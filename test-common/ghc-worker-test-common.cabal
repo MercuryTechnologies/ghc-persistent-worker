@@ -14,6 +14,7 @@ common all
   default-extensions:
     BlockArguments,
     DataKinds,
+    DeriveAnyClass,
     DerivingStrategies,
     DuplicateRecordFields,
     LambdaCase,
