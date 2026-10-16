@@ -34,6 +34,23 @@ other_common_ghc_options = [
     "-Wunused-packages",
 ]
 
+# unfortunately, -with-rtsopts cannot be applied multiple times
+# and transforming Select via select_apply is not available yet.
+rts_flags = select({
+    "prelude//os:linux": select({
+        "root//constraints/ghc:ghc_version[ghc910]":
+            ["-with-rtsopts=\"-K512M -I5 -A128M -T -N -xm40000000 -xp\""],
+        "root//constraints/ghc:ghc_version[ghc914]":
+            ["-with-rtsopts=\"-K512M -I5 -A128M -T -N -xm40000000 -xp --optimistic-linking\""],
+    }),
+    "prelude//os:macos": select({
+        "root//constraints/ghc:ghc_version[ghc910]":
+            ["-with-rtsopts=\"-K512M -I5 -A128M -T -N\""],
+        "root//constraints/ghc:ghc_version[ghc914]":
+            ["-with-rtsopts=\"-K512M -I5 -A128M -T -N --optimistic-linking\""],
+    }),
+})
+
 haskell_library(
     name = "ghc-worker-lib",
     srcs = glob(["lib/**/*.hs"]),
@@ -76,10 +93,7 @@ haskell_binary(
         other_common_ghc_options +
         ["-O2"]  +
         select_map(flags, lambda fs: cpp_flags_when("mwb" in fs, ["MWB", "DOWNSWEEP_CACHE", "UNIT_INDEX"])),
-    linker_flags = select({
-        "prelude//os:linux": ["-O2", "-threaded", "-with-rtsopts=\"-K512M -I5 -A128M -T -N -xm40000000 -xp\""],
-        "prelude//os:macos": ["-O2", "-threaded", "-with-rtsopts=\"-K512M -I5 -A128M -T -N\""],
-    }),
+    linker_flags = ["-O2", "-threaded"] + rts_flags,
     strip_prefix = ["app"],
     deps = [
         "//haskell:base",

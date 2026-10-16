@@ -96,10 +96,16 @@ executable ghc-worker
   import: all
   main-is: Main.hs
   hs-source-dirs: app/ghc-worker
-  if os(linux) && arch(x86_64)
-      ghc-options: -O2 -threaded "-with-rtsopts=-K512M -I5 -A128M -T -N -xm40000000 -xp"
+  ghc-options: -O2 -threaded
+  -- with-rtsopts cannot be applied multiple times, so complex if-then-else
+  if os(linux) && arch(x86_64) && impl(ghc >= 9.14)
+      ghc-options: "-with-rtsopts=-K512M -I5 -A128M -T -N -xm40000000 -xp --optimistic-linking"
+  elif os(linux) && arch(x86_64)
+      ghc-options: "-with-rtsopts=-K512M -I5 -A128M -T -N -xm40000000 -xp"
+  elif impl(ghc >= 9.14)
+      ghc-options: "-with-rtsopts=-K512M -I5 -A128M -T -N --optimistic-linking"
   else
-      ghc-options: -O2 -threaded "-with-rtsopts=-K512M -I5 -A128M -T -N"
+      ghc-options: "-with-rtsopts=-K512M -I5 -A128M -T -N"
   build-depends:
     ghc-worker
 
