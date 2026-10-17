@@ -85,4 +85,5 @@ executable ghc-ui
   ghc-options:
     -threaded -rtsopts -with-rtsopts=-N -O2
   build-depends:
+    base,
     ghc-ui
