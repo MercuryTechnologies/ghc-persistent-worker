@@ -4,6 +4,7 @@ module GhcWorker.GhcHandler where
 
 import Common.Grpc (GrpcHandler (..))
 import Control.Concurrent (MVar)
+import Control.Concurrent.MVar (readMVar)
 import Control.Exception (throwIO, try)
 #ifdef __DEBUG__
 import Control.Monad (when)
@@ -38,6 +39,7 @@ import Types.FeatureFlags (FeatureFlags (..))
 import Types.Grpc (RequestArgs (..))
 import Types.Log (Logger (..), TraceId, newLog)
 import Types.State (WorkerState (..))
+import Types.State.Make (MakeState (..))
 import Types.Target (TargetSpec (..))
 
 #if __DEBUG__
@@ -102,7 +104,11 @@ dispatch hooks env args =
       Nothing ->
         withGhcMakeSource env (withTarget compileHpt . TargetSource)
 
-    compileHpt = compileAndReadAbiHash CompManager (compileModuleWithDepsInHpt env.log) hooks args
+    compileHpt = compileAndReadAbiHash CompManager compileModule hooks args
+
+    compileModule target = do
+      fixedNodeFlags <- liftIO (fmap (.make.fixedNodeFlags) (readMVar env.state))
+      compileModuleWithDepsInHpt env.log fixedNodeFlags target
 
     withTarget f (target :: TargetSpec) =
       reifyGhc $ \session -> do

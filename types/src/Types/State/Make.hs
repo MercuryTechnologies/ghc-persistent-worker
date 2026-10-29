@@ -5,6 +5,7 @@ module Types.State.Make where
 import Control.Concurrent.MVar (MVar)
 import Data.IntMap qualified as IM
 import Data.IntSet qualified as IS
+import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict qualified as M
 import Data.Set qualified as S
 import GHC (ModuleGraph, ModuleName, emptyMG)
@@ -86,6 +87,9 @@ data BcoCacheEntry =
     size :: Int
   }
 
+-- | Per-module GHC flags (e.g. from @per_module_plugins@) for fixed nodes
+type FixedNodeFlags = M.Map NodeKey (NonEmpty String)
+
 -- | Data extracted from 'HscEnv' for the purpose of persisting it across sessions.
 --
 -- While many parts of the session are either contained in mutable variables or trivially reinitialized, some components
@@ -99,6 +103,14 @@ data MakeState =
 
     -- | moduleGraph nodes indexed by NodeKey.
     moduleGraphNodes :: M.Map NodeKey ModuleGraphNode,
+
+    -- | Per-module GHC flags (e.g. from @per_module_plugins@) for modules that
+    -- were restored as 'GHC.Unit.Module.Graph.ModuleNodeFixed' stubs rather
+    -- than 'GHC.Unit.Module.Graph.ModuleNodeCompile' nodes. Since building a
+    -- fixed node skips flag application, the flags are stashed here and applied
+    -- when (and only if) a compile action needs a full 'GHC.ModSummary' for
+    -- that module.
+    fixedNodeFlags :: FixedNodeFlags,
 
     -- | The unit environment for a specific unit is inserted into the shared home unit graph at the beginning of the
     -- metadata step, constructed from the dependency specifications provided by Buck.

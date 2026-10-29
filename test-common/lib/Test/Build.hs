@@ -1,6 +1,8 @@
 -- | Description: Logic interfacing with the worker to start metadata and compile tasks.
 module Test.Build where
 
+import Control.Concurrent.MVar (readMVar)
+import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (fold)
 import Data.IORef (readIORef)
 import qualified Data.Map.Strict as Map
@@ -42,6 +44,8 @@ import qualified Types.Args as Args
 import Types.Args (Args (..))
 import Types.BuckArgs (IsInterpreted (Compiled))
 import Types.Env (Env (..))
+import Types.State (WorkerState (..))
+import Types.State.Make (MakeState (..))
 import Types.Target (ModuleTarget (..), TargetSpec (..))
 
 -- | Decide whether a worker task was successful based on the emitted diagnostic codes.
@@ -98,7 +102,8 @@ runCompile env mkArgs key = do
         target = compileTarget key
     result <- withGhcMakeModule Compiled target compileEnv \ _targetSpec -> do
       modifyGlobalFlags \ d -> d {ghcMode = CompManager}
-      compileModuleWithDepsInHpt compileEnv.log (TargetModule target)
+      fixedNodeFlags <- liftIO ((.make.fixedNodeFlags) <$> readMVar compileEnv.state)
+      compileModuleWithDepsInHpt compileEnv.log fixedNodeFlags (TargetModule target)
     pure (isJust result)
   where
     (args, codes) = mkArgs key

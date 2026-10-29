@@ -3,6 +3,7 @@
 module Internal.State.Make where
 
 import Data.IntMap qualified as IM
+import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict qualified as Map
 import Data.Maybe
 import Data.Set qualified as Set
@@ -97,6 +98,12 @@ storeModuleGraphNodes new state =
     egr = state.moduleGraphState
     kinMap = egr.keyIndexNodeMap
     egr' = egr { keyIndexNodeMap = kinMap }
+
+-- | Merge newly discovered per-module flags for fixed nodes into the cached map, keyed by the module's 'NodeKey'.
+-- These are applied lazily when (and if) a compile action requests a full 'ModSummary' for one of these modules.
+storeFixedNodeFlags :: [(NodeKey, NonEmpty String)] -> MakeState -> MakeState
+storeFixedNodeFlags new state =
+  state { fixedNodeFlags = Map.union (Map.fromList new) state.fixedNodeFlags }
 
 -- | Derive 'moduleGraph' from the node index.
 --

@@ -20,6 +20,8 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Coerce (coerce)
 import Data.Foldable (fold, traverse_)
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import Data.Set (Set)
@@ -43,7 +45,7 @@ import GHC.Unit.Finder (addHomeModuleToFinder, mkHomeModLocation)
 import GHC.Unit.Home (GenHomeUnit (DefiniteHomeUnit))
 import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_keys)
 import GHC.Unit.Home.PackageTable (emptyHomePackageTable)
-import GHC.Unit.Module.Graph (ModuleGraphNode (..), ModuleNodeInfo (..), NodeKey (..))
+import GHC.Unit.Module.Graph (ModuleGraphNode (..), ModuleNodeInfo (..), NodeKey (..), mnKey)
 import GHC.Utils.CliOption (Option (..))
 import GHC.Utils.Outputable (comma, hcat, ppr, punctuate, quotes, text, (<+>))
 import Internal.Compat.GHC914 (moduleNodeEdge)
@@ -54,7 +56,7 @@ import Internal.Error (eitherMessages, unknownErrors)
 import Internal.Log (logDebugD, logTimed, logTimedD)
 import Internal.State (updateMakeState)
 import qualified Internal.State.Make as Make
-import Internal.State.Make (insertUnitEnv, rebuildModuleGraph, storeModuleGraphNodes)
+import Internal.State.Make (insertUnitEnv, rebuildModuleGraph, storeFixedNodeFlags, storeModuleGraphNodes)
 import System.OsPath.Extra (OsPath, fromOsPath)
 import System.OsPath.Extra (splitExtension)
 import Types.BuckArgs (CachedBuckArgs (..), parseCachedBuckArgs)
@@ -69,7 +71,7 @@ import Types.CachedDeps (
 import Types.FeatureFlags (FeatureFlags (..))
 import Types.Log (Logger (..))
 import Types.State (WorkerState (..))
-import Types.State.Make (LibLoadState (..), MakeState (..))
+import Types.State.Make (FixedNodeFlags, LibLoadState (..), MakeState (..))
 
 
 -- | Add a fresh 'HomeUnitEnv' to the home unit graph using the supplied unit state and dependencies.
@@ -135,12 +137,25 @@ decodeJsonBuildPlan =
 
 -- | Construct a 'ModuleGraphNode' from data obtained from the Buck cache and add its location to the @Finder@.
 --
--- If GHC has fixed module graph nodes, those are constructed; otherwise we have to call 'summariseFile' to create a
--- full node, which parses the module.
-loadCachedModule :: Bool -> HscEnv -> UnitId -> JsonFs ModuleName -> CachedModule -> IO ModuleGraphNode
+-- If GHC has fixed module graph nodes ('useFixedNodes'), those are constructed as stubs without a
+-- 'GHC.ModSummary', deferring the (potentially expensive) call to 'summariseFile' until a compile action actually
+-- requests a summary for that specific module (see 'Internal.Compile.Make.lookupSummary'). Otherwise, a full node is
+-- constructed eagerly here.
+--
+-- Per-module GHC flags (e.g. from @per_module_plugins@) can't be applied to a fixed node directly, since it has no
+-- 'GHC.ModSummary' yet. Instead, whenever such flags are non-empty, this returns them alongside the node's 'NodeKey'
+-- so the caller can stash them in 'Types.State.Make.MakeState.fixedNodeFlags', where they will be picked up and
+-- applied lazily once (and if) a summary is actually computed for that module.
+loadCachedModule ::
+  Bool ->
+  HscEnv ->
+  UnitId ->
+  JsonFs ModuleName ->
+  CachedModule ->
+  IO (ModuleGraphNode, Maybe (NodeKey, NonEmpty String))
 loadCachedModule useFixedNodes hsc_env unit (JsonFs modName) CachedModule {source, modules, packages, flags} = do
-  node <- createNode source modName
-  pure (ModuleNode (moduleNodeEdge <$> (homeDeps ++ packageDeps)) node)
+  (node, flagsEntry) <- createNode source modName
+  pure (ModuleNode (moduleNodeEdge <$> (homeDeps ++ packageDeps)) node, flagsEntry)
   where
     homeDeps =
       [
@@ -159,9 +174,16 @@ loadCachedModule useFixedNodes hsc_env unit (JsonFs modName) CachedModule {sourc
 
     createNode src name
       | useFixedNodes
-      = createNodeFixed src name
+      = do
+        node <- createNodeFixed src name
+        let mflags = do
+              neFlags <- NonEmpty.nonEmpty flags
+              Just (NodeKey_Module (mnKey node), neFlags)
+        pure (node, mflags)
       | otherwise
-      = createNodeCompile src
+      = do
+        node <- createNodeCompile src
+        pure (node, Nothing)
 
     createNodeFixed src name = do
       _ <- addHomeModuleToFinder hsc_env.hsc_FC (DefiniteHomeUnit unit Nothing) name location HsSrcFile
@@ -237,7 +259,7 @@ loadCachedModules ::
   HscEnv ->
   UnitId ->
   CachedUnit ->
-  IO [ModuleGraphNode]
+  IO [(ModuleGraphNode, Maybe (NodeKey, NonEmpty String))]
 loadCachedModules useFixedNodes hsc_env unit CachedUnit {build_plan, cache} =
   traverse (uncurry (loadCachedModule useFixedNodes hsc_env unit)) modules
   where
@@ -273,8 +295,9 @@ loadCachedHomeUnit logger useFixedNodes useIncrModGraph hsc_env0 unit (cachedUni
       pure (hscSetActiveUnitId unit hsc_env1)
 
     modify (updateMakeState (updateExtraLibs unit dflags . insertUnitEnv hsc_env2))
-    nodes <- liftIO $ loadCachedModules useFixedNodes hsc_env2 unit cachedUnit
-    modify (updateMakeState (rebuildModuleGraph useIncrModGraph . storeModuleGraphNodes nodes))
+    results <- liftIO $ loadCachedModules useFixedNodes hsc_env2 unit cachedUnit
+    let (nodes, flagEntries) = unzip results
+    modify (updateMakeState (storeFixedNodeFlags (catMaybes flagEntries) . rebuildModuleGraph useIncrModGraph . storeModuleGraphNodes nodes))
     pure hsc_env2
 
 -- | Intermediate result of the concurrent loading phase.
@@ -299,8 +322,9 @@ insertPreparedUnit logger features hsc_env pu = do
     pure (hscSetActiveUnitId pu.unitId hsc_env1)
 
   modify (updateMakeState (updateExtraLibs pu.unitId pu.dflags . insertUnitEnv hsc_env2))
-  nodes <- liftIO $ traverse (uncurry (loadCachedModule features.fixedNodesCache hsc_env2 pu.unitId)) pu.moduleEntries
-  modify (updateMakeState (storeModuleGraphNodes nodes))
+  results <- liftIO $ traverse (uncurry (loadCachedModule features.fixedNodesCache hsc_env2 pu.unitId)) pu.moduleEntries
+  let (nodes, flagEntries) = unzip results
+  modify (updateMakeState (storeFixedNodeFlags (catMaybes flagEntries) . storeModuleGraphNodes nodes))
   pure hsc_env2
 
 loadCachedBuildPlan ::

@@ -39,6 +39,7 @@ newState = do
     make = MakeState {
       moduleGraphState = emptyEModuleGraph,
       moduleGraphNodes = M.empty,
+      fixedNodeFlags = M.empty,
       hug = unitEnv_new mempty,
       interp = Nothing,
       unitIndex,

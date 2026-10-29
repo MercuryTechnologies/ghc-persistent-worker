@@ -18,6 +18,8 @@ import GHC (
   gopt,
   mgLookupModule,
   )
+import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty qualified as NonEmpty
 import GHC.Driver.DynFlags (gopt_set)
 import GHC.Driver.Env (HscEnv (..), hscInsertHPT)
 import GHC.Driver.Errors.Types (GhcMessage (..))
@@ -26,11 +28,12 @@ import GHC.Driver.Pipeline (compileOne)
 import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit.Env (ue_unsafeHomeUnit)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
-import GHC.Unit.Module.Graph (ModuleNodeInfo (..))
+import GHC.Unit.Module.Graph (ModuleNodeInfo (..), NodeKey (..), mnKey)
 import GHC.Utils.Monad (MonadIO (..))
 import GHC.Utils.Outputable (ppr, showPprUnsafe, text, (<+>))
 import GHC.Utils.Panic (throwGhcExceptionIO)
 import GHC.Utils.TmpFs (TmpFs, cleanCurrentModuleTempFiles, keepCurrentModuleTempFiles)
+import qualified Data.Map.Strict as Map
 import Internal.Compat.GHC914 (hscModuleGraph)
 import Internal.Debug (pprModuleFull)
 import Internal.DynFlags (mkTargetAsInterpreted)
@@ -38,6 +41,7 @@ import Internal.Error (eitherMessages, noteGhc)
 import Internal.Log (logTimedD)
 import System.OsPath.Extra (fromOsPath)
 import Types.Log (Logger (..))
+import Types.State.Make (FixedNodeFlags)
 import Types.Target (ModuleTarget (..), Target (..), TargetSpec (..))
 
 -- | Update the location of the result of @summariseFile@ to point to the locations specified on the command line, since
@@ -67,13 +71,27 @@ computeSummary logger hsc_env src = do
       summResult <- summariseFile hsc_env (ue_unsafeHomeUnit (hsc_unit_env hsc_env)) mempty src Nothing Nothing
       setHiLocation hsc_env <$> eitherMessages GhcDriverMessage summResult
 
+-- | Apply per-module GHC flags (e.g. from @per_module_plugins@) to a freshly computed summary, if there are any.
+applyFixedNodeFlags :: HscEnv -> NonEmpty String -> ModSummary -> IO ModSummary
+applyFixedNodeFlags hsc_env flags summary = do
+  (dflags', _, _) <- GHC.parseDynamicFlags
+      hsc_env.hsc_logger
+      (GHC.ms_hspp_opts summary)
+      (map GHC.noLoc (NonEmpty.toList flags))
+  pure summary {GHC.ms_hspp_opts = dflags'}
+
 -- | Find a module in the module graph and return its `ModSummary`.
+--
+-- Cheap 'ModuleNodeFixed' stubs don't carry a 'ModSummary', so one is computed on demand here. If the module had
+-- per-module flags (e.g. from @per_module_plugins@) that couldn't be applied when the fixed node was created, they
+-- are looked up by 'NodeKey' in the supplied map and applied now.
 lookupSummary ::
   Logger ->
+  FixedNodeFlags ->
   HscEnv ->
   Module ->
   IO ModSummary
-lookupSummary _logger hsc_env target =
+lookupSummary _logger fixedNodeFlags hsc_env target =
   check =<< noteGhc notFound (mgLookupModule (hscModuleGraph hsc_env) target)
   where
     notFound =
@@ -83,10 +101,13 @@ lookupSummary _logger hsc_env target =
 
     check = \case
       ModuleNodeCompile ms -> pure ms
-      ModuleNodeFixed _ OsPathModLocation {ml_hs_file_ospath} ->
+      node@(ModuleNodeFixed _ OsPathModLocation {ml_hs_file_ospath}) ->
         case ml_hs_file_ospath of
-          Just src ->
-            computeSummary _logger hsc_env (fromOsPath src)
+          Just src -> do
+            summary <- computeSummary _logger hsc_env (fromOsPath src)
+            case Map.lookup (NodeKey_Module (mnKey node)) fixedNodeFlags of
+              Just flags -> applyFixedNodeFlags hsc_env flags summary
+              Nothing -> pure summary
           Nothing ->
             throwGhcExceptionIO (PprProgramError "Fixed node without source path" (ppr target))
 
@@ -97,16 +118,17 @@ lookupSummary _logger hsc_env target =
 -- Otherwise, the source file path is used to generate a fresh summary.
 ensureSummary ::
   Logger ->
+  FixedNodeFlags ->
   HscEnv ->
   TargetSpec ->
   IO ModSummary
-ensureSummary logger hsc_env = \case
+ensureSummary logger fixedNodeFlags hsc_env = \case
   TargetModule (ModuleTarget m) -> do
     logTimedD logger ("Fetching ModSummary for" <+> ppr m <+> "from module graph") do
-      lookupSummary logger hsc_env m
+      lookupSummary logger fixedNodeFlags hsc_env m
   TargetModuleInterp (ModuleTarget m) -> do
     logTimedD logger ("Fetching ModSummary for" <+> ppr m <+> "from module graph") do
-      lookupSummary logger hsc_env m
+      lookupSummary logger fixedNodeFlags hsc_env m
   TargetSource (Target src) -> do
     computeSummary logger hsc_env (fromOsPath src)
   TargetUnit unit ->
@@ -128,14 +150,15 @@ ensureSummary logger hsc_env = \case
 -- - Store the resulting @HomeModInfo@ in the current unit's home package table.
 compileModuleWithDepsInHpt ::
   Logger ->
+  FixedNodeFlags ->
   TargetSpec ->
   Ghc (Maybe ModIface)
-compileModuleWithDepsInHpt logger target =
+compileModuleWithDepsInHpt logger fixedNodeFlags target =
   logTimedD logger "Compiling" do
     initializeSessionPlugins
     hsc_env <- getSession
     hmi <- liftIO do
-      summary <- ensureSummary logger hsc_env target
+      summary <- ensureSummary logger fixedNodeFlags hsc_env target
       let hsc_env'
             | TargetModuleInterp _ <- target = mkTargetAsInterpreted (ms_mod summary) hsc_env
             | otherwise = hsc_env
