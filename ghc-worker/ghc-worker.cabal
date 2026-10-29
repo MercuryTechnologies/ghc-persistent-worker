@@ -96,7 +96,10 @@ executable ghc-worker
   import: all
   main-is: Main.hs
   hs-source-dirs: app/ghc-worker
-  ghc-options: -O2 -threaded
+  -- -rtsopts lets a caller pass RTS flags on the command line or through
+  -- GHCRTS (for example +RTS -S<file> for a per-GC log), on top of the
+  -- -with-rtsopts defaults below.
+  ghc-options: -O2 -threaded -rtsopts
   -- with-rtsopts cannot be applied multiple times, so complex if-then-else
   if os(linux) && arch(x86_64) && impl(ghc >= 9.14)
       ghc-options: "-with-rtsopts=-K512M -I5 -A128M -T -N -xm40000000 -xp --optimistic-linking"
