@@ -1,6 +1,11 @@
 {-# LANGUAGE CPP #-}
 
-module Internal.Cache.Metadata where
+module Internal.Cache.Metadata (
+    addHomeUnitTo,
+    loadCachedDepUnits,
+    loadCachedHomeUnit,
+    readParseGHCArgs,
+  ) where
 
 import Control.Applicative ((<|>))
 import Control.Concurrent (getNumCapabilities)
@@ -238,6 +243,16 @@ loadCachedModules useFixedNodes hsc_env unit CachedUnit {build_plan, cache} =
   where
     modules = Map.toList (fold (cache <|> build_plan))
 
+-- TODO: this ad hoc extraction of extra library dependency should be replaced
+-- by proper specification from the build system rules and recorded in a file,
+-- preferrably to buildplan file.
+updateExtraLibs :: UnitId -> DynFlags -> MakeState -> MakeState
+updateExtraLibs unit dflags state =
+  let lib_paths = libraryPaths dflags
+      libs = [ lib | Option ('-':'l':lib) <- ldInputs dflags ]
+      requested' = Map.insert unit (lib_paths, libs) state.extraLib.requested
+   in state {extraLib = LibLoadState requested' state.extraLib.loaded}
+
 -- | Restore the unit state and module graph from the external cache.
 --
 -- The cached data consists of a simple list of GHC command line arguments that can recreate the unit state, as well as
@@ -256,7 +271,8 @@ loadCachedHomeUnit logger useFixedNodes useIncrModGraph hsc_env0 unit (cachedUni
     hsc_env2 <- liftIO do
       (hsc_env1, _) <- addHomeUnitTo hsc_env0 dflags
       pure (hscSetActiveUnitId unit hsc_env1)
-    modify (updateMakeState (insertUnitEnv hsc_env2))
+
+    modify (updateMakeState (updateExtraLibs unit dflags . insertUnitEnv hsc_env2))
     nodes <- liftIO $ loadCachedModules useFixedNodes hsc_env2 unit cachedUnit
     modify (updateMakeState (rebuildModuleGraph useIncrModGraph . storeModuleGraphNodes nodes))
     pure hsc_env2
@@ -281,15 +297,8 @@ insertPreparedUnit logger features hsc_env pu = do
     unit_env <- insertHomeUnit pu.unitId pu.dflags pu.dbs pu.unitState pu.homeUnit hsc_env.hsc_unit_env
     let hsc_env1 = hsc_env {hsc_unit_env = unit_env}
     pure (hscSetActiveUnitId pu.unitId hsc_env1)
-  -- TODO: this ad hoc extraction of extra library dependency should be replaced by proper specification
-  -- from the build system rules and recorded in a file, preferrably to buildplan file.
-  let lib_paths = libraryPaths pu.dflags
-      libs = [ lib | Option ('-':'l':lib) <- ldInputs pu.dflags ]
-  let updateExtraLibs = \make ->
-        let requested' = Map.insert pu.unitId (lib_paths, libs) make.extraLib.requested
-         in make {extraLib = LibLoadState requested' make.extraLib.loaded}
 
-  modify (updateMakeState (updateExtraLibs . insertUnitEnv hsc_env2))
+  modify (updateMakeState (updateExtraLibs pu.unitId pu.dflags . insertUnitEnv hsc_env2))
   nodes <- liftIO $ traverse (uncurry (loadCachedModule features.fixedNodesCache hsc_env2 pu.unitId)) pu.moduleEntries
   modify (updateMakeState (storeModuleGraphNodes nodes))
   pure hsc_env2
