@@ -49,11 +49,19 @@ emptyLibLoadState = LibLoadState
 -- In our case, node = ModuleGraphNode
 -- Note that Node Int inode = SummaryNode
 data KeyIndexNodeMap node = KIN
-  { keyIdxMap :: M.Map NodeKey Int,
+  { -- | Index assigned to each node already folded into 'moduleGraph'.
+    -- Its key set doubles as the record of what the graph currently holds,
+    -- and is what @rebuildModuleGraph@ diffs against
+    -- 'MakeState.moduleGraphNodes' to find the nodes still to add.
+    keyIdxMap :: M.Map NodeKey Int,
+    -- | Node content by index.
     idxNodeMap :: IM.IntMap node,
     -- | key to (idx, graph node) pair.
     keyINodeMap :: M.Map NodeKey (Node Int node),
+    -- | Inverse of the key/index mapping in 'keyIdxMap'.
     idxKeyMap :: IM.IntMap NodeKey,
+    -- | Transitive reachability per node index. Extended once per merge by
+    -- @extendReachIndex@, not once per node.
     reachabilityMap :: IM.IntMap IS.IntSet
   }
 
@@ -66,6 +74,11 @@ emptyKINMap = KIN
     reachabilityMap = IM.empty
   }
 
+-- | A 'ModuleGraph' together with the integer index used to query it.
+--
+-- Both fields are derived rather than authoritative: they are rebuilt from
+-- 'MakeState.moduleGraphNodes' by @rebuildModuleGraph@, and the two are
+-- kept consistent with each other.
 data EModuleGraph = EModuleGraph
   { moduleGraph :: ModuleGraph,
     keyIndexNodeMap :: KeyIndexNodeMap ModuleGraphNode
@@ -99,9 +112,27 @@ data MakeState =
   MakeState {
     -- | The module graph for a specific unit is computed in its metadata step, after which it's extracted and merged
     -- into the existing graph.
+    --
+    -- Derived from 'moduleGraphNodes'; see that field for the invariant
+    -- relating the two.
     moduleGraphState :: EModuleGraph,
 
-    -- | moduleGraph nodes indexed by NodeKey.
+    -- | Every module graph node seen so far in this session, keyed by
+    -- 'NodeKey'. This is the authoritative collection, from which
+    -- 'moduleGraphState' is derived.
+    --
+    -- Units add their nodes here during the metadata step via
+    -- @storeModuleGraphNodes@, and @rebuildModuleGraph@ then folds whatever
+    -- is not yet recorded in @moduleGraphState.keyIndexNodeMap.keyIdxMap@
+    -- into the graph. So between those two calls this map is a superset of
+    -- the graph's contents, and immediately after a rebuild the two hold
+    -- exactly the same keys.
+    --
+    -- Nodes are only ever added: @mergeModuleGraphNodes@ unions into this
+    -- map and nothing removes from it. A module deleted from a package
+    -- therefore leaves a stale node behind for the lifetime of the worker;
+    -- there is currently no invalidation path, and the map grows
+    -- monotonically.
     moduleGraphNodes :: M.Map NodeKey ModuleGraphNode,
 
     -- | Per-module GHC flags (e.g. from @per_module_plugins@) for modules that

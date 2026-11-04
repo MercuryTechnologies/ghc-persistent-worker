@@ -136,7 +136,7 @@ rebuildModuleGraphIncr !state =
       delta_kmap_list = zip (Set.toList delta_keys) [old_n + 1 .. all_n]
       delta_kmap = Map.fromList delta_kmap_list
       all_kmap = old_kmap `Map.union` delta_kmap
-      delta_knodes = filter (\(k, _) -> k `Set.member` delta_keys) (Map.toList all_nodes)
+      delta_knodes = Map.toList (all_nodes `Map.restrictKeys` delta_keys)
 
       delta_kinodes_list :: [(NodeKey, (Int, ModuleGraphNode))]
       delta_kinodes_list = do
