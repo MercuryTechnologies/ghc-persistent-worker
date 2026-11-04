@@ -146,6 +146,17 @@ extendMG kinode@(_, (_, node)) EModuleGraph {moduleGraph = mg, keyIndexNodeMap =
         mg_has_holes = mg_has_holes mg || maybe False isHsigFile (moduleNodeInfoHscSource =<< mgNodeIsModule node)
       }
 
+-- | Recompute the reachability index over the nodes added since the last
+-- call, and store it in both the 'ModuleGraph' and the 'KeyIndexNodeMap'.
+--
+-- 'extendMG' deliberately leaves a stale index in place as it adds nodes,
+-- so that a batch of inserts pays for the index once instead of once per
+-- node. This repairs it, and must be called after a batch of 'extendMG'
+-- and before anything queries reachability.
+--
+-- The incremental work is in 'graphReachabilityIncr'; see it for the
+-- acyclicity and monotonicity it assumes. @mg_zero_graph@ is not
+-- incrementalized and is still rebuilt in full by 'extendMG'.
 extendReachIndex :: EModuleGraph -> EModuleGraph
 extendReachIndex emg0 =
   let mg0 = emg0.moduleGraph

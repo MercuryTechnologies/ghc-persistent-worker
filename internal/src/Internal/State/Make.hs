@@ -89,15 +89,9 @@ mergeModuleGraph kinodes egr =
 
 storeModuleGraphNodes :: [ModuleGraphNode] -> MakeState -> MakeState
 storeModuleGraphNodes new state =
-  state {
-    moduleGraphState = egr',
-    moduleGraphNodes = merged
-  }
+  state {moduleGraphNodes = merged}
   where
     !merged = mergeModuleGraphNodes new state.moduleGraphNodes
-    egr = state.moduleGraphState
-    kinMap = egr.keyIndexNodeMap
-    egr' = egr { keyIndexNodeMap = kinMap }
 
 -- | Merge newly discovered per-module flags for fixed nodes into the cached map, keyed by the module's 'NodeKey'.
 -- These are applied lazily when (and if) a compile action requests a full 'ModSummary' for one of these modules.
@@ -151,9 +145,7 @@ rebuildModuleGraphIncr !state =
 
       -- BE CAREFUL old_kss and old_reach
       newKIN0 = KIN all_kmap all_inodes old_kss all_i2k old_reach
-      new_egr1 = mergeModuleGraph delta_kinodes_list (old_egr {keyIndexNodeMap = newKIN0})
-      newKIN1 = keyIndexNodeMap new_egr1
-      new_egr = new_egr1 { keyIndexNodeMap = newKIN1 }
+      new_egr = mergeModuleGraph delta_kinodes_list (old_egr {keyIndexNodeMap = newKIN0})
    in state {
      moduleGraphState = new_egr
    }

@@ -73,6 +73,11 @@ extendMG' kinode@(_, (_, node)) (EModuleGraph {moduleGraph = mg,  keyIndexNodeMa
             keyIndexNodeMap = kinMap'
           }
 
+-- | Recompute the reachability index over the nodes added since the last
+-- call, and store it in both the 'ModuleGraph' and the 'KeyIndexNodeMap'.
+--
+-- The GHC 9.10 counterpart of the 9.14 function of the same name; see that
+-- one for why the index is repaired in a batch rather than per insert.
 extendReachIndex :: EModuleGraph -> EModuleGraph
 extendReachIndex emg0 =
   let mg0 = emg0.moduleGraph

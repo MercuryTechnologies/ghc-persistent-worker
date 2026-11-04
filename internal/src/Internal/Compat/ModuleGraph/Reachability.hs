@@ -35,6 +35,30 @@ mkFromTo kinMap = (from, to)
       Map.lookup k k2s
     to = Just . node_key
 
+-- | Extend 'reachabilityMap' to cover every node currently in the index.
+--
+-- Returns the argument with 'reachabilityMap' replaced by a map that sends
+-- each index in 'idxKeyMap' to the set of indices transitively reachable
+-- from it, excluding itself -- the same contents 'graphReachability' would
+-- produce for the whole graph, and the same convention it uses.
+--
+-- The point is that it only computes the entries that are missing. Indices
+-- already present in 'reachabilityMap' are carried over untouched, so the
+-- cost is proportional to the nodes added since the last call rather than
+-- to the size of the graph.
+--
+-- Two preconditions come with that:
+--
+--   * The graph must be acyclic. A new node's reachable set is built from
+--     the sets of its dependencies, taken from the result being
+--     constructed when they are also new, so a cycle diverges. Use
+--     'cyclicGraphReachability' if that is not guaranteed.
+--
+--   * Nodes already in 'reachabilityMap' must not have gained
+--     dependencies, since their entries are reused as-is. Adding a node
+--     that existing nodes depend on would leave those entries stale. This
+--     holds for the module graph because a unit's nodes only ever depend
+--     on nodes from units already merged.
 graphReachabilityIncr ::
   KeyIndexNodeMap node ->
   KeyIndexNodeMap node
