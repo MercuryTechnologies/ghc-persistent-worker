@@ -177,13 +177,13 @@ linkablesResolve ::
   [Module] ->
   IO ([Linkable], [LinkModule], UniqDSet UnitId, [UnitId])
 linkablesResolve logger stateVar hsc_env opts pls srcSpan mods = do
-  (loaded, needed, allUnits, neededUnits) <- resolveLinkDeps opts pls srcSpan mods
+  (loaded, needed, neededUnits, units) <- resolveLinkDeps opts pls srcSpan mods
   neededWithLazy <-
     if ldUseByteCode opts
     then traverse (addLazyByteCode logger stateVar hsc_env) needed
     else pure needed
   ensureLibraries stateVar hsc_env (hscInterp hsc_env) neededWithLazy
-  pure (loaded, neededWithLazy, allUnits, neededUnits)
+  pure (loaded, neededWithLazy, neededUnits, units)
 
 -- | Wrap the native 'selectLinkDeps' to update the BCO tracking metadata.
 linkablesSelect ::
