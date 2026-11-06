@@ -27,9 +27,9 @@
         url = "https://github.com/MercuryTechnologies/ghc";
         version = "9.10.1";
         flavour = "release+split_sections+ipe";
-        # branch: wavewave/20260912-new
-        rev = "da7b82a0a3ce414b1d9efa94dad518a2e2c50dac";
-        hash = "sha256-8LPVP7jru1mwb28KLOb7XFb5Bmr/GQSqtNScbq2sKFY=";
+        # branch: wavewave/20261105-new
+        rev = "dd35f2f85952cb5c9767d00595551dc8fac0a3f2";
+        hash = "sha256-fXS5hu/yGGRPBQ4kw5JXseZvG4l4+hN4x5AN1Qk9v54=";
       };
 
       mercury-ghc9141 = {
