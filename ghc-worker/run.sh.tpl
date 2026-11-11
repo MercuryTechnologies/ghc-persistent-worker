@@ -7,4 +7,4 @@ export TMPDIR="$TMPBASE"
 export TMP="$TMPBASE"
 export TEMP="$TMPBASE"
 
-$DIR/%exe%
+$DIR/%exe% "$@"
