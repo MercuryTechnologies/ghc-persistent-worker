@@ -125,6 +125,7 @@ test-suite ghc-worker-test
     DepFilesTest,
     FlagParserTest,
     InterfacePathTest,
+    ModuleGraphIncrTest,
     ProjectBuildTest,
     Resource.Measure,
     Resource.BasicTest,

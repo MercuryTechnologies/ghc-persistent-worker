@@ -11,6 +11,7 @@ import ByteCodeCacheTest (test_evictBySize, test_touchNoEviction)
 import DepFilesTest (test_depFiles)
 import FlagParserTest (test_parseBuckArgs)
 import InterfacePathTest (test_interfacePath)
+import ModuleGraphIncrTest (test_moduleGraphIncr)
 import ProjectBuildTest (test_projectBuild)
 import Resource.BasicTest (test_resources)
 import ScheduleTest (test_sortScheduleOrder)
@@ -58,6 +59,7 @@ testsGeneral =
     test_parseBuckArgs,
     test_depFiles,
     test_interfacePath,
+    test_moduleGraphIncr,
     test_sortScheduleOrder,
     test_projectBuild,
     test_buildTh
