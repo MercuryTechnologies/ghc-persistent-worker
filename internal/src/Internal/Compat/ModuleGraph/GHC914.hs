@@ -8,7 +8,7 @@ module Internal.Compat.ModuleGraph.GHC914 (
   extendReachIndex,
 ) where
 
-import Data.Bifunctor
+import Data.Graph (SCC (..), stronglyConnComp)
 import qualified Data.IntMap as IM
 import qualified Data.IntSet as IS
 import qualified Data.Map as Map
@@ -18,6 +18,7 @@ import GHC.Data.Maybe
 import GHC.Types.SourceFile (isHsigFile)
 import GHC.Unit.Module.Graph (
   ImportLevel (..),
+  ModNodeKeyWithUid (..),
   ModuleGraph (..),
   ModuleGraphNode (..),
   ModuleNodeEdge (..),
@@ -28,12 +29,10 @@ import GHC.Unit.Module.Graph (
   mgNodeDependencies,
   mgNodeIsModule,
   mnKey,
-  moduleGraphNodes,
   moduleNodeInfoHscSource,
   )
-import GHC.Unit.Types (IsBootInterface (..))
+import GHC.Unit.Types (GenWithIsBoot (..), IsBootInterface (..))
 import Internal.Compat.ModuleGraph.Reachability (
-  cyclicGraphReachability,
   graphReachabilityIncr,
   mkFromTo,
   )
@@ -146,10 +145,86 @@ extendZeroGraph kinMap newIdxs old =
 
     lookupNode key = fromVertex <$> zeroVertex kinMap key
 
--- | The reachability index of the graph with hs-boot nodes folded into their modules, which may be cyclic.
--- This is GHC's own construction, over every node.
-mkTransLoopDeps :: [ModuleGraphNode] -> (ReachabilityIndex SummaryNode, NodeKey -> Maybe SummaryNode)
-mkTransLoopDeps = first cyclicGraphReachability . moduleGraphNodes True
+-- | The loop graph, GHC's @mg_loop_graph@, folds each hs-boot node into the node of its module: the boot node has no
+-- vertex, its module's vertex also gets the boot node's out-edges, and an edge to a boot node goes to its module
+-- instead. That may close a cycle, as an hs-boot file exists to break one. The linker reads this graph for splices.
+--
+-- The worker numbers it as the acyclic graph, without the boot nodes' vertices. Its index is extended for the new
+-- nodes only, by the strongly connected components (SCCs) of the new vertices in topological order, as GHC's
+-- @cyclicGraphReachability@ does over the whole graph. This relies on no existing node gaining an edge, so that every
+-- cycle lies among the new vertices, which holds as an hs-boot file is only imported from its own unit.
+--
+-- A new vertex whose set in the acyclic graph has no folded vertex, and that is not folded itself, reaches the same
+-- vertices in both graphs. It shares the acyclic graph's set, so a graph without hs-boot files keeps one set per vertex.
+extendLoopGraph ::
+  KeyIndexNodeMap ModuleGraphNode ->
+  [Int] ->
+  ReachabilityIndex SummaryNode ->
+  (NodeKey -> Maybe SummaryNode) ->
+  ((ReachabilityIndex SummaryNode, NodeKey -> Maybe SummaryNode), IS.IntSet)
+extendLoopGraph kinMap newIdxs old acyclicLookup =
+  ((ReachabilityIndex {index = reach, from_vertex = from, to_vertex = to}, lookupNode), folded)
+  where
+    (from, to) = mkFromTo kinMap
+
+    keyIdx = keyIdxMap kinMap
+
+    nodeAt i = IM.lookup i (idxNodeMap kinMap)
+
+    acyclicSet v = IM.findWithDefault IS.empty v (reachabilityMap kinMap)
+
+    newNodes = [(i, node) | i <- newIdxs, Just node <- [nodeAt i]]
+
+    newVertices = [(i, node) | (i, node) <- newNodes, not (isBootNode node)]
+
+    folded =
+      foldedIdxs kinMap `IS.union` IS.fromList (
+        [i | (i, node) <- newNodes, isBootNode node]
+        <> [j | (_, node) <- newNodes, isBootNode node, Just k <- [otherFile node], Just j <- [Map.lookup k keyIdx]]
+        <> [i | (i, node) <- newVertices, Just k <- [otherFile node], Map.member k keyIdx]
+      )
+
+    -- The key of a module's hs-boot node, or of an hs-boot node's module.
+    otherFile node = do
+      info <- mgNodeIsModule node
+      let ModNodeKeyWithUid (GWIB m boot) u = mnKey info
+          other = case boot of
+            IsBoot -> NotBoot
+            NotBoot -> IsBoot
+      pure (NodeKey_Module (ModNodeKeyWithUid (GWIB m other) u))
+
+    -- Out-edges with hs-boot nodes folded, as GHC's @moduleGraphNodes True@.
+    loopEdges node = mapMaybe (`Map.lookup` keyIdx) (bootDeps <> mgNodeDependencies True node)
+      where
+        bootDeps = fromMaybe [] do
+          k <- otherFile node
+          boot <- nodeAt =<< Map.lookup k keyIdx
+          pure (mgNodeDependencies True boot)
+
+    edgesOf = IM.fromList [(i, loopEdges node) | (i, node) <- newVertices]
+
+    isNew v = IM.member v edgesOf
+
+    sccs = stronglyConnComp [(v, v, filter isNew edges) | (v, edges) <- IM.toList edgesOf]
+
+    shareable v = not (IS.member v folded) && IS.disjoint (acyclicSet v) folded
+
+    -- Lazy in the values, so a new set may read the sets of the new vertices it points at.
+    reach = index old `IM.union` IM.fromList (concatMap entries sccs)
+
+    entries = \case
+      AcyclicSCC v -> [(v, if shareable v then acyclicSet v else outside [v])]
+      CyclicSCC vs -> [(v, IS.delete v (IS.fromList vs) `IS.union` outside vs) | v <- vs]
+
+    -- What a component reaches outside itself: its out-edges leaving it, and their sets.
+    outside vs =
+      let leaving = IS.fromList (concatMap (\ v -> IM.findWithDefault [] v edgesOf) vs) IS.\\ IS.fromList vs
+       in IS.unions (leaving : mapMaybe (`IM.lookup` reach) (IS.toList leaving))
+
+    -- An hs-boot node has no vertex in the loop graph.
+    lookupNode = \case
+      NodeKey_Module (ModNodeKeyWithUid (GWIB _ IsBoot) _) -> Nothing
+      key -> acyclicLookup key
 
 isBootNode :: ModuleGraphNode -> Bool
 isBootNode node = maybe False ((== IsBoot) . isBootModuleNodeInfo) (mgNodeIsModule node)
@@ -169,7 +244,7 @@ extendMG kinode@(_, (_, node)) EModuleGraph {moduleGraph = mg, keyIndexNodeMap =
     mg' = ModuleGraph
       { mg_mss = node : mg_mss mg,
         mg_graph =  (badReachIndex, lookup_node),
-        mg_loop_graph = (badReachIndex, lookup_node),
+        mg_loop_graph = mg_loop_graph mg,
         mg_zero_graph = mg_zero_graph mg,
         mg_has_holes = mg_has_holes mg || maybe False isHsigFile (moduleNodeInfoHscSource =<< mgNodeIsModule node)
       }
@@ -182,8 +257,8 @@ extendMG kinode@(_, (_, node)) EModuleGraph {moduleGraph = mg, keyIndexNodeMap =
 -- node. This repairs it, and must be called after a batch of 'extendMG'
 -- and before anything queries reachability.
 --
--- The incremental work is in 'graphReachabilityIncr' and
--- 'extendZeroGraph'. See them for the acyclicity and monotonicity they
+-- The incremental work is in 'graphReachabilityIncr', 'extendLoopGraph'
+-- and 'extendZeroGraph'. See them for the acyclicity and monotonicity they
 -- assume.
 extendReachIndex :: EModuleGraph -> EModuleGraph
 extendReachIndex emg0 =
@@ -200,13 +275,7 @@ extendReachIndex emg0 =
       reachIndex = ReachabilityIndex {index = reachGraph, from_vertex = from, to_vertex = to}
       (_, lookup_node) = mg_graph mg0
 
-      -- Without hs-boot nodes, folding them changes nothing, and the loop graph is the acyclic one. With any, folding
-      -- may close cycles, and the loop graph is rebuilt in full. The field is lazy, so the rebuild is only paid when
-      -- something asks for it, as the linker does for splices.
-      -- TODO: This is not yet incrementalized.
-      loopGraph
-        | any isBootNode (mg_mss mg0) = mkTransLoopDeps (mg_mss mg0)
-        | otherwise = (reachIndex, lookup_node)
+      (loopGraph, folded) = extendLoopGraph kinMap1 newIdxs (fst (mg_loop_graph mg0)) lookup_node
 
       mg1 = mg0 {
         mg_graph = (reachIndex, lookup_node),
@@ -215,7 +284,7 @@ extendReachIndex emg0 =
       }
    in EModuleGraph {
         moduleGraph = mg1,
-        keyIndexNodeMap = kinMap1
+        keyIndexNodeMap = kinMap1 {foldedIdxs = folded}
       }
 
 #else

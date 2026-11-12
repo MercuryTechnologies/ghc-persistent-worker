@@ -80,7 +80,7 @@ genEdges candidates = do
 -- | The nodes of one unit, given the modules of the units before it.
 --
 -- With @withBoot@, the unit may have an hs-boot loop: module @a@ imports the boot file of a later module @j@, and @j@
--- imports @a@ and its own boot file.
+-- imports @a@, and maybe its own boot file.
 genBatch :: Bool -> [ModNodeKeyWithUid] -> Int -> Gen [ModuleGraphNode]
 genBatch withBoot earlier b = do
   n <- Gen.int (Range.linear 1 6)
@@ -90,20 +90,22 @@ genBatch withBoot earlier b = do
     then Gen.maybe do
       j <- Gen.int (Range.linear 1 (n - 1))
       a <- Gen.int (Range.linear 0 (j - 1))
-      pure (a, j)
+      ownBoot <- Gen.bool
+      pure (a, j, ownBoot)
     else pure Nothing
   bootNodes <- case loop of
-    Just (a, j) -> do
+    Just (a, j, _) -> do
       edges <- genEdges (earlier <> take a keys)
       pure [moduleNode (moduleKey b j IsBoot) edges]
     Nothing -> pure []
   moduleNodes <- forM (zip [0 ..] keys) \ (i, key) -> do
     edges <- genEdges (earlier <> take i keys)
     let loopEdges = case loop of
-          Just (a, j)
+          Just (a, j, ownBoot)
             | i == a -> [ModuleNodeEdge NormalLevel (NodeKey_Module (moduleKey b j IsBoot))]
-            | i == j -> [ModuleNodeEdge NormalLevel (NodeKey_Module (moduleKey b a NotBoot)),
-                         ModuleNodeEdge NormalLevel (NodeKey_Module (moduleKey b j IsBoot))]
+            | i == j ->
+              ModuleNodeEdge NormalLevel (NodeKey_Module (moduleKey b a NotBoot))
+              : [ModuleNodeEdge NormalLevel (NodeKey_Module (moduleKey b j IsBoot)) | ownBoot]
           _ -> []
     pure (moduleNode key (edges <> loopEdges))
   pure (bootNodes <> moduleNodes <> externalUnitClosure (last externalUnits))
