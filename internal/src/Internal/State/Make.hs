@@ -17,6 +17,10 @@ import Internal.State.UnitIndex (restoreUnitIndex)
 import Types.Log (Logger)
 import Types.State.Make (EModuleGraph (..), KeyIndexNodeMap (..), MakeState (..))
 
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0) && defined(__DEBUG__)
+import GHC.Unit.Types (unitIdString)
+#endif
+
 import Internal.Compat.ModuleGraph qualified as MG
 
 -- | Restore the shared state used by both @computeMetadata@ and @compileHpt@ from the cache.
@@ -76,9 +80,29 @@ mergeModuleGraphNodes new oldMap = merged
 
     mergeNodes = \cases
       old@(ModuleNode _oldDeps _oldSumm) (ModuleNode _newDeps _newSumm) -> old
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+      old@(UnitNode _ _) later@(UnitNode _ _) -> keepFirstUnit old later
+#endif
       _ newNode -> newNode
 
     newMap = Map.fromList $ [(mkNodeKey n, n) | n <- new]
+
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+
+-- | Keep the first of two nodes for one external unit.
+--
+-- The graph takes a node only when its key is new, so a later node for the key never reaches it. Keeping the first one
+-- keeps the node map the same as the graph, which is extended on the premise that no existing node gains an edge. A
+-- debug build checks that the two agree on the unit's dependencies.
+keepFirstUnit :: ModuleGraphNode -> ModuleGraphNode -> ModuleGraphNode
+#if defined(__DEBUG__)
+keepFirstUnit (UnitNode oldDeps uid) (UnitNode newDeps _)
+  | Set.fromList oldDeps /= Set.fromList newDeps =
+    error ("mergeModuleGraphNodes: the dependencies of external unit " <> unitIdString uid <> " changed")
+#endif
+keepFirstUnit old _ = old
+
+#endif
 
 mergeModuleGraph ::
   [(NodeKey, (Int, ModuleGraphNode))] ->

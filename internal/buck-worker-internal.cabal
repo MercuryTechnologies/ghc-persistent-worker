@@ -9,6 +9,11 @@ category:           Development
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 
+flag debug
+    description: Compiled with debug mode, with checks that stop the worker on a broken invariant
+    manual: True
+    default: False
+
 flag mwb
     description: Use mwb-customized GHC from January 2026
     manual: True
@@ -51,6 +56,9 @@ common all
     TypeFamilies
   build-depends:
     base ==4.*
+
+  if (flag(debug))
+      cpp-options: -D__DEBUG__
 
   if (flag(mwb))
       cpp-options: -DMWB -DDOWNSWEEP_CACHE -DUNIT_INDEX -DLINKABLES

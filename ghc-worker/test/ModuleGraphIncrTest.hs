@@ -35,7 +35,7 @@ import GHC.Unit.Module.Graph (
   )
 import GHC.Unit.Module.Location (pattern ModLocation)
 import GHC.Unit.Types (GenWithIsBoot (..), IsBootInterface (..), UnitId, stringToUnitId, unitIdString)
-import Hedgehog (Gen, Property, PropertyT, annotate, failure, forAllWith, property, withTests)
+import Hedgehog (Gen, Property, PropertyT, annotate, failure, forAllWith, property, withTests, (===))
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import Internal.State.Make (extendModuleGraphIncr, mergeModuleGraphNodes)
@@ -196,11 +196,21 @@ equivalence withBoot =
           pure (nodes1, egr1)
     foldM_ step (Map.empty, emptyEModuleGraph) batches
 
+-- | A later node for an external unit already in the map is dropped, as the graph never takes it.
+keepsFirstUnitNode :: Property
+keepsFirstUnitNode =
+  withTests 1 $ property do
+    let first = UnitNode [externalUnitId 0] (externalUnitId 1)
+        later = UnitNode [] (externalUnitId 1)
+        merged = mergeModuleGraphNodes [later] (mergeModuleGraphNodes [first] Map.empty)
+    map renderNode (Map.elems merged) === [renderNode first]
+
 test_moduleGraphIncr :: TestTree
 test_moduleGraphIncr =
   testGroup "incremental module graph" [
     testProperty "equals GHC's, without hs-boot loops" (equivalence False),
-    testProperty "equals GHC's, with hs-boot loops" (equivalence True)
+    testProperty "equals GHC's, with hs-boot loops" (equivalence True),
+    testProperty "keeps the first node of an external unit" keepsFirstUnitNode
   ]
 
 #else
