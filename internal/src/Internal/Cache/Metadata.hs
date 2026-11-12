@@ -47,7 +47,7 @@ import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_keys)
 import GHC.Unit.Home.PackageTable (emptyHomePackageTable)
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), ModuleNodeInfo (..), NodeKey (..), mnKey)
 import GHC.Utils.Outputable (comma, hcat, ppr, punctuate, quotes, text, (<+>))
-import Internal.Compat.GHC914 (externalUnitNodes, moduleNodeEdge)
+import Internal.Compat.GHC914 (externalUnitEdges, externalUnitNodes, moduleNodeEdge)
 import Internal.Compat.UnitIndex (initUnits)
 import Internal.DynFlags (buckLocation, parseFlags, setupPath)
 import Internal.DynFlags.Parse (parseDynFlags)
@@ -152,9 +152,14 @@ loadCachedModule ::
   JsonFs ModuleName ->
   CachedModule ->
   IO (ModuleGraphNode, Maybe (NodeKey, NonEmpty String))
-loadCachedModule useFixedNodes hsc_env unit (JsonFs modName) CachedModule {source, modules, packages, flags} = do
+loadCachedModule
+  useFixedNodes
+  hsc_env
+  unit
+  (JsonFs modName)
+  CachedModule {source, modules, packages, flags, units} = do
   (node, flagsEntry) <- createNode source modName
-  pure (ModuleNode (moduleNodeEdge <$> (homeDeps ++ packageDeps)) node, flagsEntry)
+  pure (ModuleNode ((moduleNodeEdge <$> (homeDeps ++ packageDeps)) ++ unitDeps) node, flagsEntry)
   where
     homeDeps =
       [
@@ -170,6 +175,11 @@ loadCachedModule useFixedNodes hsc_env unit (JsonFs modName) CachedModule {sourc
         CachedPackageDep {id = JsonFs depUnit, modules = depModules} <- packages,
         JsonFs depName <- depModules
       ]
+
+    -- Edges to the units outside the build that the module imports, whose
+    -- nodes 'externalUnitNodes' adds. The cache records no import levels, so
+    -- these are at the normal level, as the edges above.
+    unitDeps = foldMap (externalUnitEdges . (.raw)) units
 
     createNode src name
       | useFixedNodes
