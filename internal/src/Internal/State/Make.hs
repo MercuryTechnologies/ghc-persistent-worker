@@ -119,11 +119,21 @@ rebuildModuleGraphNonIncr !state =
 
 rebuildModuleGraphIncr :: MakeState -> MakeState
 rebuildModuleGraphIncr !state =
-  let old_egr = state.moduleGraphState
-      KIN old_kmap old_inodes old_kss old_i2k old_reach = state.moduleGraphState.keyIndexNodeMap
+  state {moduleGraphState = extendModuleGraphIncr state.moduleGraphNodes state.moduleGraphState}
+
+-- | Fold the nodes of the map that the graph does not hold yet into the graph, and extend its reachability index for
+-- those nodes only.
+--
+-- The map must hold every node the graph holds, as 'MakeState.moduleGraphNodes' does. This is pure, so it can be tested
+-- against GHC's own construction without a worker state.
+extendModuleGraphIncr ::
+  Map.Map NodeKey ModuleGraphNode ->
+  EModuleGraph ->
+  EModuleGraph
+extendModuleGraphIncr all_nodes old_egr =
+  let KIN old_kmap old_inodes old_kss old_i2k old_reach = old_egr.keyIndexNodeMap
       old_keys = Set.fromList (Map.keys old_kmap)
       old_n = Set.size old_keys
-      all_nodes = state.moduleGraphNodes
       all_keys = Set.fromList (Map.keys all_nodes)
       all_n = Set.size all_keys
       delta_keys = all_keys `Set.difference` old_keys
@@ -145,10 +155,7 @@ rebuildModuleGraphIncr !state =
 
       -- BE CAREFUL old_kss and old_reach
       newKIN0 = KIN all_kmap all_inodes old_kss all_i2k old_reach
-      new_egr = mergeModuleGraph delta_kinodes_list (old_egr {keyIndexNodeMap = newKIN0})
-   in state {
-     moduleGraphState = new_egr
-   }
+   in mergeModuleGraph delta_kinodes_list (old_egr {keyIndexNodeMap = newKIN0})
 
 -- | Merge the given module graph into the cached graph and derive 'moduleGraph' immediately.
 storeModuleGraph :: Bool -> ModuleGraph -> MakeState -> MakeState
