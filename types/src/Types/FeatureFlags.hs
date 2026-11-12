@@ -16,6 +16,8 @@ data FeatureFlag =
   FeatureInstrument
   |
   FeatureLazyByteCode
+  |
+  FeatureIncrModGraph
   deriving stock (Eq, Show)
 
 -- | Runtime feature flags that control alternative implementations.
