@@ -99,7 +99,7 @@ genEdges candidates = do
 --
 -- * the boot file of @j@ imports some of the modules before @a@, but not @a@
 -- * @a@ imports the boot file of @j@
--- * @j@ imports @a@ and its own boot file
+-- * @j@ imports @a@, and maybe its own boot file
 --
 -- With the boot file as a node of its own, the graph stays acyclic, as GHC requires. @a@ and @j@ form a loop only
 -- when the boot file stands for @j@.
@@ -107,16 +107,17 @@ genBatch :: Bool -> [ModNodeKeyWithUid] -> Int -> Gen [ModuleGraphNode]
 genBatch withBoot earlier unitIndex = do
   n <- Gen.int (Range.linear 1 6)
   let keys = [moduleKey unitIndex i NotBoot | i <- [0 .. n - 1]]
-  -- Proposes two modules @a < j@ of the unit to form an hs-boot loop.
+  -- Proposes two modules @a < j@ of the unit to form an hs-boot loop, and whether @j@ imports its own boot file.
   loop <-
     if withBoot && n >= 2
     then Gen.maybe do
       j <- Gen.int (Range.linear 1 (n - 1))
       a <- Gen.int (Range.linear 0 (j - 1))
-      pure (a, j)
+      ownBoot <- Gen.bool
+      pure (a, j, ownBoot)
     else pure Nothing
   bootNodes <- case loop of
-    Just (a, j) -> do
+    Just (a, j, _) -> do
       -- Only the modules before @a@: @a@ imports this boot file, and any module from @a@ on may import @a@, so an
       -- import of one of them here could close a cycle that the boot file does not break.
       edges <- genEdges (earlier <> take a keys)
@@ -125,13 +126,15 @@ genBatch withBoot earlier unitIndex = do
   moduleNodes <- forM (zip [0 ..] keys) \ (i, key) -> do
     edges <- genEdges (earlier <> take i keys)
     -- The edges that close the hs-boot loop, in addition to the random edges: @a@ to the boot file of @j@, and @j@
-    -- to @a@. @j@ also imports its own boot file, as GHC's downsweep adds that edge to every module with an hs-boot
-    -- file, so that the boot file is compiled first and the module can be checked against it.
+    -- to @a@. With @ownBoot@, @j@ also imports its own boot file, as GHC's downsweep adds that edge to a module with
+    -- an hs-boot file, so that the boot file is compiled first and the module can be checked against it. Without it,
+    -- the folding of the boot file into @j@ is tested without that edge's help.
     let loopEdges = case loop of
-          Just (a, j)
+          Just (a, j, ownBoot)
             | i == a -> [ModuleNodeEdge NormalLevel (NodeKey_Module (moduleKey unitIndex j IsBoot))]
-            | i == j -> [ModuleNodeEdge NormalLevel (NodeKey_Module (moduleKey unitIndex a NotBoot)),
-                         ModuleNodeEdge NormalLevel (NodeKey_Module (moduleKey unitIndex j IsBoot))]
+            | i == j ->
+              ModuleNodeEdge NormalLevel (NodeKey_Module (moduleKey unitIndex a NotBoot))
+              : [ModuleNodeEdge NormalLevel (NodeKey_Module (moduleKey unitIndex j IsBoot)) | ownBoot]
           _ -> []
     pure (moduleNode key (edges <> loopEdges))
   pure (bootNodes <> moduleNodes <> externalUnitClosure (last externalUnits))

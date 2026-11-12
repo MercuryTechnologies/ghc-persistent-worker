@@ -131,7 +131,7 @@ extendModuleGraphIncr ::
   EModuleGraph ->
   EModuleGraph
 extendModuleGraphIncr all_nodes old_egr =
-  let KIN old_kmap old_inodes old_kss old_i2k old_reach = old_egr.keyIndexNodeMap
+  let KIN old_kmap old_inodes old_kss old_i2k old_reach old_folded = old_egr.keyIndexNodeMap
       old_keys = Set.fromList (Map.keys old_kmap)
       old_n = Set.size old_keys
       all_keys = Set.fromList (Map.keys all_nodes)
@@ -154,7 +154,7 @@ extendModuleGraphIncr all_nodes old_egr =
       all_i2k = IM.union delta_i2k old_i2k
 
       -- BE CAREFUL old_kss and old_reach
-      newKIN0 = KIN all_kmap all_inodes old_kss all_i2k old_reach
+      newKIN0 = KIN all_kmap all_inodes old_kss all_i2k old_reach old_folded
    in mergeModuleGraph delta_kinodes_list (old_egr {keyIndexNodeMap = newKIN0})
 
 -- | Merge the given module graph into the cached graph and derive 'moduleGraph' immediately.

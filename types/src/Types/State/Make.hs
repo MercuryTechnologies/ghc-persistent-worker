@@ -62,7 +62,13 @@ data KeyIndexNodeMap node = KIN
     idxKeyMap :: IM.IntMap NodeKey,
     -- | Transitive reachability per node index. Extended once per merge by
     -- @extendReachIndex@, not once per node.
-    reachabilityMap :: IM.IntMap IS.IntSet
+    reachabilityMap :: IM.IntMap IS.IntSet,
+    -- | For GHC 9.14's loop graph: the indices of the hs-boot nodes and of
+    -- the modules they belong to, the nodes that folding hs-boot files
+    -- changes. A node whose set in 'reachabilityMap' has none of them, and
+    -- that is not one of them, reaches the same nodes in the loop graph as in
+    -- the acyclic graph, so the loop graph's index uses that same set for it.
+    foldedIdxs :: IS.IntSet
   }
 
 emptyKINMap :: KeyIndexNodeMap ModuleGraphNode
@@ -71,7 +77,8 @@ emptyKINMap = KIN
     idxNodeMap = IM.empty,
     keyINodeMap = M.empty,
     idxKeyMap = IM.empty,
-    reachabilityMap = IM.empty
+    reachabilityMap = IM.empty,
+    foldedIdxs = IS.empty
   }
 
 -- | A 'ModuleGraph' together with the integer index used to query it.
