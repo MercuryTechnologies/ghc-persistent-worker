@@ -7,14 +7,27 @@ import GHC.Driver.Env (HscEnv (..))
 import qualified GHC.Driver.Session as GHC
 import GHC.Iface.Syntax (IfaceBindingX, IfaceMaybeRhs, IfaceTopBndrInfo)
 import GHC.LanguageExtensions (Extension)
-import GHC.Unit.Module.Graph (NodeKey)
+import GHC.Unit.Module.Graph (ModuleGraphNode, NodeKey)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
 import Data.Functor ((<&>))
+import qualified Data.Set as Set
+import GHC.Driver.Env (hsc_units)
 import GHC.Driver.Flags (OnOff (..))
 import GHC.Unit.Env (UnitEnv (..))
-import GHC.Unit.Module.Graph (ModuleNodeEdge, ModuleNodeInfo (..), edgeTargetKey, mgMapM, mkNormalEdge)
+import GHC.Unit.Home.Graph (unitEnv_keys)
+import GHC.Unit.Info (GenericUnitInfo (..))
+import GHC.Unit.Module.Graph (
+  ModuleGraphNode (..),
+  ModuleNodeEdge,
+  ModuleNodeInfo (..),
+  edgeTargetKey,
+  mgMapM,
+  mkNormalEdge,
+  )
+import GHC.Unit.State (UnitState (..), lookupUnitId)
+import GHC.Unit.Types (toUnitId)
 import GHC.Unit.Module.ModIface (IfaceSimplifiedCore (..), set_mi_simplified_core)
 import GHC.Unit.Module.WholeCoreBindings (emptyIfaceForeign)
 
@@ -51,6 +64,28 @@ impliedXFlags =
     compat ext = \case
       On dep -> (ext, True, dep)
       Off dep -> (ext, False, dep)
+
+-- | A @UnitNode@ for each external unit the active unit depends on, and for each unit those depend on, transitively.
+--
+-- GHC's downsweep adds these nodes for the external units a unit's modules import (@loopUnit@), but a unit restored from
+-- the cache has no downsweep. The explicit dependencies of the unit, from its @-package@ flags, are a superset of the
+-- units its modules import, and the dependencies come from the package database, as @loopUnit@ takes them. Home units
+-- are left out, as they are not external.
+externalUnitNodes :: HscEnv -> [ModuleGraphNode]
+externalUnitNodes hsc_env =
+  go Set.empty [toUnitId unit | (unit, _) <- explicitUnits units]
+  where
+    units = hsc_units hsc_env
+
+    home = unitEnv_keys hsc_env.hsc_unit_env.ue_home_unit_graph
+
+    go seen = \case
+      [] -> []
+      uid : rest
+        | Set.member uid seen || Set.member uid home -> go seen rest
+        | Just info <- lookupUnitId units uid ->
+          UnitNode (unitDepends info) uid : go (Set.insert uid seen) (unitDepends info <> rest)
+        | otherwise -> go (Set.insert uid seen) rest
 
 #else
 
@@ -103,5 +138,9 @@ mapMGM f = mgMapM $ \mni -> case mni of
 
 impliedXFlags :: [(Extension, Bool, Extension)]
 impliedXFlags = GHC.impliedXFlags
+
+-- | GHC 9.10's module graph has no nodes for external units.
+externalUnitNodes :: HscEnv -> [ModuleGraphNode]
+externalUnitNodes _ = []
 
 #endif

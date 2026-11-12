@@ -47,7 +47,7 @@ import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_keys)
 import GHC.Unit.Home.PackageTable (emptyHomePackageTable)
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), ModuleNodeInfo (..), NodeKey (..), mnKey)
 import GHC.Utils.Outputable (comma, hcat, ppr, punctuate, quotes, text, (<+>))
-import Internal.Compat.GHC914 (moduleNodeEdge)
+import Internal.Compat.GHC914 (externalUnitNodes, moduleNodeEdge)
 import Internal.Compat.UnitIndex (initUnits)
 import Internal.DynFlags (buckLocation, parseFlags, setupPath)
 import Internal.DynFlags.Parse (parseDynFlags)
@@ -286,7 +286,7 @@ loadCachedHomeUnit logger useFixedNodes useIncrModGraph hsc_env0 unit (cachedUni
     modify (updateMakeState (recordExtraLibs unit dflags . insertUnitEnv hsc_env2))
     results <- liftIO $ loadCachedModules useFixedNodes hsc_env2 unit cachedUnit
     let (nodes, flagEntries) = unzip results
-    modify (updateMakeState (storeFixedNodeFlags (catMaybes flagEntries) . rebuildModuleGraph useIncrModGraph . storeModuleGraphNodes nodes))
+    modify (updateMakeState (storeFixedNodeFlags (catMaybes flagEntries) . rebuildModuleGraph useIncrModGraph . storeModuleGraphNodes (nodes <> externalUnitNodes hsc_env2)))
     pure hsc_env2
 
 -- | Intermediate result of the concurrent loading phase.
@@ -315,7 +315,7 @@ insertPreparedUnit logger features hsc_env pu = do
   modify (updateMakeState (recordExtraLibs pu.unitId pu.dflags . insertUnitEnv hsc_env2))
   results <- liftIO $ traverse (uncurry (loadCachedModule features.fixedNodesCache hsc_env2 pu.unitId)) pu.moduleEntries
   let (nodes, flagEntries) = unzip results
-  modify (updateMakeState (storeFixedNodeFlags (catMaybes flagEntries) . storeModuleGraphNodes nodes))
+  modify (updateMakeState (storeFixedNodeFlags (catMaybes flagEntries) . storeModuleGraphNodes (nodes <> externalUnitNodes hsc_env2)))
   pure hsc_env2
 
 loadCachedBuildPlan ::
