@@ -68,6 +68,7 @@ featureFlagsParser =
         (concurrentInitUnits, FeatureConcurrentInitUnits) -> flags {concurrentInitUnits}
         (instrument, FeatureInstrument) -> flags {instrument}
         (lazyByteCode, FeatureLazyByteCode) -> flags {lazyByteCode}
+        (useIncrModGraph, FeatureIncrModGraph) -> flags {useIncrModGraph}
 
     flagOption value = do
       flag <- eitherReader \case
@@ -76,6 +77,7 @@ featureFlagsParser =
         "concurrent-init-units" -> Right FeatureConcurrentInitUnits
         "instrument" -> Right FeatureInstrument
         "lazy-byte-code" -> Right FeatureLazyByteCode
+        "incr-mod-graph" -> Right FeatureIncrModGraph
         flag -> Left ("Invalid feature flag: " ++ flag)
       pure (value, flag)
 
