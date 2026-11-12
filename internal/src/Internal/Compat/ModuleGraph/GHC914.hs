@@ -22,14 +22,16 @@ import GHC.Unit.Module.Graph (
   NodeKey (..),
   SummaryNode,
   ZeroScopeKey(..),
+  isBootModuleNodeInfo,
   mgNodeDependencies,
   mgNodeIsModule,
   mnKey,
+  moduleGraphNodes,
   moduleNodeInfoHscSource,
   )
+import GHC.Unit.Types (IsBootInterface (..))
 import Internal.Compat.ModuleGraph.Reachability (
-  -- TODO: use cyclic reachability when it is supported.
-  {- , cyclicGraphReachability -}
+  cyclicGraphReachability,
   graphReachability,
   graphReachabilityIncr,
   mkFromTo,
@@ -125,6 +127,14 @@ moduleGraphNodesZero summaries =
 mkTransZeroDeps :: [ModuleGraphNode] -> (ReachabilityIndex ZeroSummaryNode, ZeroScopeKey -> Maybe ZeroSummaryNode)
 mkTransZeroDeps = first graphReachability {- module graph is acyclic -} . moduleGraphNodesZero
 
+-- | The reachability index of the graph with hs-boot nodes folded into their modules, which may be cyclic.
+-- This is GHC's own construction, over every node.
+mkTransLoopDeps :: [ModuleGraphNode] -> (ReachabilityIndex SummaryNode, NodeKey -> Maybe SummaryNode)
+mkTransLoopDeps = first cyclicGraphReachability . moduleGraphNodes True
+
+isBootNode :: ModuleGraphNode -> Bool
+isBootNode node = maybe False ((== IsBoot) . isBootModuleNodeInfo) (mgNodeIsModule node)
+
 
 -- | Add an ExtendedModSummary to ModuleGraph. Assumes that the new ModSummary is
 -- not an element of the ModuleGraph.
@@ -167,9 +177,17 @@ extendReachIndex emg0 =
       reachIndex = ReachabilityIndex {index = reachGraph, from_vertex = from, to_vertex = to}
       (_, lookup_node) = mg_graph mg0
 
+      -- Without hs-boot nodes, folding them changes nothing, and the loop graph is the acyclic one. With any, folding
+      -- may close cycles, and the loop graph is rebuilt in full. The field is lazy, so the rebuild is only paid when
+      -- something asks for it, as the linker does for splices.
+      -- TODO: This is not yet incrementalized.
+      loopGraph
+        | any isBootNode (mg_mss mg0) = mkTransLoopDeps (mg_mss mg0)
+        | otherwise = (reachIndex, lookup_node)
+
       mg1 = mg0 {
         mg_graph = (reachIndex, lookup_node),
-        mg_loop_graph = (reachIndex, lookup_node)
+        mg_loop_graph = loopGraph
         -- TODO: This is not yet incrementalized.
         -- mg_zero_graph
       }

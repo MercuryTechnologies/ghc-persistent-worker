@@ -12,7 +12,7 @@ module ModuleGraphIncrTest (test_moduleGraphIncr) where
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
-import Control.Monad (foldM_, forM, when)
+import Control.Monad (foldM_, forM)
 import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -42,20 +42,6 @@ import Internal.State.Make (extendModuleGraphIncr, mergeModuleGraphNodes)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 import Types.State.Make (EModuleGraph (..), emptyEModuleGraph)
-
--- | Which of GHC's three indices a comparison covers.
-data Checks =
-  Checks {
-    -- | @mgQuery@, over @mg_graph@
-    graph :: Bool,
-    -- | @mgReachableLoop@, over @mg_loop_graph@
-    loopGraph :: Bool,
-    -- | @mgQueryZero@, over @mg_zero_graph@
-    zeroGraph :: Bool
-  }
-
-allChecks :: Checks
-allChecks = Checks {graph = True, loopGraph = True, zeroGraph = True}
 
 -- | The external units of all batches. Each depends on the one before it.
 externalUnits :: [Int]
@@ -172,50 +158,47 @@ expectSame what = \case
     annotate (what <> " differs:\n" <> unlines (take 20 diffs))
     failure
 
--- | Compare the incremental graph with GHC's construction over the same nodes.
-compareGraphs :: Checks -> [ModuleGraphNode] -> ModuleGraph -> ModuleGraph -> PropertyT IO ()
-compareGraphs checks nodes actual expected = do
+-- | Compare the incremental graph with GHC's construction over the same nodes: @mgQuery@ over @mg_graph@,
+-- @mgReachableLoop@ over @mg_loop_graph@, and @mgQueryZero@ over @mg_zero_graph@.
+compareGraphs :: [ModuleGraphNode] -> ModuleGraph -> ModuleGraph -> PropertyT IO ()
+compareGraphs nodes actual expected = do
   let keys = map mkNodeKey nodes
       zeroKeys =
         [ModuleScope (mnKey info) l | ModuleNode _ info <- nodes, l <- [SpliceLevel, QuoteLevel, NormalLevel]]
         <> [UnitScope u | UnitNode _ u <- nodes]
       loopSet g k = Set.fromList (map mkNodeKey (mgReachableLoop g [k]))
-  when checks.graph do
-    expectSame "mgQuery" [
-      renderKey a <> " -> " <> renderKey b <> ": " <> show (mgQuery actual a b) <> ", GHC: " <> show (mgQuery expected a b)
-      | a <- keys, b <- keys, mgQuery actual a b /= mgQuery expected a b
-      ]
-  when checks.loopGraph do
-    expectSame "mgReachableLoop" [
-      renderKey k <> ": " <> show (map renderKey (Set.toList (loopSet actual k))) <>
-      ", GHC: " <> show (map renderKey (Set.toList (loopSet expected k)))
-      | k <- keys, loopSet actual k /= loopSet expected k
-      ]
-  when checks.zeroGraph do
-    expectSame "mgQueryZero" [
-      renderZero a <> " -> " <> renderZero b <> ": " <> show (mgQueryZero actual a b) <>
-      ", GHC: " <> show (mgQueryZero expected a b)
-      | a <- zeroKeys, b <- zeroKeys, mgQueryZero actual a b /= mgQueryZero expected a b
-      ]
+  expectSame "mgQuery" [
+    renderKey a <> " -> " <> renderKey b <> ": " <> show (mgQuery actual a b) <> ", GHC: " <> show (mgQuery expected a b)
+    | a <- keys, b <- keys, mgQuery actual a b /= mgQuery expected a b
+    ]
+  expectSame "mgReachableLoop" [
+    renderKey k <> ": " <> show (map renderKey (Set.toList (loopSet actual k))) <>
+    ", GHC: " <> show (map renderKey (Set.toList (loopSet expected k)))
+    | k <- keys, loopSet actual k /= loopSet expected k
+    ]
+  expectSame "mgQueryZero" [
+    renderZero a <> " -> " <> renderZero b <> ": " <> show (mgQueryZero actual a b) <>
+    ", GHC: " <> show (mgQueryZero expected a b)
+    | a <- zeroKeys, b <- zeroKeys, mgQueryZero actual a b /= mgQueryZero expected a b
+    ]
 
 -- | Add the batches one by one, and compare the graph with GHC's after each.
-equivalence :: Checks -> Bool -> Property
-equivalence checks withBoot =
+equivalence :: Bool -> Property
+equivalence withBoot =
   withTests 200 $ property do
     batches <- forAllWith renderBatches (genBatches withBoot)
     let step (nodes0, egr0) batch = do
           let nodes1 = mergeModuleGraphNodes batch nodes0
               egr1 = extendModuleGraphIncr nodes1 egr0
-          compareGraphs checks (Map.elems nodes1) egr1.moduleGraph (mkModuleGraph (Map.elems nodes1))
+          compareGraphs (Map.elems nodes1) egr1.moduleGraph (mkModuleGraph (Map.elems nodes1))
           pure (nodes1, egr1)
     foldM_ step (Map.empty, emptyEModuleGraph) batches
 
 test_moduleGraphIncr :: TestTree
 test_moduleGraphIncr =
   testGroup "incremental module graph" [
-    testProperty "equals GHC's, without hs-boot loops" (equivalence allChecks False),
-    -- TODO: The loop graph shares the acyclic graph's index, which is wrong once an hs-boot loop folds into a cycle.
-    testProperty "equals GHC's, with hs-boot loops" (equivalence allChecks {loopGraph = False} True)
+    testProperty "equals GHC's, without hs-boot loops" (equivalence False),
+    testProperty "equals GHC's, with hs-boot loops" (equivalence True)
   ]
 
 #else
