@@ -279,6 +279,9 @@ buildPlanEnv hsc_env graph =
 -- Look up all imports of modules that aren't present in the graph in the external package databases.
 buildPlanModules ::
   (GhcMonad m) =>
+  -- | The fields of the payload, as @--fields@ selects them. They also decide
+  -- whether the imports outside the build are resolved, which
+  -- 'FieldToolchainDeps', 'FieldPackageDeps' and 'FieldCache' need.
   Set BuildPlanField ->
   Map ModuleKey [String] ->
   Set UnitId ->
@@ -294,12 +297,15 @@ buildPlanModules fields perModuleFlags staticUnits hsc_env graph = do
       staticDeps = fmap (fmap ordNub) . fst <$> parts
       toolchainDeps = snd <$> parts
   bpModules <- Map.fromList <$> liftIO (traverse (buildPlanModule env perModuleFlags) modules)
-  pure (assembleFields fields toolchainDeps (mergePackageDeps staticDeps bpModules))
+  pure (assembleFields fields externalDeps toolchainDeps (mergePackageDeps staticDeps bpModules))
   where
     (env, modules) = buildPlanEnv hsc_env graph
 
     includeExternalDeps =
-      FieldToolchainDeps `elem` fields || FieldPackageDeps `elem` fields || not (Set.null staticUnits)
+      FieldToolchainDeps `elem` fields
+      || FieldPackageDeps `elem` fields
+      || FieldCache `elem` fields
+      || not (Set.null staticUnits)
 
 downsweepWithCache :: HscEnv -> IO ([DriverMessages], ModuleGraph)
 

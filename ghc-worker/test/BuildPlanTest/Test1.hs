@@ -120,13 +120,15 @@ expected1 =
         source = toOsPath "U1M1.hs",
         modules = [],
         packages = [],
-        flags = []
+        flags = [],
+        units = [jui "base"]
       }),
       ("U1M2", CachedModule {
         source = toOsPath "U1M2.hs",
         modules = [jmn "U1M1"],
         packages = [],
-        flags = []
+        flags = [],
+        units = [jui "base"]
       })
     ]
   }
@@ -160,13 +162,15 @@ expected2 oneshot =
         source = toOsPath "U2M1.hs",
         modules = [],
         packages = [],
-        flags = []
+        flags = [],
+        units = [jui "base"]
       }),
       ("U2M2", CachedModule {
         source = toOsPath "U2M2.hs",
         modules = [jmn "U2M1"],
         packages = if oneshot then [] else [CachedPackageDep {id = jui "unit1", modules = [jmn "U1M2"]}],
-        flags = []
+        flags = [],
+        units = [jui "base"] <> if oneshot then [jui "unit1"] else []
       })
     ]
   }

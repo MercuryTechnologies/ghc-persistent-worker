@@ -53,20 +53,28 @@ fieldThModules =
   .
   Map.filter \ BuildPlanModule {thEnabled} -> thEnabled
 
--- | Dependencies within the current unit, including boot files indicated by the suffix @-boot@.
+-- | The data to restore each module's graph node from: its dependencies
+-- within the current unit, on other home units, and on units outside the
+-- build.
 fieldCache ::
+  -- | Each module's external dependencies, as in 'assembleFields', whose
+  -- units become the module's @units@.
+  Map ModuleKey (Map UnitId (PackageKey, [ModuleName])) ->
+  -- | The modules of the build plan, with their dependencies within the
+  -- build.
   Map ModuleKey BuildPlanModule ->
   Map ModuleKey CachedModule
-fieldCache =
-  fmap basic
+fieldCache externalDeps =
+  Map.mapWithKey basic
   where
     -- TODO do we need boot deps here?
-    basic BuildPlanModule {source, modules, packages, flags} =
+    basic key BuildPlanModule {source, modules, packages, flags} =
       CachedModule {
         source,
         modules = (snd <$> modules),
         packages = [CachedPackageDep {id = dep.id, modules = dep.modules} | dep <- packages],
-        flags
+        flags,
+        units = JsonFs <$> Map.keys (Map.findWithDefault Map.empty key externalDeps)
       }
 
 -- | Append externally resolved package deps to each module.
@@ -87,12 +95,28 @@ mergePackageDeps =
 
 -- | Create the final payload of the build plan JSON.
 -- Include only the fields selected on the command line by the option @--fields@.
+--
+-- The external dependencies are each module's imports from units outside
+-- the build, as 'Internal.BuildPlan.External.unitImports' resolves them. They
+-- are of two kinds:
+--
+-- * Toolchain packages, from the package databases of the toolchain.
+-- * Static units, the units of the project that a metadata request with
+--   static dependency units makes visible as external packages, through a
+--   synthetic package database (see
+--   'Internal.Metadata.Static.prepareStaticSession').
+--
+-- The toolchain dependencies are the external dependencies without the
+-- static units.
 assembleFields ::
   Set BuildPlanField ->
+  -- | The external dependencies.
+  Map ModuleKey (Map UnitId (PackageKey, [ModuleName])) ->
+  -- | The toolchain dependencies.
   Map ModuleKey (Map UnitId (PackageKey, [ModuleName])) ->
   Map ModuleKey BuildPlanModule ->
   BuildPlanJson
-assembleFields fields toolchainDeps modules =
+assembleFields fields externalDeps toolchainDeps modules =
   BuildPlanJson {
     legacy = fieldIf FieldLegacy (mergePackageDeps toolchainDeps modules),
     schema = BuildPlanSchema {
@@ -102,7 +126,7 @@ assembleFields fields toolchainDeps modules =
       project_deps = fieldIf FieldProjectDeps projectDeps,
       toolchain_deps = fieldIf FieldToolchainDeps toolchainDepsPayload,
       th_modules = fieldIf FieldThModules (fieldThModules modules),
-      cache = fieldIf FieldCache (fieldCache modules)
+      cache = fieldIf FieldCache (fieldCache externalDeps modules)
     }
   }
   where

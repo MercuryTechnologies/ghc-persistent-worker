@@ -115,7 +115,16 @@ data CachedModule =
     source :: OsPath,
     modules :: [JsonFs ModuleName],
     packages :: [CachedPackageDep],
-    flags :: [String]
+    flags :: [String],
+    -- | The units imported by the module that are outside of the build. They
+    -- contain toolchain packages and static units.
+    --
+    -- GHC 9.14's module graph records them as edges to external units, which a
+    -- restored module needs as much as a fresh one.
+    --
+    -- Set to an empty list when reading CachedModules written before this field
+    -- existed.
+    units :: [JsonFs UnitId]
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -129,6 +138,7 @@ instance FromJSON CachedModule where
       modules <- o .: "modules"
       packages <- o .: "packages"
       flags <- fold <$> o .:? "flags"
+      units <- fold <$> o .:? "units"
       case (mb_source, mb_sources) of
         (Just source, _) -> pure CachedModule {source=toOsPath source,..}
         (Nothing, Just (source : _)) -> pure CachedModule {source=toOsPath source,..}
