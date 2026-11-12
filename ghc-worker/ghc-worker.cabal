@@ -123,6 +123,7 @@ test-suite ghc-worker-test
     BuildThTest,
     ByteCodeCacheTest,
     DepFilesTest,
+    ExtUnitResumeTest,
     FlagParserTest,
     InterfacePathTest,
     ModuleGraphIncrTest,
