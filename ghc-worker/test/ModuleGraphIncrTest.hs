@@ -45,20 +45,6 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 import Types.State.Make (EModuleGraph (..), emptyEModuleGraph)
 
--- | Which of GHC's three indices a comparison covers.
-data Checks =
-  Checks {
-    -- | @mgQuery@, over @mg_graph@
-    graph :: Bool,
-    -- | @mgReachableLoop@, over @mg_loop_graph@
-    loopGraph :: Bool,
-    -- | @mgQueryZero@, over @mg_zero_graph@
-    zeroGraph :: Bool
-  }
-
-allChecks :: Checks
-allChecks = Checks {graph = True, loopGraph = True, zeroGraph = True}
-
 -- | The external units of all batches. Each depends on the one before it.
 externalUnits :: [Int]
 externalUnits = [0 .. 3]
@@ -228,15 +214,17 @@ renderRelation :: (k -> String) -> [k] -> (k -> [k]) -> String
 renderRelation renderK ks related =
   unlines ["  " <> renderK k <> ": " <> intercalate ", " (map renderK (related k)) | k <- ks]
 
--- | Compare two graphs as defined by @checks@, query by query.
+-- | Compare two graphs query by query: @mgQuery@ over @mg_graph@, @mgReachableLoop@ over @mg_loop_graph@, and
+-- @mgQueryZero@ over @mg_zero_graph@.
 --
 -- The queries are about the nodes of @expected@. That @actual@ has the same nodes is checked first.
-compareGraphs :: Checks -> ModuleGraph -> ModuleGraph -> [Comparison]
-compareGraphs checks actual expected =
-  [Comparison "the set of node keys" (diff (const "nodes") renderKeys nodeKeys [()]) renderNodeKeys]
-  <> [Comparison "mgQuery" (diff renderPair show mgQueryPair pairs) renderQuery | checks.graph]
-  <> [Comparison "mgReachableLoop" (diff renderKey renderKeys loopSet keys) renderLoop | checks.loopGraph]
-  <> [Comparison "mgQueryZero" (diff renderZeroPair show mgQueryZeroPair zeroPairs) renderZeroQuery | checks.zeroGraph]
+compareGraphs :: ModuleGraph -> ModuleGraph -> [Comparison]
+compareGraphs actual expected = [
+    Comparison "the set of node keys" (diff (const "nodes") renderKeys nodeKeys [()]) renderNodeKeys,
+    Comparison "mgQuery" (diff renderPair show mgQueryPair pairs) renderQuery,
+    Comparison "mgReachableLoop" (diff renderKey renderKeys loopSet keys) renderLoop,
+    Comparison "mgQueryZero" (diff renderZeroPair show mgQueryZeroPair zeroPairs) renderZeroQuery
+  ]
   where
     diff :: Eq b => (a -> String) -> (b -> String) -> (ModuleGraph -> a -> b) -> [a] -> [String]
     diff renderArg renderAnswer query args = differences renderArg renderAnswer query args actual expected
@@ -267,12 +255,12 @@ compareGraphs checks actual expected =
 --
 -- > extendModuleGraphIncr (merge (take n batches)) == mkModuleGraph (merge (take n batches))
 --
--- @checks@ selects the queries compared, and @withBoot@ lets the batches contain hs-boot modules, which form loops.
+-- @withBoot@ lets the batches contain hs-boot modules, which form loops.
 --
 -- 'withTests' raises the default number of tests from 100, as many of the generated projects are small.
 -- @--hedgehog-tests@ still overrides it.
-equivalence :: Checks -> Bool -> Property
-equivalence checks withBoot =
+equivalence :: Bool -> Property
+equivalence withBoot =
   withTests 200 $ property do
     batches <- forAllWith renderBatches (genBatches withBoot)
     let step (nodes0, egr0) (b, batch) = do
@@ -280,7 +268,7 @@ equivalence checks withBoot =
               egr1 = extendModuleGraphIncr nodes1 egr0
               incremental = egr1.moduleGraph
               ghc = mkModuleGraph (Map.elems nodes1)
-              results = compareGraphs checks incremental ghc
+              results = compareGraphs incremental ghc
               failed = filter (not . null . (.differing)) results
           unless (null failed) do
             annotate ("batch " <> show b <> ":\n" <> renderNodes batch)
@@ -296,9 +284,8 @@ equivalence checks withBoot =
 test_moduleGraphIncr :: TestTree
 test_moduleGraphIncr =
   testGroup "incremental module graph" [
-    testProperty "equals GHC's, without hs-boot loops" (equivalence allChecks False),
-    -- TODO: The loop graph shares the acyclic graph's index, which is wrong once an hs-boot loop folds into a cycle.
-    testProperty "equals GHC's, with hs-boot loops" (equivalence allChecks {loopGraph = False} True)
+    testProperty "equals GHC's, without hs-boot loops" (equivalence False),
+    testProperty "equals GHC's, with hs-boot loops" (equivalence True)
   ]
 
 #else
