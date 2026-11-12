@@ -8,6 +8,7 @@ import qualified GHC.Driver.Session as GHC
 import GHC.Iface.Syntax (IfaceBindingX, IfaceMaybeRhs, IfaceTopBndrInfo)
 import GHC.LanguageExtensions (Extension)
 import GHC.Unit.Module.Graph (ModuleGraphNode, NodeKey)
+import GHC.Unit.Types (UnitId)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
@@ -22,6 +23,7 @@ import GHC.Unit.Module.Graph (
   ModuleGraphNode (..),
   ModuleNodeEdge,
   ModuleNodeInfo (..),
+  NodeKey (..),
   edgeTargetKey,
   mgMapM,
   mkNormalEdge,
@@ -39,6 +41,10 @@ hscSetModuleGraph ue_module_graph hsc_env = hsc_env {hsc_unit_env = hsc_env.hsc_
 
 moduleNodeEdge :: NodeKey -> ModuleNodeEdge
 moduleNodeEdge = mkNormalEdge
+
+-- | A module's edge to an external unit it imports, at the normal level.
+externalUnitEdges :: UnitId -> [ModuleNodeEdge]
+externalUnitEdges unit = [mkNormalEdge (NodeKey_ExternalUnit unit)]
 
 edgeTarget :: ModuleNodeEdge -> NodeKey
 edgeTarget = edgeTargetKey
@@ -116,6 +122,10 @@ hscSetModuleGraph hsc_mod_graph hsc_env = hsc_env {hsc_mod_graph}
 
 moduleNodeEdge :: NodeKey -> NodeKey
 moduleNodeEdge = id
+
+-- | GHC 9.10's module graph has no edges to external units.
+externalUnitEdges :: UnitId -> [NodeKey]
+externalUnitEdges _ = []
 
 edgeTarget :: NodeKey -> NodeKey
 edgeTarget = id

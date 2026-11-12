@@ -16,8 +16,9 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isNothing)
 import qualified Data.Set as Set
-import GHC.Unit.Module.Graph (ModuleGraphNode (..))
-import GHC.Unit.Types (stringToUnitId, unitIdString)
+import GHC (mkModuleName)
+import GHC.Unit.Module.Graph (ModNodeKeyWithUid (..), ModuleGraphNode (..), NodeKey (..), edgeTargetKey, mnKey)
+import GHC.Unit.Types (GenWithIsBoot (..), IsBootInterface (..), stringToUnitId, unitIdString)
 import Hedgehog (TestT, annotate, assert, failure)
 import Test.BuildSystem (mkBuildSystem)
 import Test.Bytecode (enableLazyByteCode, envLoader)
@@ -39,7 +40,7 @@ import Test.ProjectBuild.Property (assertNoFailures)
 import Test.Resume (executeResumeBuild, setupResumeBuild)
 import Test.Run (unitTest)
 import Test.Source (writeProjectSources)
-import Test.Tasty (TestTree)
+import Test.Tasty (TestTree, testGroup)
 import Types.Env (Env (..))
 import Types.State (WorkerState (..))
 import Types.State.Make (MakeState (..))
@@ -183,9 +184,6 @@ runResume testEnv = do
 
 -- | The restored graph has a node for external package 0, and one for every unit an external unit's node depends on,
 -- as after fresh metadata.
---
--- TODO: The resume build itself fails until the restored modules have edges to their external units, so its result is
--- not checked here.
 testUnitNodes :: TestEnv -> TestT IO ()
 testUnitNodes testEnv = do
   (resumeEnv, _) <- runResume testEnv
@@ -200,12 +198,31 @@ testUnitNodes testEnv = do
       annotate ("external units without a node: " <> show (map unitIdString missing))
       failure
 
+-- | Unit 2's splice runs unit 1's code after the loader started without unit 1's packages. The restored module has its
+-- edge to external package 0, so the linker loads the package for the splice, and the resume build succeeds.
+testLaterSplice :: TestEnv -> TestT IO ()
+testLaterSplice testEnv = do
+  (resumeEnv, resumeResult) <- runResume testEnv
+  assertNoFailures "resume" resumeResult
+  WorkerState {make = MakeState {moduleGraphNodes}} <- liftIO (readMVar resumeEnv.env.state)
+  let restored = [deps | ModuleNode deps info <- Map.elems moduleGraphNodes, mnKey info == module11Key]
+      reachesExtDep = any (any ((== NodeKey_ExternalUnit (stringToUnitId "extdep0")) . edgeTargetKey)) restored
+  assert reachesExtDep
+  where
+    module11Key = ModNodeKeyWithUid (GWIB (mkModuleName "Unit1Module1") NotBoot) (stringToUnitId "unit1")
+
 test_extUnitResume :: TestTree
 test_extUnitResume =
-  withTestEnv \ getTestEnv ->
-    unitTest "restored units have nodes for their external units" do
-      env <- liftIO getTestEnv
-      testUnitNodes env
+  testGroup "external units of restored units" [
+    withTestEnv \ getTestEnv ->
+      unitTest "restored units have nodes for their external units" do
+        env <- liftIO getTestEnv
+        testUnitNodes env,
+    withTestEnv \ getTestEnv ->
+      unitTest "a later splice loads the packages of a restored module" do
+        env <- liftIO getTestEnv
+        testLaterSplice env
+  ]
 
 #else
 
@@ -213,6 +230,6 @@ import Test.Tasty (TestTree, testGroup)
 
 -- | GHC 9.10's module graph has no nodes for external units.
 test_extUnitResume :: TestTree
-test_extUnitResume = testGroup "restored units have nodes for their external units" []
+test_extUnitResume = testGroup "external units of restored units" []
 
 #endif

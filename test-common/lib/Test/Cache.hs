@@ -27,7 +27,7 @@ import Test.Data.Project (
   UnitKey,
   )
 import Test.Data.Scheduler (Schedule (..), Task (..))
-import Test.Path (cachedUnitPath, moduleName, moduleSourcePath, unitCacheDir, unitName)
+import Test.Path (cachedUnitPath, extDepName, moduleName, moduleSourcePath, unitCacheDir, unitName)
 import Types.Args (Args (..))
 import Types.CachedDeps (
   CachedBuildPlan (..),
@@ -95,13 +95,13 @@ cachedPackageDep depMods@(ModuleKey {unit} :| _) =
 
 -- | One module entry for a unit's build plan cache file.
 cachedModule :: SessionEnv -> UnitKey -> BuildModule -> CachedModule
-cachedModule env unit BuildModule {key, deps} =
+cachedModule env unit BuildModule {key, deps, extDeps} =
   CachedModule {
     source = env.sourceDir </> moduleSourcePath key,
     modules = jsonFsFromString . moduleName <$> foldMap toList home,
     packages = cachedPackageDep <$> packages,
     flags = [],
-    units = []
+    units = jsonFsFromString . extDepName <$> toList extDeps
   }
   where
     allDeps = Set.toList deps
