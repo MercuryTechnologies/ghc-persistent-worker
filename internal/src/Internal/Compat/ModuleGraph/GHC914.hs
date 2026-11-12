@@ -9,6 +9,8 @@ module Internal.Compat.ModuleGraph.GHC914 (
 ) where
 
 import Data.Bifunctor
+import qualified Data.IntMap as IM
+import qualified Data.IntSet as IS
 import qualified Data.Map as Map
 import GHC.Data.Graph.Directed
 import GHC.Data.Graph.Directed.Reachability (ReachabilityIndex (..))
@@ -32,7 +34,6 @@ import GHC.Unit.Module.Graph (
 import GHC.Unit.Types (IsBootInterface (..))
 import Internal.Compat.ModuleGraph.Reachability (
   cyclicGraphReachability,
-  graphReachability,
   graphReachabilityIncr,
   mkFromTo,
   )
@@ -72,60 +73,78 @@ moduleGraphNodesIncr (k, (i, node)) kinMap = (kinMap', lookup_node)
     kinMap' = kinMap { keyINodeMap = node_map }
 
 
--- | Turn a list of graph nodes into an efficient queriable graph.
--- This graph only has edges between level-0 imports
+-- | The level graph, GHC's @mg_zero_graph@, has a vertex per module and import level, and one per external unit. A
+-- module's vertex at a level points at the normal-level vertices of the modules it imports at that level, and at the
+-- external units it depends on at that level. So the modules visible at a level of a module are the ones reachable from
+-- its vertex for that level.
 --
--- This query answers the question. If I am looking at level n in module M then which
--- modules are visible?
---
--- If you are looking at level -1  then the reachable modules are those imported at splice and
--- then any modules those modules import at zero. (Ie the zero scope for those modules)
-moduleGraphNodesZero ::
-     [ModuleGraphNode]
-  -> (Graph ZeroSummaryNode, ZeroScopeKey -> Maybe ZeroSummaryNode)
-moduleGraphNodesZero summaries =
-  (graphFromEdgedVerticesUniq nodes, lookup_node)
+-- The worker numbers these vertices after the node's own vertex @i@ in the acyclic graph: @3i@ to @3i + 2@ for a
+-- module, one per level, and @3i@ for an external unit. A node's vertices are then fixed once the node is added, and
+-- need no map of their own.
+zeroVertex :: KeyIndexNodeMap ModuleGraphNode -> ZeroScopeKey -> Maybe Int
+zeroVertex kinMap = \case
+  ModuleScope k l -> (\ i -> 3 * i + levelOffset l) <$> Map.lookup (NodeKey_Module k) (keyIdxMap kinMap)
+  UnitScope u -> (3 *) <$> Map.lookup (NodeKey_ExternalUnit u) (keyIdxMap kinMap)
   where
-    nodes = mapMaybe go numbered_summaries
+    levelOffset = \case
+      SpliceLevel -> 0
+      QuoteLevel -> 1
+      NormalLevel -> 2
 
-      where
-        go :: (((ModuleGraphNode, ImportLevel)), Int) -> Maybe ZeroSummaryNode
-        go (((ModuleNode nks ms), s), key) = Just $
-               DigraphNode (ModuleScope (mnKey ms) s) key $ out_edge_keys $
-                    mapMaybe (classifyDeps s) nks
-        go (((UnitNode uids uid), _s), key) =
-          Just $ DigraphNode (UnitScope uid) key (mapMaybe lookup_key $ map UnitScope uids)
-        go _ = Nothing
+-- | The vertices of a node in the level graph, each with its key and out-edges. Out-edges to keys not in the graph are
+-- dropped, as GHC drops them.
+zeroVertices :: KeyIndexNodeMap ModuleGraphNode -> ModuleGraphNode -> [(Int, ZeroScopeKey, [Int])]
+zeroVertices kinMap = \case
+  ModuleNode edges info ->
+    [ (v, key, mapMaybe (zeroVertex kinMap) (mapMaybe (classify l) edges))
+    | l <- [SpliceLevel, QuoteLevel, NormalLevel]
+    , let key = ModuleScope (mnKey info) l
+    , Just v <- [zeroVertex kinMap key]
+    ]
+  UnitNode deps u ->
+    [ (v, key, mapMaybe (zeroVertex kinMap . UnitScope) deps)
+    | let key = UnitScope u
+    , Just v <- [zeroVertex kinMap key]
+    ]
+  _ -> []
+  where
+    -- An import at a level reaches the normal level of the module it imports.
+    classify l = \case
+      ModuleNodeEdge il (NodeKey_Module k) | il == l -> Just (ModuleScope k NormalLevel)
+      ModuleNodeEdge il (NodeKey_ExternalUnit u) | il == l -> Just (UnitScope u)
+      _ -> Nothing
 
-    -- This is the key part, a dependency edge also depends on the NormalLevel scope of an import.
-    classifyDeps s (ModuleNodeEdge il (NodeKey_Module k)) | s == il = Just (ModuleScope k NormalLevel)
-    classifyDeps s (ModuleNodeEdge il (NodeKey_ExternalUnit u)) | s == il = Just (UnitScope u)
-    classifyDeps _ _ = Nothing
+-- | Extend the level graph for the nodes with the given vertices in the acyclic graph, taking the previous index as it
+-- is.
+--
+-- Like 'graphReachabilityIncr', this relies on two properties: the level graph is acyclic, as its edges follow the
+-- acyclic graph's, and no existing node gains an edge, so the sets of existing vertices stay valid. A new vertex's set
+-- is its out-edges and their sets, taken from the previous index or from the new entries.
+extendZeroGraph ::
+  KeyIndexNodeMap ModuleGraphNode ->
+  [Int] ->
+  ReachabilityIndex ZeroSummaryNode ->
+  (ReachabilityIndex ZeroSummaryNode, ZeroScopeKey -> Maybe ZeroSummaryNode)
+extendZeroGraph kinMap newIdxs old =
+  (ReachabilityIndex {index = reach, from_vertex = fromVertex, to_vertex = Just . node_key}, lookupNode)
+  where
+    newVertices =
+      [ (v, edges)
+      | i <- newIdxs
+      , Just node <- [IM.lookup i (idxNodeMap kinMap)]
+      , (v, _, edges) <- zeroVertices kinMap node
+      ]
 
-    numbered_summaries :: [((ModuleGraphNode, ImportLevel), Int)]
-    numbered_summaries = zip (([(s, l) | s <- summaries, l <- [SpliceLevel, QuoteLevel, NormalLevel]])) [0..]
+    -- Lazy in the values, so a new set may read the sets of the new vertices it points at.
+    reach = index old `IM.union` IM.fromList [(v, setOf edges) | (v, edges) <- newVertices]
 
-    lookup_node :: ZeroScopeKey -> Maybe ZeroSummaryNode
-    lookup_node key = Map.lookup key node_map
+    setOf edges = IS.unions (IS.fromList edges : mapMaybe (`IM.lookup` reach) edges)
 
-    lookup_key :: ZeroScopeKey -> Maybe Int
-    lookup_key = fmap node_key . lookup_node
+    fromVertex v = fromMaybe (error "extendZeroGraph: unknown vertex") do
+      node <- IM.lookup (v `div` 3) (idxNodeMap kinMap)
+      listToMaybe [DigraphNode key v edges | (w, key, edges) <- zeroVertices kinMap node, w == v]
 
-    node_map :: Map.Map ZeroScopeKey ZeroSummaryNode
-    node_map =
-      Map.fromList [ (s, node)
-                   | node <- nodes
-                   , let s = node_payload node
-                   ]
-
-    out_edge_keys :: [ZeroScopeKey] -> [Int]
-    out_edge_keys = mapMaybe lookup_key
-
--- | Transitive dependencies, but only following "normal" level 0 imports.
--- This graph can be used to query what the transitive dependencies of a particular
--- level are within a module.
-mkTransZeroDeps :: [ModuleGraphNode] -> (ReachabilityIndex ZeroSummaryNode, ZeroScopeKey -> Maybe ZeroSummaryNode)
-mkTransZeroDeps = first graphReachability {- module graph is acyclic -} . moduleGraphNodesZero
+    lookupNode key = fromVertex <$> zeroVertex kinMap key
 
 -- | The reachability index of the graph with hs-boot nodes folded into their modules, which may be cyclic.
 -- This is GHC's own construction, over every node.
@@ -151,8 +170,7 @@ extendMG kinode@(_, (_, node)) EModuleGraph {moduleGraph = mg, keyIndexNodeMap =
       { mg_mss = node : mg_mss mg,
         mg_graph =  (badReachIndex, lookup_node),
         mg_loop_graph = (badReachIndex, lookup_node),
-        -- TODO: This is not yet incrementalized.
-        mg_zero_graph = mkTransZeroDeps (node : mg_mss mg),
+        mg_zero_graph = mg_zero_graph mg,
         mg_has_holes = mg_has_holes mg || maybe False isHsigFile (moduleNodeInfoHscSource =<< mgNodeIsModule node)
       }
 
@@ -164,14 +182,19 @@ extendMG kinode@(_, (_, node)) EModuleGraph {moduleGraph = mg, keyIndexNodeMap =
 -- node. This repairs it, and must be called after a batch of 'extendMG'
 -- and before anything queries reachability.
 --
--- The incremental work is in 'graphReachabilityIncr'; see it for the
--- acyclicity and monotonicity it assumes. @mg_zero_graph@ is not
--- incrementalized and is still rebuilt in full by 'extendMG'.
+-- The incremental work is in 'graphReachabilityIncr' and
+-- 'extendZeroGraph'. See them for the acyclicity and monotonicity they
+-- assume.
 extendReachIndex :: EModuleGraph -> EModuleGraph
 extendReachIndex emg0 =
   let mg0 = emg0.moduleGraph
       kinMap0 = emg0.keyIndexNodeMap
       kinMap1 = graphReachabilityIncr kinMap0
+
+      -- The nodes added since the last call. They are numbered after every node before them.
+      newIdxs = case IM.lookupMax (reachabilityMap kinMap0) of
+        Just (oldMax, _) -> IM.keys (snd (IM.split oldMax (idxKeyMap kinMap0)))
+        Nothing -> IM.keys (idxKeyMap kinMap0)
       reachGraph = reachabilityMap kinMap1
       (from, to) = mkFromTo kinMap1
       reachIndex = ReachabilityIndex {index = reachGraph, from_vertex = from, to_vertex = to}
@@ -187,9 +210,8 @@ extendReachIndex emg0 =
 
       mg1 = mg0 {
         mg_graph = (reachIndex, lookup_node),
-        mg_loop_graph = loopGraph
-        -- TODO: This is not yet incrementalized.
-        -- mg_zero_graph
+        mg_loop_graph = loopGraph,
+        mg_zero_graph = extendZeroGraph kinMap1 newIdxs (fst (mg_zero_graph mg0))
       }
    in EModuleGraph {
         moduleGraph = mg1,
