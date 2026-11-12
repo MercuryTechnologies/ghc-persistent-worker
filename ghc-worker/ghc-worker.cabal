@@ -122,6 +122,7 @@ test-suite ghc-worker-test
     BuildPlanTest.Test2,
     BuildThTest,
     ByteCodeCacheTest,
+    CacheUnitsTest,
     DepFilesTest,
     ExtUnitResumeTest,
     FlagParserTest,
@@ -134,6 +135,7 @@ test-suite ghc-worker-test
     ScheduleTest
   ghc-options: -threaded -rtsopts "-with-rtsopts=-N -T"
   build-depends:
+    aeson,
     buck-worker-internal,
     buck-worker-types,
     bytestring,

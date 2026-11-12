@@ -8,6 +8,7 @@ import BuildThTest (test_buildTh)
 #if defined(LINKABLES)
 import ByteCodeCacheTest (test_evictBySize, test_touchNoEviction)
 #endif
+import CacheUnitsTest (test_cacheUnits)
 import DepFilesTest (test_depFiles)
 import ExtUnitResumeTest (test_extUnitResume)
 import FlagParserTest (test_parseBuckArgs)
@@ -59,6 +60,7 @@ testsGeneral =
   [
     test_parseBuckArgs,
     test_depFiles,
+    test_cacheUnits,
     test_interfacePath,
     test_moduleGraphIncr,
     test_sortScheduleOrder,

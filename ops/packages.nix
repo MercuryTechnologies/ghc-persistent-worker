@@ -47,6 +47,7 @@
       tests.ghc-worker-test = {
         enable = true;
         dependencies = [
+          "aeson"
           "buck-worker-internal"
           "buck-worker-types"
           "bytestring"

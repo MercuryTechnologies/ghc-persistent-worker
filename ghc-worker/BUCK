@@ -114,6 +114,7 @@ haskell_binary(
     linker_flags = ["-threaded", "-rtsopts", "\"-with-rtsopts=-N -T\""],
     strip_prefix = ["test"],
     deps = [
+        "//haskell:aeson",
         "//haskell:base",
         "//haskell:bytestring",
         "//haskell:containers",

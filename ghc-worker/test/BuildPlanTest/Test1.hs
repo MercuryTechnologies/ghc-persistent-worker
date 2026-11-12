@@ -9,12 +9,14 @@ module BuildPlanTest.Test1 where
 
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_, toList)
+import Data.Char (isDigit)
+import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import GHC (DynFlags (..), Ghc, GhcMode (..), ModuleName, Target (..), getSession, mkModuleName)
 import GHC.Driver.Env (HscEnv (..))
-import GHC.Unit (UnitId, stringToUnitId)
+import GHC.Unit (UnitId, stringToUnitId, unitIdString)
 import Hedgehog (TestT, evalMaybe, (===))
 import Internal.BuildPlan (buildPlanForTargets)
 import Internal.DynFlags (modifyActiveUnitFlags)
@@ -120,13 +122,15 @@ expected1 =
         source = toOsPath "U1M1.hs",
         modules = [],
         packages = [],
-        flags = []
+        flags = [],
+        units = [jui "base"]
       }),
       ("U1M2", CachedModule {
         source = toOsPath "U1M2.hs",
         modules = [jmn "U1M1"],
         packages = [],
-        flags = []
+        flags = [],
+        units = [jui "base"]
       })
     ]
   }
@@ -160,13 +164,15 @@ expected2 oneshot =
         source = toOsPath "U2M1.hs",
         modules = [],
         packages = [],
-        flags = []
+        flags = [],
+        units = [jui "base"]
       }),
       ("U2M2", CachedModule {
         source = toOsPath "U2M2.hs",
         modules = [jmn "U2M1"],
         packages = if oneshot then [] else [CachedPackageDep {id = jui "unit1", modules = [jmn "U1M2"]}],
-        flags = []
+        flags = [],
+        units = [jui "base"] <> if oneshot then [jui "unit1"] else []
       })
     ]
   }
@@ -182,7 +188,20 @@ normalize :: BuildPlanJson -> BuildPlanSchema
 normalize BuildPlanJson {schema} =
   schema {cache = fmap normalizeModule <$> schema.cache}
   where
-    normalizeModule CachedModule {..} = CachedModule {source = takeFileName source, ..}
+    normalizeModule CachedModule {..} =
+      CachedModule {source = takeFileName source, units = jui . packageName . unitIdString . (.raw) <$> units, ..}
+
+    -- A unit id such as @base-4.22.0.0-491e@ depends on the toolchain, so compare the package name only: the
+    -- components up to the first one that starts with a digit.
+    packageName = intercalate "-" . takeWhile (not . startsWithDigit) . splitOn '-'
+
+    startsWithDigit = \case
+      c : _ -> isDigit c
+      [] -> False
+
+    splitOn c str = case break (== c) str of
+      (a, _ : rest) -> a : splitOn c rest
+      (a, []) -> [a]
 
 -- | Simulate build plan JSON generation for two units with dependencies to ensure that toolchain and project deps are
 -- present in the result.

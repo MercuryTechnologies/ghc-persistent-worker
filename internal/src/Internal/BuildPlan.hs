@@ -294,12 +294,12 @@ buildPlanModules fields perModuleFlags staticUnits hsc_env graph = do
       staticDeps = fmap (fmap ordNub) . fst <$> parts
       toolchainDeps = snd <$> parts
   bpModules <- Map.fromList <$> liftIO (traverse (buildPlanModule env perModuleFlags) modules)
-  pure (assembleFields fields toolchainDeps (mergePackageDeps staticDeps bpModules))
+  pure (assembleFields fields externalDeps toolchainDeps (mergePackageDeps staticDeps bpModules))
   where
     (env, modules) = buildPlanEnv hsc_env graph
 
     includeExternalDeps =
-      FieldToolchainDeps `elem` fields || FieldPackageDeps `elem` fields || not (Set.null staticUnits)
+      FieldToolchainDeps `elem` fields || FieldPackageDeps `elem` fields || FieldCache `elem` fields || not (Set.null staticUnits)
 
 downsweepWithCache :: HscEnv -> IO ([DriverMessages], ModuleGraph)
 
