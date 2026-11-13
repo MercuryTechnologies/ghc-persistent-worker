@@ -47,7 +47,13 @@ import GHC.Unit.Home.Graph (unitEnv_insert, unitEnv_keys)
 import GHC.Unit.Home.PackageTable (emptyHomePackageTable)
 import GHC.Unit.Module.Graph (ModuleGraphNode (..), ModuleNodeInfo (..), NodeKey (..), mnKey)
 import GHC.Utils.Outputable (comma, hcat, ppr, punctuate, quotes, text, (<+>))
-import Internal.Compat.GHC914 (externalUnitEdges, externalUnitNodes, moduleNodeEdge)
+import Internal.Compat.GHC914 (
+  externalUnitEdges,
+  externalUnitNodes,
+  levelledEdge,
+  levelledExternalUnitEdges,
+  moduleNodeEdge,
+  )
 import Internal.Compat.UnitIndex (initUnits)
 import Internal.DynFlags (buckLocation, parseFlags, setupPath)
 import Internal.DynFlags.Parse (parseDynFlags)
@@ -63,10 +69,12 @@ import Types.BuckArgs (CachedBuckArgs (..), parseCachedBuckArgs)
 import Types.CachedDeps (
   CachedBuildPlan (..),
   CachedBuildPlans (..),
+  CachedLevelDeps (..),
   CachedModule (..),
   CachedPackageDep (..),
   CachedUnit (..),
   JsonFs (..),
+  OtherLevel (..),
   )
 import Types.FeatureFlags (FeatureFlags (..))
 import Types.Log (Logger (..))
@@ -157,28 +165,42 @@ loadCachedModule
   hsc_env
   unit
   (JsonFs modName)
-  CachedModule {source, modules, packages, flags, units} = do
+  CachedModule {source, modules, packages, flags, units, splice, quote} = do
   (node, flagsEntry) <- createNode source modName
-  pure (ModuleNode ((moduleNodeEdge <$> (homeDeps ++ packageDeps)) ++ unitDeps) node, flagsEntry)
+  let normalDeps = moduleNodeEdge <$> (homeDeps modules ++ packageDeps packages)
+  pure (ModuleNode (normalDeps ++ unitDeps ++ levelDeps) node, flagsEntry)
   where
-    homeDeps =
+    homeDeps depModules =
       [
         NodeKey_Module (ModNodeKeyWithUid (GWIB depName NotBoot) unit)
         |
-        JsonFs depName <- modules
-      ]
-
-    packageDeps =
-      [
-        NodeKey_Module (ModNodeKeyWithUid (GWIB depName NotBoot) depUnit)
-        |
-        CachedPackageDep {id = JsonFs depUnit, modules = depModules} <- packages,
         JsonFs depName <- depModules
       ]
 
-    -- Edges to the units outside the build that the module imports, whose
-    -- nodes 'externalUnitNodes' adds. The cache records no import levels, so
-    -- these are at the normal level, as the edges above.
+    packageDeps deps =
+      [
+        NodeKey_Module (ModNodeKeyWithUid (GWIB depName NotBoot) depUnit)
+        |
+        CachedPackageDep {id = JsonFs depUnit, modules = depModules} <- deps,
+        JsonFs depName <- depModules
+      ]
+
+    -- An edge at splice or quote level for each import at that level, as GHC
+    -- 9.14's level graph needs the level. The plain lists hold the normal
+    -- level only, so a restored node has exactly the edges of the node GHC
+    -- builds: a normal edge for an import at the normal level, an edge at the
+    -- other level for one at that level, and both for one at both. An entry
+    -- written before the levels were recorded has every dependency in the
+    -- plain lists and none here, so its node has normal edges only.
+    levelDeps = levelEdges SpliceImport splice ++ levelEdges QuoteImport quote
+
+    levelEdges level = foldMap \ CachedLevelDeps {modules = mods, packages = pkgs, units = uids} ->
+      (levelledEdge level <$> (homeDeps mods ++ packageDeps pkgs))
+      ++ foldMap (levelledExternalUnitEdges level . (.raw)) uids
+
+    -- Edges to the units outside the build that the module imports at the
+    -- normal level, whose nodes 'externalUnitNodes' adds. Those imported at
+    -- another level get their edge at that level from 'levelDeps'.
     unitDeps = foldMap (externalUnitEdges . (.raw)) units
 
     createNode src name
