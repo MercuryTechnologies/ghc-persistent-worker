@@ -28,6 +28,7 @@ import GHC.Unit.Module.Graph (
   NodeKey (..),
   edgeTargetKey,
   mgMapM,
+  mkModuleEdge,
   mkNormalEdge,
   )
 import GHC.Unit.State (UnitState (..), lookupUnitId)
@@ -63,6 +64,16 @@ externalUnitKey :: NodeKey -> Maybe UnitId
 externalUnitKey = \case
   NodeKey_ExternalUnit unit -> Just unit
   _ -> Nothing
+
+-- | An edge at a level other than the normal one.
+levelledEdge :: OtherLevel -> NodeKey -> ModuleNodeEdge
+levelledEdge = \case
+  SpliceImport -> mkModuleEdge SpliceLevel
+  QuoteImport -> mkModuleEdge QuoteLevel
+
+-- | A module's edge to an external unit it imports at a level other than the normal one.
+levelledExternalUnitEdges :: OtherLevel -> UnitId -> [ModuleNodeEdge]
+levelledExternalUnitEdges level unit = [levelledEdge level (NodeKey_ExternalUnit unit)]
 
 textualImports :: (a, PkgQual, Located ModuleName) -> (PkgQual, Located ModuleName)
 textualImports (_, pkg, name) = (pkg, name)
@@ -152,6 +163,14 @@ edgeOtherLevel _ = Nothing
 -- | GHC 9.10 has no edges to external units.
 externalUnitKey :: NodeKey -> Maybe UnitId
 externalUnitKey _ = Nothing
+
+-- | GHC 9.10 has no import levels, so this is a plain edge.
+levelledEdge :: OtherLevel -> NodeKey -> NodeKey
+levelledEdge _ = id
+
+-- | GHC 9.10's module graph has no edges to external units.
+levelledExternalUnitEdges :: OtherLevel -> UnitId -> [NodeKey]
+levelledExternalUnitEdges _ _ = []
 
 textualImports :: (PkgQual, Located ModuleName) -> (PkgQual, Located ModuleName)
 textualImports = id
