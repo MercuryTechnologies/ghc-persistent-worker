@@ -110,21 +110,60 @@ instance FromJSON CachedPackageDep where
         (Nothing, Just name) -> pure CachedPackageDep {id = name, modules}
         (Nothing, Nothing) -> fail "Neither 'id' nor 'name'"
 
+-- | A level other than the normal one, from GHC 9.14's explicit level imports.
+data OtherLevel =
+  -- | @import splice@
+  SpliceImport
+  |
+  -- | @import quote@
+  QuoteImport
+  deriving stock (Eq, Ord, Show)
+
+-- | A module's imports at one level other than the normal one, in the same
+-- shape as the fields of 'CachedModule'.
+data CachedLevelDeps =
+  CachedLevelDeps {
+    -- | Modules of the same unit, imported at this level.
+    modules :: [JsonFs ModuleName],
+    -- | Modules of other units of the build, imported at this level, grouped
+    -- by unit.
+    packages :: [CachedPackageDep],
+    -- | Units outside of the build, such as toolchain packages, imported at
+    -- this level. GHC 9.14's level graph has an edge at this level to each
+    -- of their nodes.
+    units :: [JsonFs UnitId]
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
 data CachedModule =
   CachedModule {
     source :: OsPath,
+    -- | Modules of the same unit, imported at the normal level.
     modules :: [JsonFs ModuleName],
+    -- | Modules of other units of the build, imported at the normal level,
+    -- grouped by unit.
     packages :: [CachedPackageDep],
     flags :: [String],
-    -- | The units imported by the module that are outside of the build. They
-    -- contain toolchain packages and static units.
+    -- | The units outside of the build that the module imports at the normal
+    -- level. They contain toolchain packages and static units.
     --
     -- GHC 9.14's module graph records them as edges to external units, which a
     -- restored module needs as much as a fresh one.
     --
     -- Set to an empty list when reading CachedModules written before this field
     -- existed.
-    units :: [JsonFs UnitId]
+    units :: [JsonFs UnitId],
+    -- | The imports at splice level and at quote level. A dependency the module
+    -- imports at the normal level too is also in 'modules', 'packages' or
+    -- 'units', and one it imports only at these levels is not, so that a
+    -- restored node gets the edges of the node GHC builds.
+    --
+    -- 'Nothing' in modules without such imports, and in entries written before
+    -- these fields existed. Those entries list every dependency in 'modules',
+    -- 'packages' and 'units', whatever its level.
+    splice :: Maybe CachedLevelDeps,
+    quote :: Maybe CachedLevelDeps
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -139,6 +178,8 @@ instance FromJSON CachedModule where
       packages <- o .: "packages"
       flags <- fold <$> o .:? "flags"
       units <- fold <$> o .:? "units"
+      splice <- o .:? "splice"
+      quote <- o .:? "quote"
       case (mb_source, mb_sources) of
         (Just source, _) -> pure CachedModule {source=toOsPath source,..}
         (Nothing, Just (source : _)) -> pure CachedModule {source=toOsPath source,..}

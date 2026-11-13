@@ -42,10 +42,10 @@ import GHC.Unit.Module.ModSummary (ModSummary (..), isBootSummary, msHsFilePath,
 import GHC.Utils.Error (isEmptyMessages)
 import GHC.Utils.Misc (ordNub)
 import Internal.BuildPlan.External (packageName, unitImports)
-import Internal.BuildPlan.Json (assembleFields, mergePackageDeps)
+import Internal.BuildPlan.Json (ModuleLevelDeps (..), assembleFields, mergePackageDeps)
 import qualified Internal.Compat.FixedNodes as FixedNodes
 import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, downsweepCompat)
-import Internal.Compat.GHC914 (edgeTarget, mapMGM)
+import Internal.Compat.GHC914 (edgeOtherLevel, edgeTarget, externalUnitKey, mapMGM)
 import Internal.Error (eitherMessages)
 import Internal.ValidateNames (validateModuleNames)
 import System.FilePath (splitExtension)
@@ -65,7 +65,7 @@ import Types.BuildPlan (
   packageKey,
   summaryModuleKey,
   )
-import Types.CachedDeps (JsonFs (..))
+import Types.CachedDeps (CachedLevelDeps (..), CachedPackageDep (..), JsonFs (..))
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
@@ -144,6 +144,50 @@ buildPlanModule env perModuleFlags (summary, depKeys) = do
     flags = Map.findWithDefault [] (summaryModuleKey summary) perModuleFlags
 
     (modules, modulesBoot) = partitionEithers $ Map.elems $ Map.restrictKeys env.homeModules depKeys
+
+-- | A module's dependencies at one level other than the normal one, in the shape of the cache.
+--
+-- @env@ supplies the lookups from a dependency's node to what the cache records
+-- for it: 'homeModules' for modules of the active unit, 'packageModules' for
+-- modules of other units, and 'unitNames' for those units' package names.
+-- @keys@ are the nodes that the module's edges at that level point to. A key
+-- that is an external unit's node goes into 'units'.
+levelDeps :: BuildPlanEnv -> [NodeKey] -> CachedLevelDeps
+levelDeps env keys =
+  CachedLevelDeps {
+    modules = [name | Left (_, name) <- Map.elems (Map.restrictKeys env.homeModules keySet)],
+    packages =
+      [
+        CachedPackageDep {id = dep.id, modules = dep.modules}
+        |
+        dep <- modulePackageDeps env.unitNames env.packageModules keySet
+      ],
+    units = [JsonFs unit | Just unit <- externalUnitKey <$> keys]
+  }
+  where
+    keySet = Set.fromList keys
+
+-- | The dependencies of each module of the active unit at levels other than the normal one, and
+-- those of them it imports at no other level.
+moduleLevelDeps :: BuildPlanEnv -> ModuleGraph -> Map ModuleKey ModuleLevelDeps
+moduleLevelDeps env graph =
+  Map.fromList [
+    (
+      summaryModuleKey summary,
+      ModuleLevelDeps {
+        levels = levelDeps env <$> byLevel,
+        otherOnly = levelDeps env (Set.toList (Set.fromList (concat byLevel) Set.\\ normal))
+      }
+    )
+    |
+    CompileNode {deps, summary} <- mgModSummaries' graph,
+    hscActiveUnitId env.hsc_env == ms_unitid summary,
+    let byLevel =
+          Map.fromListWith (flip (<>))
+            [(level, [edgeTarget edge]) | edge <- deps, Just level <- [edgeOtherLevel edge]]
+        normal = Set.fromList [edgeTarget edge | edge <- deps, Nothing <- [edgeOtherLevel edge]],
+    not (Map.null byLevel)
+  ]
 
 -- | Classify a module graph node for the build plan.
 --
@@ -297,7 +341,9 @@ buildPlanModules fields perModuleFlags staticUnits hsc_env graph = do
       staticDeps = fmap (fmap ordNub) . fst <$> parts
       toolchainDeps = snd <$> parts
   bpModules <- Map.fromList <$> liftIO (traverse (buildPlanModule env perModuleFlags) modules)
-  pure (assembleFields fields externalDeps toolchainDeps (mergePackageDeps staticDeps bpModules))
+  pure $
+    assembleFields fields externalDeps (moduleLevelDeps env graph) toolchainDeps
+      (mergePackageDeps staticDeps bpModules)
   where
     (env, modules) = buildPlanEnv hsc_env graph
 

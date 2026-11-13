@@ -7,6 +7,7 @@ import Data.Map (Map)
 import qualified Data.Map.Merge.Strict as Map
 import Data.Map.Merge.Strict (dropMissing, preserveMissing, zipWithMatched)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import GHC.Unit.Module (ModuleName (..), UnitId)
@@ -24,7 +25,13 @@ import Types.BuildPlan (
   PackageKey (..),
   unionPackageDepsDeep,
   )
-import Types.CachedDeps (CachedModule (..), CachedPackageDep (..), JsonFs (..))
+import Types.CachedDeps (
+  CachedLevelDeps (..),
+  CachedModule (..),
+  CachedPackageDep (..),
+  JsonFs (..),
+  OtherLevel (..),
+  )
 
 --- | Modules available for import downstream.
 fieldExposedModules :: Map ModuleKey BuildPlanModule -> Set ModuleKey
@@ -53,29 +60,75 @@ fieldThModules =
   .
   Map.filter \ BuildPlanModule {thEnabled} -> thEnabled
 
--- | The data to restore each module's graph node from: its dependencies
--- within the current unit, on other home units, and on units outside the
--- build.
+-- | A module's dependencies at the levels other than the normal one.
+data ModuleLevelDeps =
+  ModuleLevelDeps {
+    -- | Its dependencies at each level other than the normal one.
+    levels :: Map OtherLevel CachedLevelDeps,
+    -- | Those it imports at no level but these. They stay out of the plain
+    -- lists of its cache entry, which are at the normal level.
+    otherOnly :: CachedLevelDeps
+  }
+
+-- | The data to restore each module's graph node from: its dependencies at the
+-- normal level, within the current unit, on other home units, and on units
+-- outside the build, and those at splice or quote level.
+--
+-- A restored node gets a normal edge for each dependency in the plain lists,
+-- and an edge at splice or quote level for each in 'splice' and 'quote', so
+-- the plain lists leave out what the module imports only at those levels. The
+-- node then has the edges of the node GHC builds. The build plan's other
+-- fields, which Buck orders the compiles by, keep every level.
 fieldCache ::
   -- | Each module's external dependencies, as in 'assembleFields', whose
   -- units become the module's @units@.
   Map ModuleKey (Map UnitId (PackageKey, [ModuleName])) ->
+  -- | Each module's dependencies at splice and quote level.
+  Map ModuleKey ModuleLevelDeps ->
   -- | The modules of the build plan, with their dependencies within the
   -- build.
   Map ModuleKey BuildPlanModule ->
   Map ModuleKey CachedModule
-fieldCache externalDeps =
+fieldCache externalDeps levelDeps =
   Map.mapWithKey basic
   where
     -- TODO do we need boot deps here?
     basic key BuildPlanModule {source, modules, packages, flags} =
       CachedModule {
         source,
-        modules = (snd <$> modules),
-        packages = [CachedPackageDep {id = dep.id, modules = dep.modules} | dep <- packages],
+        modules = filter (`Set.notMember` otherModules) (snd <$> modules),
+        packages = mapMaybe normalPackage packages,
         flags,
-        units = JsonFs <$> Map.keys (Map.findWithDefault Map.empty key externalDeps)
+        units =
+          filter (`Set.notMember` otherUnits)
+            (JsonFs <$> Map.keys (Map.findWithDefault Map.empty key externalDeps)),
+        splice = atLevel SpliceImport,
+        quote = atLevel QuoteImport
       }
+      where
+        moduleLevels = Map.lookup key levelDeps
+
+        atLevel level = Map.lookup level . (.levels) =<< moduleLevels
+
+        (otherModules, otherPackages, otherUnits) = case (.otherOnly) <$> moduleLevels of
+          Nothing -> (Set.empty, Map.empty, Set.empty)
+          Just CachedLevelDeps {modules = ms, packages = ps, units = us} ->
+            (
+              Set.fromList ms,
+              Map.fromListWith (<>) [(p.id, Set.fromList p.modules) | p <- ps],
+              Set.fromList us
+            )
+
+        -- A static unit is outside the build for GHC, so its modules are left
+        -- out with the unit.
+        normalPackage dep
+          | Set.member dep.id otherUnits = Nothing
+          | null kept = Nothing
+          | otherwise = Just CachedPackageDep {id = dep.id, modules = kept}
+          where
+            kept = filter (`Set.notMember` othersOf dep.id) dep.modules
+
+            othersOf unit = Map.findWithDefault Set.empty unit otherPackages
 
 -- | Append externally resolved package deps to each module.
 mergePackageDeps ::
@@ -112,11 +165,13 @@ assembleFields ::
   Set BuildPlanField ->
   -- | The external dependencies.
   Map ModuleKey (Map UnitId (PackageKey, [ModuleName])) ->
+  -- | Each module's dependencies at splice and quote level.
+  Map ModuleKey ModuleLevelDeps ->
   -- | The toolchain dependencies.
   Map ModuleKey (Map UnitId (PackageKey, [ModuleName])) ->
   Map ModuleKey BuildPlanModule ->
   BuildPlanJson
-assembleFields fields externalDeps toolchainDeps modules =
+assembleFields fields externalDeps levelDeps toolchainDeps modules =
   BuildPlanJson {
     legacy = fieldIf FieldLegacy (mergePackageDeps toolchainDeps modules),
     schema = BuildPlanSchema {
@@ -126,7 +181,7 @@ assembleFields fields externalDeps toolchainDeps modules =
       project_deps = fieldIf FieldProjectDeps projectDeps,
       toolchain_deps = fieldIf FieldToolchainDeps toolchainDepsPayload,
       th_modules = fieldIf FieldThModules (fieldThModules modules),
-      cache = fieldIf FieldCache (fieldCache externalDeps modules)
+      cache = fieldIf FieldCache (fieldCache externalDeps levelDeps modules)
     }
   }
   where
