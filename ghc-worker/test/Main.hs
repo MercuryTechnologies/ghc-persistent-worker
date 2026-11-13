@@ -11,6 +11,7 @@ import ByteCodeCacheTest (test_evictBySize, test_touchNoEviction)
 import CacheUnitsTest (test_cacheUnits)
 import DepFilesTest (test_depFiles)
 import ExtUnitResumeTest (test_extUnitResume)
+import LevelResumeTest (test_levelResume)
 import FlagParserTest (test_parseBuckArgs)
 import InterfacePathTest (test_interfacePath)
 import ModuleGraphIncrTest (test_moduleGraphIncr)
@@ -66,7 +67,8 @@ testsGeneral =
     test_sortScheduleOrder,
     test_projectBuild,
     test_buildTh,
-    test_extUnitResume
+    test_extUnitResume,
+    test_levelResume
   ]
   <>
   byteCodeCacheTests
