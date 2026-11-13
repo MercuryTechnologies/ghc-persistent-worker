@@ -123,14 +123,18 @@ expected1 =
         modules = [],
         packages = [],
         flags = [],
-        units = [jui "base"]
+        units = [jui "base"],
+        splice = Nothing,
+        quote = Nothing
       }),
       ("U1M2", CachedModule {
         source = toOsPath "U1M2.hs",
         modules = [jmn "U1M1"],
         packages = [],
         flags = [],
-        units = [jui "base"]
+        units = [jui "base"],
+        splice = Nothing,
+        quote = Nothing
       })
     ]
   }
@@ -165,14 +169,18 @@ expected2 oneshot =
         modules = [],
         packages = [],
         flags = [],
-        units = [jui "base"]
+        units = [jui "base"],
+        splice = Nothing,
+        quote = Nothing
       }),
       ("U2M2", CachedModule {
         source = toOsPath "U2M2.hs",
         modules = [jmn "U2M1"],
         packages = if oneshot then [] else [CachedPackageDep {id = jui "unit1", modules = [jmn "U1M2"]}],
         flags = [],
-        units = [jui "base"] <> if oneshot then [jui "unit1"] else []
+        units = [jui "base"] <> if oneshot then [jui "unit1"] else [],
+        splice = Nothing,
+        quote = Nothing
       })
     ]
   }

@@ -101,7 +101,10 @@ cachedModule env unit BuildModule {key, deps, extDeps} =
     modules = jsonFsFromString . moduleName <$> foldMap toList home,
     packages = cachedPackageDep <$> packages,
     flags = [],
-    units = jsonFsFromString . extDepName <$> toList extDeps
+    units = jsonFsFromString . extDepName <$> toList extDeps,
+    -- The test project describes no import levels. A test that needs them takes them from the worker's build plan.
+    splice = Nothing,
+    quote = Nothing
   }
   where
     allDeps = Set.toList deps

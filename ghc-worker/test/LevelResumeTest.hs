@@ -21,6 +21,8 @@ module LevelResumeTest (test_levelResume) where
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
 import Control.Concurrent.MVar (readMVar)
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.KeyMap as KeyMap
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -28,9 +30,9 @@ import GHC (mkModuleName)
 import GHC.Unit.Module.Graph (ModNodeKeyWithUid (..), ModuleGraphNode (..), ModuleNodeEdge (..), mnKey)
 import GHC.Unit.Types (GenWithIsBoot (..), IsBootInterface (..), stringToUnitId)
 import GHC.Utils.Outputable (ppr, showPprUnsafe)
-import Hedgehog (TestT, annotate, assert)
+import Hedgehog (TestT, annotate, assert, (===))
 import System.IO (hPutStrLn, stderr)
-import System.OsPath.Extra (fromOsPath, (</>))
+import System.OsPath.Extra (fromOsPath, toOsPath, (</>))
 import Test.BuildSystem (mkBuildSystem)
 import Test.Bytecode (enableLazyByteCode)
 import Test.Data.BuildSystem (BuildResult (..), BuildSystem (..))
@@ -47,7 +49,7 @@ import Test.Data.ProjectBuild (ProjectBuild (..), RebuildSet (..), ResumePlan (.
 import Test.Data.Scheduler (RequestFailure (..))
 import Test.Env (newResumeSessionEnv, newSessionEnv, withTestEnv)
 import Test.Gen.ProjectBuild (metaTask, moduleTask, sortSchedule)
-import Test.Path (moduleSourcePath)
+import Test.Path (moduleSourcePath, unitTmpDir)
 import Test.ProjectBuild.Property (assertNoFailures)
 import Test.Resume (executeResumeBuild, setupResumeBuild)
 import Test.Run (unitTest)
@@ -55,6 +57,10 @@ import Test.Source (writeProjectSources)
 import Test.Tasty (TestTree, testGroup)
 import Types.Env (Env (..))
 import Types.Args (Args (..))
+import Types.CachedDeps (CachedLevelDeps (..), JsonFs (..))
+import qualified Types.CachedDeps as Cached
+import GHC.Unit.Types (unitIdString)
+import GHC (moduleNameString)
 import Types.FeatureFlags (FeatureFlags (..))
 import Types.State (WorkerState (..))
 import Types.State.Make (MakeState (..))
@@ -188,6 +194,26 @@ dumpEdgesOfM label env = do
   where
     keyM = ModNodeKeyWithUid (GWIB (mkModuleName "Unit2Module1") NotBoot) (stringToUnitId "unit2")
 
+-- | M's splice-level dependencies in the build plan that the worker wrote in unit 2's metadata step.
+writtenSpliceOfM :: SessionEnv -> IO (Maybe Aeson.Value)
+writtenSpliceOfM env = do
+  plan <- Aeson.decodeFileStrict (fromOsPath (env.tempDir </> unitTmpDir 2 </> toOsPath "dep.json"))
+  pure do
+    Aeson.Object top <- plan
+    Aeson.Object cache <- KeyMap.lookup "cache" top
+    Aeson.Object entry <- KeyMap.lookup "Unit2Module1" cache
+    value <- KeyMap.lookup "splice" entry
+    case value of
+      Aeson.Null -> Nothing
+      _ -> Just value
+
+-- | The splice-level dependencies, as unit and module names.
+spliceTargets :: Aeson.Value -> Maybe [(String, [String])]
+spliceTargets value = case Aeson.fromJSON value of
+  Aeson.Success CachedLevelDeps {packages} ->
+    Just [(unitIdString depId.raw, moduleNameString . (.raw) <$> depModules) | Cached.CachedPackageDep {Cached.id = depId, Cached.modules = depModules} <- packages]
+  Aeson.Error _ -> Nothing
+
 -- | Codes of the diagnostics that failed a build.
 failureCodes :: BuildResult -> [Integer]
 failureCodes result = [fromIntegral c | UnexpectedDiagnostics cs <- Map.elems result.failures, c <- Set.toList cs]
@@ -202,6 +228,9 @@ fresh splice testEnv = do
     buildSys.runInitialBuild (fst (sortSchedule allTasks))
   dumpEdgesOfM "A fresh" env
   assertNoFailures "fresh" result
+  written <- liftIO (writtenSpliceOfM env)
+  annotate ("written splice deps of M: " ++ show written)
+  (spliceTargets =<< written) === Just [("unit1", ["Unit1Module1"])]
 
 -- | Run the initial tasks in one worker, then the rest in a second worker that restores the first build's units.
 resume :: (TestEnv -> TestEnv) -> Splice -> [BuildTask] -> String -> TestEnv -> TestT IO BuildResult
@@ -238,7 +267,7 @@ noIncrModGraph testEnv =
 test_levelResume :: TestTree
 test_levelResume =
   testGroup "explicit level imports in restored units" [
-    withTestEnv \ getEnv -> unitTest "A: fresh, M compiles" do
+    withTestEnv \ getEnv -> unitTest "A: fresh, M compiles, and its build plan records the splice import" do
       fresh HomeInstance =<< liftIO getEnv,
     withTestEnv \ getEnv -> unitTest "B: M's unit restored, level error" do
       result <- resume id HomeInstance unit2Restored "B unit 2 restored" =<< liftIO getEnv

@@ -45,7 +45,7 @@ import Internal.BuildPlan.External (packageName, unitImports)
 import Internal.BuildPlan.Json (assembleFields, mergePackageDeps)
 import qualified Internal.Compat.FixedNodes as FixedNodes
 import Internal.Compat.FixedNodes (pattern CompileNode, pattern FixedNode, downsweepCompat)
-import Internal.Compat.GHC914 (edgeTarget, mapMGM)
+import Internal.Compat.GHC914 (edgeOtherLevel, edgeTarget, externalUnitKey, mapMGM)
 import Internal.Error (eitherMessages)
 import Internal.ValidateNames (validateModuleNames)
 import System.FilePath (splitExtension)
@@ -65,7 +65,7 @@ import Types.BuildPlan (
   packageKey,
   summaryModuleKey,
   )
-import Types.CachedDeps (JsonFs (..))
+import Types.CachedDeps (CachedLevelDeps (..), CachedPackageDep (..), JsonFs (..), OtherLevel)
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
@@ -144,6 +144,34 @@ buildPlanModule env perModuleFlags (summary, depKeys) = do
     flags = Map.findWithDefault [] (summaryModuleKey summary) perModuleFlags
 
     (modules, modulesBoot) = partitionEithers $ Map.elems $ Map.restrictKeys env.homeModules depKeys
+
+-- | A module's dependencies at one level other than the normal one, in the shape of the cache.
+levelDeps :: BuildPlanEnv -> [NodeKey] -> CachedLevelDeps
+levelDeps env keys =
+  CachedLevelDeps {
+    modules = [name | Left (_, name) <- Map.elems (Map.restrictKeys env.homeModules keySet)],
+    packages =
+      [CachedPackageDep {id = dep.id, modules = dep.modules} | dep <- modulePackageDeps env.unitNames env.packageModules keySet],
+    units = [JsonFs unit | Just unit <- externalUnitKey <$> keys]
+  }
+  where
+    keySet = Set.fromList keys
+
+-- | The dependencies of each module of the active unit at levels other than the normal one.
+--
+-- With GHC 9.14's explicit level imports, a module's edge to an import has the import's level, and the level graph
+-- needs it. The build plan's dependency fields list every dependency whatever its level, as Buck needs them all, so
+-- the levels are collected here for the cache. Modules without such edges are left out, and with GHC 9.10 all of them.
+moduleLevelDeps :: BuildPlanEnv -> ModuleGraph -> Map ModuleKey (Map OtherLevel CachedLevelDeps)
+moduleLevelDeps env graph =
+  Map.fromList [
+    (summaryModuleKey summary, levelDeps env <$> byLevel)
+    |
+    CompileNode {deps, summary} <- mgModSummaries' graph,
+    hscActiveUnitId env.hsc_env == ms_unitid summary,
+    let byLevel = Map.fromListWith (flip (<>)) [(level, [edgeTarget edge]) | edge <- deps, Just level <- [edgeOtherLevel edge]],
+    not (Map.null byLevel)
+  ]
 
 -- | Classify a module graph node for the build plan.
 --
@@ -294,7 +322,7 @@ buildPlanModules fields perModuleFlags staticUnits hsc_env graph = do
       staticDeps = fmap (fmap ordNub) . fst <$> parts
       toolchainDeps = snd <$> parts
   bpModules <- Map.fromList <$> liftIO (traverse (buildPlanModule env perModuleFlags) modules)
-  pure (assembleFields fields externalDeps toolchainDeps (mergePackageDeps staticDeps bpModules))
+  pure (assembleFields fields externalDeps (moduleLevelDeps env graph) toolchainDeps (mergePackageDeps staticDeps bpModules))
   where
     (env, modules) = buildPlanEnv hsc_env graph
 

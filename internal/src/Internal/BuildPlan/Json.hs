@@ -24,7 +24,7 @@ import Types.BuildPlan (
   PackageKey (..),
   unionPackageDepsDeep,
   )
-import Types.CachedDeps (CachedModule (..), CachedPackageDep (..), JsonFs (..))
+import Types.CachedDeps (CachedLevelDeps, CachedModule (..), CachedPackageDep (..), JsonFs (..), OtherLevel (..))
 
 --- | Modules available for import downstream.
 fieldExposedModules :: Map ModuleKey BuildPlanModule -> Set ModuleKey
@@ -54,12 +54,13 @@ fieldThModules =
   Map.filter \ BuildPlanModule {thEnabled} -> thEnabled
 
 -- | The data to restore each module's graph node from: its dependencies within the current unit, on other home
--- units, and on units outside the build.
+-- units, and on units outside the build, and those of them at splice or quote level.
 fieldCache ::
   Map ModuleKey (Map UnitId (PackageKey, [ModuleName])) ->
+  Map ModuleKey (Map OtherLevel CachedLevelDeps) ->
   Map ModuleKey BuildPlanModule ->
   Map ModuleKey CachedModule
-fieldCache externalDeps =
+fieldCache externalDeps levelDeps =
   Map.mapWithKey basic
   where
     -- TODO do we need boot deps here?
@@ -69,8 +70,12 @@ fieldCache externalDeps =
         modules = (snd <$> modules),
         packages = [CachedPackageDep {id = dep.id, modules = dep.modules} | dep <- packages],
         flags,
-        units = JsonFs <$> Map.keys (Map.findWithDefault Map.empty key externalDeps)
+        units = JsonFs <$> Map.keys (Map.findWithDefault Map.empty key externalDeps),
+        splice = atLevel SpliceImport,
+        quote = atLevel QuoteImport
       }
+      where
+        atLevel level = Map.lookup level =<< Map.lookup key levelDeps
 
 -- | Append externally resolved package deps to each module.
 mergePackageDeps ::
@@ -96,10 +101,11 @@ mergePackageDeps =
 assembleFields ::
   Set BuildPlanField ->
   Map ModuleKey (Map UnitId (PackageKey, [ModuleName])) ->
+  Map ModuleKey (Map OtherLevel CachedLevelDeps) ->
   Map ModuleKey (Map UnitId (PackageKey, [ModuleName])) ->
   Map ModuleKey BuildPlanModule ->
   BuildPlanJson
-assembleFields fields externalDeps toolchainDeps modules =
+assembleFields fields externalDeps levelDeps toolchainDeps modules =
   BuildPlanJson {
     legacy = fieldIf FieldLegacy (mergePackageDeps toolchainDeps modules),
     schema = BuildPlanSchema {
@@ -109,7 +115,7 @@ assembleFields fields externalDeps toolchainDeps modules =
       project_deps = fieldIf FieldProjectDeps projectDeps,
       toolchain_deps = fieldIf FieldToolchainDeps toolchainDepsPayload,
       th_modules = fieldIf FieldThModules (fieldThModules modules),
-      cache = fieldIf FieldCache (fieldCache externalDeps modules)
+      cache = fieldIf FieldCache (fieldCache externalDeps levelDeps modules)
     }
   }
   where

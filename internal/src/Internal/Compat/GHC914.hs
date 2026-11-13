@@ -9,6 +9,7 @@ import GHC.Iface.Syntax (IfaceBindingX, IfaceMaybeRhs, IfaceTopBndrInfo)
 import GHC.LanguageExtensions (Extension)
 import GHC.Unit.Module.Graph (ModuleGraphNode, NodeKey)
 import GHC.Unit.Types (UnitId)
+import Types.CachedDeps (OtherLevel (..))
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
 
@@ -16,12 +17,13 @@ import Data.Functor ((<&>))
 import qualified Data.Set as Set
 import GHC.Driver.Env (hsc_units)
 import GHC.Driver.Flags (OnOff (..))
+import GHC.Types.Basic (ImportLevel (..))
 import GHC.Unit.Env (UnitEnv (..))
 import GHC.Unit.Home.Graph (unitEnv_keys)
 import GHC.Unit.Info (GenericUnitInfo (..))
 import GHC.Unit.Module.Graph (
   ModuleGraphNode (..),
-  ModuleNodeEdge,
+  ModuleNodeEdge (..),
   ModuleNodeInfo (..),
   NodeKey (..),
   edgeTargetKey,
@@ -48,6 +50,19 @@ externalUnitEdges unit = [mkNormalEdge (NodeKey_ExternalUnit unit)]
 
 edgeTarget :: ModuleNodeEdge -> NodeKey
 edgeTarget = edgeTargetKey
+
+-- | The level of an edge, when it is not the normal one.
+edgeOtherLevel :: ModuleNodeEdge -> Maybe OtherLevel
+edgeOtherLevel ModuleNodeEdge {edgeLevel} = case edgeLevel of
+  NormalLevel -> Nothing
+  SpliceLevel -> Just SpliceImport
+  QuoteLevel -> Just QuoteImport
+
+-- | The unit of an edge to an external unit.
+externalUnitKey :: NodeKey -> Maybe UnitId
+externalUnitKey = \case
+  NodeKey_ExternalUnit unit -> Just unit
+  _ -> Nothing
 
 textualImports :: (a, PkgQual, Located ModuleName) -> (PkgQual, Located ModuleName)
 textualImports (_, pkg, name) = (pkg, name)
@@ -129,6 +144,14 @@ externalUnitEdges _ = []
 
 edgeTarget :: NodeKey -> NodeKey
 edgeTarget = id
+
+-- | GHC 9.10 has no import levels.
+edgeOtherLevel :: NodeKey -> Maybe OtherLevel
+edgeOtherLevel _ = Nothing
+
+-- | GHC 9.10 has no edges to external units.
+externalUnitKey :: NodeKey -> Maybe UnitId
+externalUnitKey _ = Nothing
 
 textualImports :: (PkgQual, Located ModuleName) -> (PkgQual, Located ModuleName)
 textualImports = id

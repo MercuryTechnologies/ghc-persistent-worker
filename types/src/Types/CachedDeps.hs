@@ -110,6 +110,25 @@ instance FromJSON CachedPackageDep where
         (Nothing, Just name) -> pure CachedPackageDep {id = name, modules}
         (Nothing, Nothing) -> fail "Neither 'id' nor 'name'"
 
+-- | A level other than the normal one, from GHC 9.14's explicit level imports.
+data OtherLevel =
+  -- | @import splice@
+  SpliceImport
+  |
+  -- | @import quote@
+  QuoteImport
+  deriving stock (Eq, Ord, Show)
+
+-- | A module's imports at one level other than the normal one, in the same shape as the fields of 'CachedModule'.
+data CachedLevelDeps =
+  CachedLevelDeps {
+    modules :: [JsonFs ModuleName],
+    packages :: [CachedPackageDep],
+    units :: [JsonFs UnitId]
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
 data CachedModule =
   CachedModule {
     source :: OsPath,
@@ -119,7 +138,12 @@ data CachedModule =
     -- | The units outside the build that the module imports, toolchain packages and static units alike. GHC 9.14's
     -- module graph records them as edges to external units, which a restored module needs as much as a fresh one.
     -- Absent in entries written before this field existed, and read as empty then.
-    units :: [JsonFs UnitId]
+    units :: [JsonFs UnitId],
+    -- | The imports at splice level and at quote level. 'modules', 'packages' and 'units' list them too, as Buck needs
+    -- every dependency, but GHC 9.14's level graph also needs their levels, which the other fields don't keep.
+    -- 'Nothing' in modules without such imports, and in entries written before these fields existed.
+    splice :: Maybe CachedLevelDeps,
+    quote :: Maybe CachedLevelDeps
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -134,6 +158,8 @@ instance FromJSON CachedModule where
       packages <- o .: "packages"
       flags <- fold <$> o .:? "flags"
       units <- fold <$> o .:? "units"
+      splice <- o .:? "splice"
+      quote <- o .:? "quote"
       case (mb_source, mb_sources) of
         (Just source, _) -> pure CachedModule {source=toOsPath source,..}
         (Nothing, Just (source : _)) -> pure CachedModule {source=toOsPath source,..}
