@@ -103,7 +103,8 @@ runCompile env mkArgs key = do
     result <- withGhcMakeModule Compiled target compileEnv \ _targetSpec -> do
       modifyGlobalFlags \ d -> d {ghcMode = CompManager}
       fixedNodeFlags <- liftIO ((.make.fixedNodeFlags) <$> readMVar compileEnv.state)
-      compileModuleWithDepsInHpt compileEnv.log fixedNodeFlags (TargetModule target)
+      compileModuleWithDepsInHpt
+        compileEnv.log compileEnv.state fixedNodeFlags (TargetModule target)
     pure (isJust result)
   where
     (args, codes) = mkArgs key

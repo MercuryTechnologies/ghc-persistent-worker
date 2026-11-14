@@ -21,7 +21,7 @@ import GHC (
   getSessionDynFlags,
   setSession,
   )
-import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId, hscUpdateLoggerFlags)
+import GHC.Driver.Env (HscEnv (..), hscActiveUnitId, hscSetActiveUnitId, hscUpdateLoggerFlags)
 import GHC.Driver.Monad (modifySession, withSession, withTempSession)
 import GHC.Unit (UnitId)
 import GHC.Utils.Panic (throwGhcExceptionIO)
@@ -33,6 +33,7 @@ import Internal.Log (logTimed)
 import Internal.Metadata.Static (prepareStaticSession)
 import Internal.Session (runSession, withDynFlags, withGhcInSession)
 import Internal.State (updateMakeStateVar)
+import Internal.State.ExtraLibs (recordExtraLibs, stripLibraryInputs)
 import Internal.State.Make (insertUnitEnv, loadState, storeModuleGraph)
 import Internal.State.Stats (logMemStats)
 import Internal.State.UnitIndex (restoreUnitIndex)
@@ -71,10 +72,14 @@ metadataTempSession =
 -- | Add a new home unit to the current session using the provided 'DynFlags'.
 -- The flags have been constructed from Buck CLI args passed to the metadata step, which, crucially, contain the package
 -- DB arguments for dependencies.
+--
+-- The unit enters the session without its @-l@ options, which
+-- 'prepareMetadataSession' records in the state instead.
+-- See "Internal.State.ExtraLibs".
 addHomeUnit :: DynFlags -> Ghc UnitId
 addHomeUnit dflags = do
   hsc_env <- getSession
-  (hsc_env1, unit) <- liftIO $ addHomeUnitTo hsc_env dflags
+  (hsc_env1, unit) <- liftIO $ addHomeUnitTo hsc_env (stripLibraryInputs dflags)
   setSession hsc_env1
   pure unit
 
@@ -95,7 +100,9 @@ prepareMetadataSession env dflags = do
   unless env.args.isBinary storeNewUnit
   pure unit
   where
-    storeNewUnit = withSession \ hsc_env -> liftIO $ updateMakeStateVar env.state (insertUnitEnv hsc_env)
+    storeNewUnit = withSession \ hsc_env ->
+      liftIO $ updateMakeStateVar env.state $
+        recordExtraLibs (hscActiveUnitId hsc_env) dflags . insertUnitEnv hsc_env
 
 setActiveUnit :: UnitId -> Ghc ()
 setActiveUnit unit = modifySession (hscUpdateLoggerFlags . hscSetActiveUnitId unit)

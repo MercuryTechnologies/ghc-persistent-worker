@@ -122,6 +122,7 @@ test-suite ghc-worker-test
     BuildPlanTest.Test1,
     BuildPlanTest.Test2,
     BuildThTest,
+    ExtraLibsTest,
     ByteCodeCacheTest,
     DepFilesTest,
     FlagParserTest,
@@ -137,6 +138,7 @@ test-suite ghc-worker-test
     buck-worker-types,
     bytestring,
     containers,
+    directory,
     exceptions,
     extra,
     filepath,
@@ -146,6 +148,7 @@ test-suite ghc-worker-test
     ghc-worker,
     ghc-worker-test-common,
     hedgehog >= 1.5,
+    process,
     tasty >= 1.5.4,
     tasty-hedgehog,
     text

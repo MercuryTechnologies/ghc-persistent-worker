@@ -54,7 +54,7 @@ import Internal.DynFlags.Parse (parseDynFlags)
 import Internal.Error (eitherMessages, unknownErrors)
 import Internal.Log (logDebugD, logTimed, logTimedD)
 import Internal.State (updateMakeState)
-import Internal.State.ExtraLibs (recordExtraLibs)
+import Internal.State.ExtraLibs (recordExtraLibs, stripLibraryInputs)
 import qualified Internal.State.Make as Make
 import Internal.State.Make (insertUnitEnv, rebuildModuleGraph, storeFixedNodeFlags, storeModuleGraphNodes)
 import System.OsPath.Extra (OsPath, fromOsPath)
@@ -280,7 +280,7 @@ loadCachedHomeUnit logger useFixedNodes useIncrModGraph hsc_env0 unit (cachedUni
   logTimedD logger (text "Loading cached home unit" <+> quotes (ppr unit)) do
     traverse_ loadCachedArgs cachedUnit.unit_buck_args
     hsc_env2 <- liftIO do
-      (hsc_env1, _) <- addHomeUnitTo hsc_env0 dflags
+      (hsc_env1, _) <- addHomeUnitTo hsc_env0 (stripLibraryInputs dflags)
       pure (hscSetActiveUnitId unit hsc_env1)
 
     modify (updateMakeState (recordExtraLibs unit dflags . insertUnitEnv hsc_env2))
@@ -306,7 +306,9 @@ insertPreparedUnit logger features hsc_env pu = do
   logDebugD logger (text "Loading cached unit" <+> quotes (ppr pu.unitId))
   traverse_ loadCachedArgs pu.buckArgs
   hsc_env2 <- liftIO do
-    unit_env <- insertHomeUnit pu.unitId pu.dflags pu.dbs pu.unitState pu.homeUnit hsc_env.hsc_unit_env
+    unit_env <-
+      insertHomeUnit pu.unitId (stripLibraryInputs pu.dflags) pu.dbs pu.unitState pu.homeUnit
+        hsc_env.hsc_unit_env
     let hsc_env1 = hsc_env {hsc_unit_env = unit_env}
     pure (hscSetActiveUnitId pu.unitId hsc_env1)
 

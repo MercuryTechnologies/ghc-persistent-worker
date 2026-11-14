@@ -27,7 +27,6 @@ import GHC (
 import GHC.Driver.Env (HscEnv (..), hscSetActiveUnitId)
 import GHC.Driver.Main (initHscEnv)
 import GHC.Driver.Monad (Session (Session), modifySession, unGhc)
-import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Types.SrcLoc (Located)
 import GHC.Unit (moduleUnitId)
 import GHC.Utils.Logger (getLogger)
@@ -41,6 +40,7 @@ import Internal.Env (withDebugLog)
 import Internal.Error (handleExceptions)
 import Internal.Log (logDebugD)
 import Internal.State (withState)
+import Internal.State.ExtraLibs (initializePlugins)
 import Internal.State.Linkables (installLinkables)
 import Prelude hiding (log)
 import System.OsPath.Extra (OsPath, fromOsPath, toOsPath)
@@ -185,7 +185,7 @@ withGhc ::
 withGhc targetWrapper env prog =
   runSession env $ withGhcInSession \ srcs ->
     targetWrapper env srcs \ target -> do
-      initializeSessionPlugins
+      initializePlugins env.state
       prog target
 
 -- | Run a @Ghc@ program to completion with a fresh clone of the base session.
@@ -225,7 +225,7 @@ withGhcMakeModule interp target =
     ensureNoArgs srcs
     logDebugD env.log (text "Compiling module target" <+> ppr target)
     withState env.log env.args.features env.state (setup env dflags0) do
-      initializeSessionPlugins
+      initializePlugins env.state
       run (targetSpec target)
   where
     setup env dflags0 (state0, hsc_env0) =

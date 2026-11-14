@@ -108,7 +108,7 @@ dispatch hooks env args =
 
     compileModule target = do
       fixedNodeFlags <- liftIO (fmap (.make.fixedNodeFlags) (readMVar env.state))
-      compileModuleWithDepsInHpt env.log fixedNodeFlags target
+      compileModuleWithDepsInHpt env.log env.state fixedNodeFlags target
 
     withTarget f (target :: TargetSpec) =
       reifyGhc $ \session -> do

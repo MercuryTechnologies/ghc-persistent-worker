@@ -25,7 +25,6 @@ import GHC.Driver.Env (HscEnv (..), hscInsertHPT)
 import GHC.Driver.Errors.Types (GhcMessage (..))
 import GHC.Driver.Make (summariseFile)
 import GHC.Driver.Pipeline (compileOne)
-import GHC.Runtime.Loader (initializeSessionPlugins)
 import GHC.Unit.Env (ue_unsafeHomeUnit)
 import GHC.Unit.Home.ModInfo (HomeModInfo (..), HomeModLinkable (..))
 import GHC.Unit.Module.Graph (ModuleNodeInfo (..), NodeKey (..), mnKey)
@@ -39,8 +38,11 @@ import Internal.Debug (pprModuleFull)
 import Internal.DynFlags (mkTargetAsInterpreted)
 import Internal.Error (eitherMessages, noteGhc)
 import Internal.Log (logTimedD)
+import Internal.State.ExtraLibs (initializePlugins, prepareLoader, withLibraryLoading)
 import System.OsPath.Extra (fromOsPath)
+import Control.Concurrent (MVar)
 import Types.Log (Logger (..))
+import Types.State (WorkerState)
 import Types.State.Make (FixedNodeFlags)
 import Types.Target (ModuleTarget (..), Target (..), TargetSpec (..))
 
@@ -150,18 +152,21 @@ ensureSummary logger fixedNodeFlags hsc_env = \case
 -- - Store the resulting @HomeModInfo@ in the current unit's home package table.
 compileModuleWithDepsInHpt ::
   Logger ->
+  MVar WorkerState ->
   FixedNodeFlags ->
   TargetSpec ->
   Ghc (Maybe ModIface)
-compileModuleWithDepsInHpt logger fixedNodeFlags target =
+compileModuleWithDepsInHpt logger stateVar fixedNodeFlags target =
   logTimedD logger "Compiling" do
-    initializeSessionPlugins
+    initializePlugins stateVar
     hsc_env <- getSession
     hmi <- liftIO do
       summary <- ensureSummary logger fixedNodeFlags hsc_env target
-      let hsc_env'
-            | TargetModuleInterp _ <- target = mkTargetAsInterpreted (ms_mod summary) hsc_env
-            | otherwise = hsc_env
+      hsc_env' <- withLibraryLoading stateVar case target of
+        TargetModuleInterp _ -> mkTargetAsInterpreted (ms_mod summary) hsc_env
+        _ -> hsc_env
+      -- The module's own flags may name a plugin.
+      prepareLoader stateVar hsc_env' summary.ms_hspp_opts
       result <- compileOne hsc_env' (forceRecomp summary) 1 100000 Nothing (HomeModLinkable Nothing Nothing)
       cleanCurrentModuleTempFilesMaybe (hsc_logger hsc_env') (hsc_tmpfs hsc_env') summary.ms_hspp_opts
       pure result

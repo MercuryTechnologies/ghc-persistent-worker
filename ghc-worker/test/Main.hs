@@ -5,6 +5,7 @@ module Main where
 import qualified BuildPlanTest.Test1 (test_buildPlan)
 import qualified BuildPlanTest.Test2 (test_buildPlan)
 import BuildThTest (test_buildTh)
+import ExtraLibsTest (test_extraLibs)
 #if defined(LINKABLES)
 import ByteCodeCacheTest (test_evictBySize, test_touchNoEviction)
 #endif
@@ -60,7 +61,8 @@ testsGeneral =
     test_interfacePath,
     test_sortScheduleOrder,
     test_projectBuild,
-    test_buildTh
+    test_buildTh,
+    test_extraLibs
   ]
   <>
   byteCodeCacheTests

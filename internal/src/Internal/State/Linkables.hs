@@ -130,6 +130,10 @@ addLazyByteCode logger stateVar hsc_env = \case
 -- | Load the extra libraries of the units of the given modules.
 --
 -- This is needed when a splice needs those modules linked.
+-- In a compile, 'Internal.State.ExtraLibs.withLibraryLoading' has loaded
+-- them already, before GHC evaluated any code.
+-- This is a second guard on the link itself, for a link that does not go through
+-- that hook, such as evaluating bytecode in a module's context (e.g. for testing).
 ensureLibraries :: MVar WorkerState -> HscEnv -> Interp -> [LinkModule] -> IO ()
 ensureLibraries stateVar hsc_env interp deps =
   loadUnitLibraries stateVar hsc_env interp unitIds
