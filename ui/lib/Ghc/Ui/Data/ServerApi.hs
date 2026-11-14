@@ -1,5 +1,7 @@
 module Ghc.Ui.Data.ServerApi where
 
+import qualified Ghc.Ui.Data.Session as Session
+import Ghc.Ui.Data.WorkerId (WorkerId)
 import Network.GRPC.Client (Connection)
 import Types.Target (TargetSpec)
 
@@ -8,5 +10,7 @@ import Types.Target (TargetSpec)
 -- @proto-lens@ into scope, which clash with @generic-lens@.
 data ServerApi =
   ServerApi {
-    triggerRebuild :: Connection -> TargetSpec -> IO ()
+    -- | Ask a worker to rebuild a target, in the background.
+    -- A failure is reported to the session as 'Session.RebuildFailed'.
+    triggerRebuild :: Session.Id -> WorkerId -> Connection -> TargetSpec -> IO ()
   }

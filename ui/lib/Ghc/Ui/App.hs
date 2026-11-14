@@ -8,8 +8,8 @@ import Brick.Widgets.Edit (editFocusedAttr)
 import Brick.Widgets.List (listSelectedAttr, listSelectedFocusedAttr)
 import Ghc.Ui.Data.Main (MainEvent, MainState (..))
 import Ghc.Ui.Data.Name (Name (..))
+import Ghc.Ui.Data.ServerApi (ServerApi)
 import Ghc.Ui.Event.Main (handleEvent)
-import Ghc.Ui.Grpc (serverApi)
 import Ghc.Ui.Render.Main (renderMain)
 import Graphics.Vty (bold, defAttr, dim, withStyle)
 import Graphics.Vty.Attributes.Color (blue, brightBlack, brightWhite)
@@ -25,8 +25,8 @@ attrMapMain _ =
     (canDebugAttr, withStyle defAttr bold)
   ]
 
-app :: App MainState MainEvent Name
-app =
+app :: ServerApi -> App MainState MainEvent Name
+app serverApi =
   App {
     appDraw = renderMain,
     appStartEvent = pure (),

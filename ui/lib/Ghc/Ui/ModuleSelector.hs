@@ -61,3 +61,9 @@ removeWorker :: WorkerId -> EventM Name State ()
 removeWorker wid = do
   modifying listElementsL \mods ->
     fmap (\m -> if m.fromWorker == wid then m{disabled = True} else m) mods
+
+-- | Make the target selectable for a rebuild again, after the worker did not accept one.
+enableModule :: WorkerId -> TargetSpec -> EventM Name State ()
+enableModule wid target =
+  modifying listElementsL $ fmap \ m ->
+    if m.fromWorker == wid && m.modTarget == target then m {disabled = False} else m

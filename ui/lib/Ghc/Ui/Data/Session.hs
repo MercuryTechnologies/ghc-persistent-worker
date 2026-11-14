@@ -12,6 +12,7 @@ import Ghc.Ui.Data.WorkerId (WorkerId)
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Network.GRPC.Client (Connection)
 import Types.Api (Event)
+import Types.Target (TargetSpec)
 
 newtype Id =
   Id { text :: Text }
@@ -60,7 +61,11 @@ data SessionState =
   }
   deriving stock (Generic)
 
-data SessionEvent = InstrEvent WorkerId Event
+data SessionEvent =
+  InstrEvent WorkerId Event
+  |
+  -- | The worker did not accept a rebuild of the target, for the reason in the message.
+  RebuildFailed WorkerId TargetSpec Text
 
 initialState :: String -> UTCTime -> SessionState
 initialState title startTime =

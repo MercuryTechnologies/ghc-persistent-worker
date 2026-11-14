@@ -59,6 +59,7 @@ library
     Ghc.Ui.Run
     Ghc.Ui.Utils
   build-depends:
+    aeson,
     binary,
     brick,
     buck-worker-internal,

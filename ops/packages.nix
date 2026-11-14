@@ -142,6 +142,7 @@
       library = {
         enable = true;
         dependencies = [
+          "aeson"
           "binary"
           "brick"
           "buck-worker-internal"

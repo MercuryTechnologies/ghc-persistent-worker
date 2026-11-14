@@ -12,13 +12,23 @@ import Ghc.Ui.Data.WorkerId (WorkerId)
 import Lens.Micro.Platform (modifying, preuse, use, (.=), (<&>))
 import Types.Target (TargetSpec (..))
 
-addTask :: TargetSpec -> WorkerId -> Bool -> EventM Name TasksState ()
-addTask target worker debuggable = do
+-- | Insert a task, the debuggable ones first, and keep the selection on the same task.
+insertTask :: Maybe String -> TargetSpec -> WorkerId -> Bool -> EventM Name TasksState ()
+insertTask failure target worker debuggable = do
   startTime <- liftIO $ getCurrentTime
   tasks <- use listElementsL
   let i = if debuggable then 0 else fromMaybe 0 (Seq.findIndexL (not . (.debuggable)) tasks)
-  listElementsL .= Seq.insertAt i (Task {target, startTime, failure = Nothing, worker, debuggable}) tasks
+  listElementsL .= Seq.insertAt i (Task {target, startTime, failure, worker, debuggable}) tasks
   modifying listSelectedL (Just . maybe i (\i' -> if i' >= i then i' + 1 else i'))
+
+addTask :: TargetSpec -> WorkerId -> Bool -> EventM Name TasksState ()
+addTask =
+  insertTask Nothing
+
+-- | Show a rebuild that the worker did not accept as a failed task.
+addFailedRebuild :: TargetSpec -> WorkerId -> String -> EventM Name TasksState ()
+addFailedRebuild target worker message =
+  insertTask (Just message) target worker False
 
 removeTask :: TargetSpec -> EventM Name TasksState (Maybe UTCTime)
 removeTask target = do

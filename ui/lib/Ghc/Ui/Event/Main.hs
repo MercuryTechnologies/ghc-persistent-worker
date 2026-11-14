@@ -4,7 +4,7 @@ import Brick.Main (getVtyHandle, halt, suspendAndResume')
 import Brick.Types (BrickEvent (..), EventM)
 import Brick.Widgets.List (listSelectedElementL)
 import Control.Monad.IO.Class (liftIO)
-import Data.Foldable (traverse_)
+import Data.Foldable (for_, traverse_)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (maybeToList)
@@ -23,7 +23,7 @@ import Ghc.Ui.GhcDebug (debug)
 import Ghc.Ui.ModuleSelector qualified as ModuleSelector
 import Graphics.Vty (Event (..), Key (..), Output (..), Vty (..))
 import Internal.Debug (debugSocketPath)
-import Lens.Micro.Platform (Traversal', _2, use, zoom, (.=))
+import Lens.Micro.Platform (Traversal', _1, _2, preuse, use, zoom, (.=))
 import Types.Target (TargetSpec)
 
 initialState :: MainState
@@ -76,8 +76,10 @@ forWorkers spec f = do
 
 triggerBuild :: ServerApi -> WorkerId -> TargetSpec -> EventM Name MainState ()
 triggerBuild api workerId target = do
-  forWorkers (Just workerId) \ worker ->
-    liftIO $ api.triggerRebuild worker.connection target
+  session <- preuse (#sessions . listSelectedElementL . _1)
+  for_ session \ sid ->
+    forWorkers (Just workerId) \ worker ->
+      liftIO $ api.triggerRebuild sid workerId worker.connection target
 
 handleMainEvent :: ServerApi -> MainEvent -> EventM Name MainState ()
 handleMainEvent api = \case

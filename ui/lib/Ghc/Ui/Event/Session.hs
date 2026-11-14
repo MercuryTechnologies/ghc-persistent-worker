@@ -6,6 +6,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
 import Data.Generics.Labels ()
 import qualified Data.Map.Strict as Map
+import qualified Data.Text as Text
 import Data.Time (diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
 import Ghc.Ui.Data.Name (Name)
 import Ghc.Ui.Data.Session (SessionEvent (..), SessionState (..), Stats (..), Worker (..))
@@ -45,6 +46,9 @@ handleEvent (InstrEvent wid evt) =
           cpu_ns = cpuNs
         }
     Api.Halt -> pure ()
+handleEvent (RebuildFailed wid target message) = do
+  zoom #modules $ ModuleSelector.enableModule wid target
+  zoom #activeTasks $ Tasks.addFailedRebuild target wid ("Rebuild failed: " ++ Text.unpack message)
 
 removeWorker :: WorkerId -> EventM Name SessionState ()
 removeWorker target = do
