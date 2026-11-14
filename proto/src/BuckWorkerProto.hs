@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module BuckWorkerProto (module Proto.Worker, module Proto.Instrument) where
+module BuckWorkerProto (module Proto.Worker) where
 
 import Network.GRPC.Common (
   NoMetadata,
@@ -10,12 +10,7 @@ import Network.GRPC.Common (
  )
 import Network.GRPC.Common.Protobuf (Protobuf)
 import Proto.Worker
-import Proto.Instrument hiding (Empty)
 
 type instance RequestMetadata (Protobuf Worker _) = NoMetadata
 type instance ResponseInitialMetadata (Protobuf Worker _) = NoMetadata
 type instance ResponseTrailingMetadata (Protobuf Worker _) = NoMetadata
-
-type instance RequestMetadata (Protobuf Instrument _) = NoMetadata
-type instance ResponseInitialMetadata (Protobuf Instrument _) = NoMetadata
-type instance ResponseTrailingMetadata (Protobuf Instrument _) = NoMetadata

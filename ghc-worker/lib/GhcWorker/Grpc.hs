@@ -9,24 +9,17 @@ import Data.Aeson (eitherDecodeStrict, encode)
 import Data.Binary qualified as Binary
 import Data.ByteString (toStrict)
 import Data.ByteString.Lazy qualified as LBS
-import Data.Foldable (for_)
 import Data.Map.Strict qualified as Map
 import Data.Text (pack)
-import Data.Text qualified as Text
 import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import Network.GRPC.Common (NextElem (..))
 import Network.GRPC.Common.Protobuf (Proto, defMessage, (&), (.~))
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
-import Network.GRPC.Server.StreamType (Methods (..), mkNonStreaming, mkServerStreaming, simpleMethods)
-import qualified Proto.Instrument as Instr
-import Proto.Instrument (Instrument)
-import Proto.Instrument_Fields qualified as Instr
+import Network.GRPC.Server.StreamType (Methods (..))
 import Proto.Worker (Encoded, Worker)
 import Proto.Worker_Fields qualified as Fields
 import Types.Api (ApiRequest (..), ApiResponse (..), Event (..))
-import Types.Grpc (CommandEnv (..), RequestArgs (..))
 import Types.State (WorkerState (..))
-import Types.Target (TargetSpec (..))
 
 -- | Fetch statistics about the current state of the RTS for instrumentation.
 mkStats :: WorkerState -> IO Event
@@ -40,49 +33,6 @@ mkStats _ = do
       , gcCpuNs = fromIntegral s.gc_cpu_ns
       , cpuNs = fromIntegral s.cpu_ns
       }
-
--- | Implementation of a streaming grapesy handler that sends instrumentation statistics pulled from the provided
--- channel to the client.
-notifyMe ::
-  MVar WorkerState ->
-  Chan Event ->
-  (NextElem (Proto Instr.Event) -> IO ()) ->
-  IO ()
-notifyMe stateVar chan callback = do
-  state <- readMVar stateVar
-  myChan <- dupChan chan
-  stats <- mkStats state
-  callback $ NextElem $
-    defMessage
-      & Instr.encoded .~ toStrict (Binary.encode stats)
-  forever $ do
-    msg <- readChan myChan
-    callback $ NextElem $
-      defMessage
-        & Instr.encoded .~ toStrict (Binary.encode msg)
-
--- | Trigger a rebuild for the given target.
-triggerRebuild ::
-  MVar WorkerState ->
-  (CommandEnv -> RequestArgs -> IO ()) ->
-  Proto Instr.RebuildRequest ->
-  IO (Proto Instr.Empty)
-triggerRebuild stateVar recompile target = do
-  state <- readMVar stateVar
-  let margs = Map.lookup (TargetUnknown (Text.unpack target.target)) state.targetArgs
-  for_ margs (uncurry recompile)
-  pure defMessage
-
--- | A grapesy server that streams instrumentation data from the provided channel.
-instrumentMethods ::
-  Chan Event ->
-  MVar WorkerState ->
-  (CommandEnv -> RequestArgs -> IO ()) ->
-  Methods IO (ProtobufMethodsOf Instrument)
-instrumentMethods chan stateVar recompile =
-  simpleMethods
-    (mkServerStreaming (const (notifyMe stateVar chan)))
-    (mkNonStreaming (triggerRebuild stateVar recompile))
 
 -- | Implementation of the streaming @Events@ method, forwarding the 'Chan' to each consumer.
 events ::
