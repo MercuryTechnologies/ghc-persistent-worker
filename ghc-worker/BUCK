@@ -61,6 +61,7 @@ haskell_library(
         select_map(flags, lambda fs: flag_set(flag_config, fs)),
     strip_prefix = ["lib"],
     deps = [
+        "//haskell:aeson",
         "//haskell:async",
         "//haskell:base",
         "//haskell:binary",

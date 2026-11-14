@@ -3,13 +3,13 @@
 module GhcWorker.Run where
 
 import BuckWorkerProto (Instrument, Worker)
-import Common.Grpc (GrpcHandler (..), fromGrpcHandler)
+import Common.Grpc (GrpcHandler (..))
 import Control.Applicative (many, optional, (<|>))
 import Control.Concurrent (MVar, newChan, newMVar)
 import Control.Concurrent.Chan (Chan)
 import Data.Functor (void)
 import GhcWorker.GhcHandler (ghcHandler)
-import GhcWorker.Grpc (instrumentMethods)
+import GhcWorker.Grpc (ghcMethods, instrumentMethods)
 import GhcWorker.Instrumentation (WorkerStatus (..), toGrpcHandler)
 import GhcWorker.Orchestration (CreateMethods (..), runCentralGhcSpawned)
 import Internal.State (newState)
@@ -126,7 +126,7 @@ createGhcMethods state features status traceId instrChan =
   let handler = toGrpcHandler (ghcHandler state features traceId) status state instrChan
       voidRun commandEnv requestArgs =
         void $ handler.run commandEnv requestArgs
-  in pure (voidRun, fromGrpcHandler handler)
+  in pure (voidRun, ghcMethods state instrChan handler)
 
 -- | Main function for running the default persistent worker using the provided server socket path and CLI options.
 runWorker :: CliOptions -> IO ()

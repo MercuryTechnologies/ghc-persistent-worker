@@ -68,6 +68,7 @@ library
     GhcWorker.Run
   build-depends:
     async,
+    aeson,
     binary,
     buck-worker-grpc,
     buck-worker-internal,

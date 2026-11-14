@@ -4,10 +4,8 @@
 {-# OPTIONS_GHC -Wno-duplicate-exports#-}
 {-# OPTIONS_GHC -Wno-dodgy-exports#-}
 module Proto.Worker (
-        Worker(..), ExecuteCancel(), ExecuteCommand(),
-        ExecuteCommand'EnvironmentEntry(), ExecuteEvent(),
-        ExecuteEvent'Data(..), _ExecuteEvent'Command, _ExecuteEvent'Cancel,
-        ExecuteResponse()
+        Worker(..), Empty(), Encoded(), ExecuteCommand(),
+        ExecuteCommand'EnvironmentEntry(), ExecuteResponse()
     ) where
 import qualified Control.DeepSeq
 import qualified Data.ProtoLens.Prism
@@ -36,32 +34,30 @@ import qualified Data.Vector.Unboxed
 import qualified Text.Read
 {- | Fields :
       -}
-data ExecuteCancel
-  = ExecuteCancel'_constructor {_ExecuteCancel'_unknownFields :: !Data.ProtoLens.FieldSet}
+data Empty
+  = Empty'_constructor {_Empty'_unknownFields :: !Data.ProtoLens.FieldSet}
   deriving stock (Prelude.Eq, Prelude.Ord)
-instance Prelude.Show ExecuteCancel where
+instance Prelude.Show Empty where
   showsPrec _ __x __s
     = Prelude.showChar
         '{'
         (Prelude.showString
            (Data.ProtoLens.showMessageShort __x) (Prelude.showChar '}' __s))
-instance Data.ProtoLens.Message ExecuteCancel where
-  messageName _ = Data.Text.pack "worker.ExecuteCancel"
+instance Data.ProtoLens.Message Empty where
+  messageName _ = Data.Text.pack "worker.Empty"
   packedMessageDescriptor _
     = "\n\
-      \\rExecuteCancel"
+      \\ENQEmpty"
   packedFileDescriptor _ = packedFileDescriptor
   fieldsByTag = let in Data.Map.fromList []
   unknownFields
     = Lens.Family2.Unchecked.lens
-        _ExecuteCancel'_unknownFields
-        (\ x__ y__ -> x__ {_ExecuteCancel'_unknownFields = y__})
-  defMessage
-    = ExecuteCancel'_constructor {_ExecuteCancel'_unknownFields = []}
+        _Empty'_unknownFields
+        (\ x__ y__ -> x__ {_Empty'_unknownFields = y__})
+  defMessage = Empty'_constructor {_Empty'_unknownFields = []}
   parseMessage
     = let
-        loop ::
-          ExecuteCancel -> Data.ProtoLens.Encoding.Bytes.Parser ExecuteCancel
+        loop :: Empty -> Data.ProtoLens.Encoding.Bytes.Parser Empty
         loop x
           = do end <- Data.ProtoLens.Encoding.Bytes.atEnd
                if end then
@@ -88,15 +84,123 @@ instance Data.ProtoLens.Message ExecuteCancel where
                                      Data.ProtoLens.unknownFields (\ !t -> (:) y t) x)
       in
         (Data.ProtoLens.Encoding.Bytes.<?>)
-          (do loop Data.ProtoLens.defMessage) "ExecuteCancel"
+          (do loop Data.ProtoLens.defMessage) "Empty"
   buildMessage
     = \ _x
         -> Data.ProtoLens.Encoding.Wire.buildFieldSet
              (Lens.Family2.view Data.ProtoLens.unknownFields _x)
-instance Control.DeepSeq.NFData ExecuteCancel where
+instance Control.DeepSeq.NFData Empty where
+  rnf
+    = \ x__ -> Control.DeepSeq.deepseq (_Empty'_unknownFields x__) ()
+{- | Fields :
+     
+         * 'Proto.Worker_Fields.payload' @:: Lens' Encoded Data.ByteString.ByteString@ -}
+data Encoded
+  = Encoded'_constructor {_Encoded'payload :: !Data.ByteString.ByteString,
+                          _Encoded'_unknownFields :: !Data.ProtoLens.FieldSet}
+  deriving stock (Prelude.Eq, Prelude.Ord)
+instance Prelude.Show Encoded where
+  showsPrec _ __x __s
+    = Prelude.showChar
+        '{'
+        (Prelude.showString
+           (Data.ProtoLens.showMessageShort __x) (Prelude.showChar '}' __s))
+instance Data.ProtoLens.Field.HasField Encoded "payload" Data.ByteString.ByteString where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _Encoded'payload (\ x__ y__ -> x__ {_Encoded'payload = y__}))
+        Prelude.id
+instance Data.ProtoLens.Message Encoded where
+  messageName _ = Data.Text.pack "worker.Encoded"
+  packedMessageDescriptor _
+    = "\n\
+      \\aEncoded\DC2\CAN\n\
+      \\apayload\CAN\SOH \SOH(\fR\apayload"
+  packedFileDescriptor _ = packedFileDescriptor
+  fieldsByTag
+    = let
+        payload__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "payload"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.BytesField ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.ByteString.ByteString)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"payload")) ::
+              Data.ProtoLens.FieldDescriptor Encoded
+      in
+        Data.Map.fromList
+          [(Data.ProtoLens.Tag 1, payload__field_descriptor)]
+  unknownFields
+    = Lens.Family2.Unchecked.lens
+        _Encoded'_unknownFields
+        (\ x__ y__ -> x__ {_Encoded'_unknownFields = y__})
+  defMessage
+    = Encoded'_constructor
+        {_Encoded'payload = Data.ProtoLens.fieldDefault,
+         _Encoded'_unknownFields = []}
+  parseMessage
+    = let
+        loop :: Encoded -> Data.ProtoLens.Encoding.Bytes.Parser Encoded
+        loop x
+          = do end <- Data.ProtoLens.Encoding.Bytes.atEnd
+               if end then
+                   do (let missing = []
+                       in
+                         if Prelude.null missing then
+                             Prelude.return ()
+                         else
+                             Prelude.fail
+                               ((Prelude.++)
+                                  "Missing required fields: "
+                                  (Prelude.show (missing :: [Prelude.String]))))
+                      Prelude.return
+                        (Lens.Family2.over
+                           Data.ProtoLens.unknownFields (\ !t -> Prelude.reverse t) x)
+               else
+                   do tag <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                      case tag of
+                        10
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getBytes
+                                             (Prelude.fromIntegral len))
+                                       "payload"
+                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"payload") y x)
+                        wire
+                          -> do !y <- Data.ProtoLens.Encoding.Wire.parseTaggedValueFromWire
+                                        wire
+                                loop
+                                  (Lens.Family2.over
+                                     Data.ProtoLens.unknownFields (\ !t -> (:) y t) x)
+      in
+        (Data.ProtoLens.Encoding.Bytes.<?>)
+          (do loop Data.ProtoLens.defMessage) "Encoded"
+  buildMessage
+    = \ _x
+        -> (Data.Monoid.<>)
+             (let
+                _v = Lens.Family2.view (Data.ProtoLens.Field.field @"payload") _x
+              in
+                if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                    Data.Monoid.mempty
+                else
+                    (Data.Monoid.<>)
+                      (Data.ProtoLens.Encoding.Bytes.putVarInt 10)
+                      ((\ bs
+                          -> (Data.Monoid.<>)
+                               (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                  (Prelude.fromIntegral (Data.ByteString.length bs)))
+                               (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                         _v))
+             (Data.ProtoLens.Encoding.Wire.buildFieldSet
+                (Lens.Family2.view Data.ProtoLens.unknownFields _x))
+instance Control.DeepSeq.NFData Encoded where
   rnf
     = \ x__
-        -> Control.DeepSeq.deepseq (_ExecuteCancel'_unknownFields x__) ()
+        -> Control.DeepSeq.deepseq
+             (_Encoded'_unknownFields x__)
+             (Control.DeepSeq.deepseq (_Encoded'payload x__) ())
 {- | Fields :
      
          * 'Proto.Worker_Fields.argv' @:: Lens' ExecuteCommand [Data.ByteString.ByteString]@
@@ -450,221 +554,6 @@ instance Control.DeepSeq.NFData ExecuteCommand'EnvironmentEntry where
                    (_ExecuteCommand'EnvironmentEntry'value x__) ()))
 {- | Fields :
      
-         * 'Proto.Worker_Fields.maybe'data'' @:: Lens' ExecuteEvent (Prelude.Maybe ExecuteEvent'Data)@
-         * 'Proto.Worker_Fields.maybe'command' @:: Lens' ExecuteEvent (Prelude.Maybe ExecuteCommand)@
-         * 'Proto.Worker_Fields.command' @:: Lens' ExecuteEvent ExecuteCommand@
-         * 'Proto.Worker_Fields.maybe'cancel' @:: Lens' ExecuteEvent (Prelude.Maybe ExecuteCancel)@
-         * 'Proto.Worker_Fields.cancel' @:: Lens' ExecuteEvent ExecuteCancel@ -}
-data ExecuteEvent
-  = ExecuteEvent'_constructor {_ExecuteEvent'data' :: !(Prelude.Maybe ExecuteEvent'Data),
-                               _ExecuteEvent'_unknownFields :: !Data.ProtoLens.FieldSet}
-  deriving stock (Prelude.Eq, Prelude.Ord)
-instance Prelude.Show ExecuteEvent where
-  showsPrec _ __x __s
-    = Prelude.showChar
-        '{'
-        (Prelude.showString
-           (Data.ProtoLens.showMessageShort __x) (Prelude.showChar '}' __s))
-data ExecuteEvent'Data
-  = ExecuteEvent'Command !ExecuteCommand |
-    ExecuteEvent'Cancel !ExecuteCancel
-  deriving stock (Prelude.Show, Prelude.Eq, Prelude.Ord)
-instance Data.ProtoLens.Field.HasField ExecuteEvent "maybe'data'" (Prelude.Maybe ExecuteEvent'Data) where
-  fieldOf _
-    = (Prelude..)
-        (Lens.Family2.Unchecked.lens
-           _ExecuteEvent'data' (\ x__ y__ -> x__ {_ExecuteEvent'data' = y__}))
-        Prelude.id
-instance Data.ProtoLens.Field.HasField ExecuteEvent "maybe'command" (Prelude.Maybe ExecuteCommand) where
-  fieldOf _
-    = (Prelude..)
-        (Lens.Family2.Unchecked.lens
-           _ExecuteEvent'data' (\ x__ y__ -> x__ {_ExecuteEvent'data' = y__}))
-        (Lens.Family2.Unchecked.lens
-           (\ x__
-              -> case x__ of
-                   (Prelude.Just (ExecuteEvent'Command x__val)) -> Prelude.Just x__val
-                   _otherwise -> Prelude.Nothing)
-           (\ _ y__ -> Prelude.fmap ExecuteEvent'Command y__))
-instance Data.ProtoLens.Field.HasField ExecuteEvent "command" ExecuteCommand where
-  fieldOf _
-    = (Prelude..)
-        (Lens.Family2.Unchecked.lens
-           _ExecuteEvent'data' (\ x__ y__ -> x__ {_ExecuteEvent'data' = y__}))
-        ((Prelude..)
-           (Lens.Family2.Unchecked.lens
-              (\ x__
-                 -> case x__ of
-                      (Prelude.Just (ExecuteEvent'Command x__val)) -> Prelude.Just x__val
-                      _otherwise -> Prelude.Nothing)
-              (\ _ y__ -> Prelude.fmap ExecuteEvent'Command y__))
-           (Data.ProtoLens.maybeLens Data.ProtoLens.defMessage))
-instance Data.ProtoLens.Field.HasField ExecuteEvent "maybe'cancel" (Prelude.Maybe ExecuteCancel) where
-  fieldOf _
-    = (Prelude..)
-        (Lens.Family2.Unchecked.lens
-           _ExecuteEvent'data' (\ x__ y__ -> x__ {_ExecuteEvent'data' = y__}))
-        (Lens.Family2.Unchecked.lens
-           (\ x__
-              -> case x__ of
-                   (Prelude.Just (ExecuteEvent'Cancel x__val)) -> Prelude.Just x__val
-                   _otherwise -> Prelude.Nothing)
-           (\ _ y__ -> Prelude.fmap ExecuteEvent'Cancel y__))
-instance Data.ProtoLens.Field.HasField ExecuteEvent "cancel" ExecuteCancel where
-  fieldOf _
-    = (Prelude..)
-        (Lens.Family2.Unchecked.lens
-           _ExecuteEvent'data' (\ x__ y__ -> x__ {_ExecuteEvent'data' = y__}))
-        ((Prelude..)
-           (Lens.Family2.Unchecked.lens
-              (\ x__
-                 -> case x__ of
-                      (Prelude.Just (ExecuteEvent'Cancel x__val)) -> Prelude.Just x__val
-                      _otherwise -> Prelude.Nothing)
-              (\ _ y__ -> Prelude.fmap ExecuteEvent'Cancel y__))
-           (Data.ProtoLens.maybeLens Data.ProtoLens.defMessage))
-instance Data.ProtoLens.Message ExecuteEvent where
-  messageName _ = Data.Text.pack "worker.ExecuteEvent"
-  packedMessageDescriptor _
-    = "\n\
-      \\fExecuteEvent\DC22\n\
-      \\acommand\CAN\SOH \SOH(\v2\SYN.worker.ExecuteCommandH\NULR\acommand\DC2/\n\
-      \\ACKcancel\CAN\STX \SOH(\v2\NAK.worker.ExecuteCancelH\NULR\ACKcancelB\ACK\n\
-      \\EOTdata"
-  packedFileDescriptor _ = packedFileDescriptor
-  fieldsByTag
-    = let
-        command__field_descriptor
-          = Data.ProtoLens.FieldDescriptor
-              "command"
-              (Data.ProtoLens.MessageField Data.ProtoLens.MessageType ::
-                 Data.ProtoLens.FieldTypeDescriptor ExecuteCommand)
-              (Data.ProtoLens.OptionalField
-                 (Data.ProtoLens.Field.field @"maybe'command")) ::
-              Data.ProtoLens.FieldDescriptor ExecuteEvent
-        cancel__field_descriptor
-          = Data.ProtoLens.FieldDescriptor
-              "cancel"
-              (Data.ProtoLens.MessageField Data.ProtoLens.MessageType ::
-                 Data.ProtoLens.FieldTypeDescriptor ExecuteCancel)
-              (Data.ProtoLens.OptionalField
-                 (Data.ProtoLens.Field.field @"maybe'cancel")) ::
-              Data.ProtoLens.FieldDescriptor ExecuteEvent
-      in
-        Data.Map.fromList
-          [(Data.ProtoLens.Tag 1, command__field_descriptor),
-           (Data.ProtoLens.Tag 2, cancel__field_descriptor)]
-  unknownFields
-    = Lens.Family2.Unchecked.lens
-        _ExecuteEvent'_unknownFields
-        (\ x__ y__ -> x__ {_ExecuteEvent'_unknownFields = y__})
-  defMessage
-    = ExecuteEvent'_constructor
-        {_ExecuteEvent'data' = Prelude.Nothing,
-         _ExecuteEvent'_unknownFields = []}
-  parseMessage
-    = let
-        loop ::
-          ExecuteEvent -> Data.ProtoLens.Encoding.Bytes.Parser ExecuteEvent
-        loop x
-          = do end <- Data.ProtoLens.Encoding.Bytes.atEnd
-               if end then
-                   do (let missing = []
-                       in
-                         if Prelude.null missing then
-                             Prelude.return ()
-                         else
-                             Prelude.fail
-                               ((Prelude.++)
-                                  "Missing required fields: "
-                                  (Prelude.show (missing :: [Prelude.String]))))
-                      Prelude.return
-                        (Lens.Family2.over
-                           Data.ProtoLens.unknownFields (\ !t -> Prelude.reverse t) x)
-               else
-                   do tag <- Data.ProtoLens.Encoding.Bytes.getVarInt
-                      case tag of
-                        10
-                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
-                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
-                                           Data.ProtoLens.Encoding.Bytes.isolate
-                                             (Prelude.fromIntegral len) Data.ProtoLens.parseMessage)
-                                       "command"
-                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"command") y x)
-                        18
-                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
-                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
-                                           Data.ProtoLens.Encoding.Bytes.isolate
-                                             (Prelude.fromIntegral len) Data.ProtoLens.parseMessage)
-                                       "cancel"
-                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"cancel") y x)
-                        wire
-                          -> do !y <- Data.ProtoLens.Encoding.Wire.parseTaggedValueFromWire
-                                        wire
-                                loop
-                                  (Lens.Family2.over
-                                     Data.ProtoLens.unknownFields (\ !t -> (:) y t) x)
-      in
-        (Data.ProtoLens.Encoding.Bytes.<?>)
-          (do loop Data.ProtoLens.defMessage) "ExecuteEvent"
-  buildMessage
-    = \ _x
-        -> (Data.Monoid.<>)
-             (case
-                  Lens.Family2.view (Data.ProtoLens.Field.field @"maybe'data'") _x
-              of
-                Prelude.Nothing -> Data.Monoid.mempty
-                (Prelude.Just (ExecuteEvent'Command v))
-                  -> (Data.Monoid.<>)
-                       (Data.ProtoLens.Encoding.Bytes.putVarInt 10)
-                       ((Prelude..)
-                          (\ bs
-                             -> (Data.Monoid.<>)
-                                  (Data.ProtoLens.Encoding.Bytes.putVarInt
-                                     (Prelude.fromIntegral (Data.ByteString.length bs)))
-                                  (Data.ProtoLens.Encoding.Bytes.putBytes bs))
-                          Data.ProtoLens.encodeMessage v)
-                (Prelude.Just (ExecuteEvent'Cancel v))
-                  -> (Data.Monoid.<>)
-                       (Data.ProtoLens.Encoding.Bytes.putVarInt 18)
-                       ((Prelude..)
-                          (\ bs
-                             -> (Data.Monoid.<>)
-                                  (Data.ProtoLens.Encoding.Bytes.putVarInt
-                                     (Prelude.fromIntegral (Data.ByteString.length bs)))
-                                  (Data.ProtoLens.Encoding.Bytes.putBytes bs))
-                          Data.ProtoLens.encodeMessage v))
-             (Data.ProtoLens.Encoding.Wire.buildFieldSet
-                (Lens.Family2.view Data.ProtoLens.unknownFields _x))
-instance Control.DeepSeq.NFData ExecuteEvent where
-  rnf
-    = \ x__
-        -> Control.DeepSeq.deepseq
-             (_ExecuteEvent'_unknownFields x__)
-             (Control.DeepSeq.deepseq (_ExecuteEvent'data' x__) ())
-instance Control.DeepSeq.NFData ExecuteEvent'Data where
-  rnf (ExecuteEvent'Command x__) = Control.DeepSeq.rnf x__
-  rnf (ExecuteEvent'Cancel x__) = Control.DeepSeq.rnf x__
-_ExecuteEvent'Command ::
-  Data.ProtoLens.Prism.Prism' ExecuteEvent'Data ExecuteCommand
-_ExecuteEvent'Command
-  = Data.ProtoLens.Prism.prism'
-      ExecuteEvent'Command
-      (\ p__
-         -> case p__ of
-              (ExecuteEvent'Command p__val) -> Prelude.Just p__val
-              _otherwise -> Prelude.Nothing)
-_ExecuteEvent'Cancel ::
-  Data.ProtoLens.Prism.Prism' ExecuteEvent'Data ExecuteCancel
-_ExecuteEvent'Cancel
-  = Data.ProtoLens.Prism.prism'
-      ExecuteEvent'Cancel
-      (\ p__
-         -> case p__ of
-              (ExecuteEvent'Cancel p__val) -> Prelude.Just p__val
-              _otherwise -> Prelude.Nothing)
-{- | Fields :
-     
          * 'Proto.Worker_Fields.exitCode' @:: Lens' ExecuteResponse Data.Int.Int32@
          * 'Proto.Worker_Fields.stderr' @:: Lens' ExecuteResponse Data.Text.Text@ -}
 data ExecuteResponse
@@ -821,22 +710,28 @@ data Worker = Worker {}
 instance Data.ProtoLens.Service.Types.Service Worker where
   type ServiceName Worker = "Worker"
   type ServicePackage Worker = "worker"
-  type ServiceMethods Worker = '["exec", "execute"]
+  type ServiceMethods Worker = '["api", "events", "execute"]
   packedServiceDescriptor _
     = "\n\
       \\ACKWorker\DC2<\n\
-      \\aExecute\DC2\SYN.worker.ExecuteCommand\SUB\ETB.worker.ExecuteResponse\"\NUL\DC29\n\
-      \\EOTExec\DC2\DC4.worker.ExecuteEvent\SUB\ETB.worker.ExecuteResponse\"\NUL(\SOH"
+      \\aExecute\DC2\SYN.worker.ExecuteCommand\SUB\ETB.worker.ExecuteResponse\"\NUL\DC2,\n\
+      \\ACKEvents\DC2\r.worker.Empty\SUB\SI.worker.Encoded\"\NUL0\SOH\DC2)\n\
+      \\ETXApi\DC2\SI.worker.Encoded\SUB\SI.worker.Encoded\"\NUL"
 instance Data.ProtoLens.Service.Types.HasMethodImpl Worker "execute" where
   type MethodName Worker "execute" = "Execute"
   type MethodInput Worker "execute" = ExecuteCommand
   type MethodOutput Worker "execute" = ExecuteResponse
   type MethodStreamingType Worker "execute" = 'Data.ProtoLens.Service.Types.NonStreaming
-instance Data.ProtoLens.Service.Types.HasMethodImpl Worker "exec" where
-  type MethodName Worker "exec" = "Exec"
-  type MethodInput Worker "exec" = ExecuteEvent
-  type MethodOutput Worker "exec" = ExecuteResponse
-  type MethodStreamingType Worker "exec" = 'Data.ProtoLens.Service.Types.ClientStreaming
+instance Data.ProtoLens.Service.Types.HasMethodImpl Worker "events" where
+  type MethodName Worker "events" = "Events"
+  type MethodInput Worker "events" = Empty
+  type MethodOutput Worker "events" = Encoded
+  type MethodStreamingType Worker "events" = 'Data.ProtoLens.Service.Types.ServerStreaming
+instance Data.ProtoLens.Service.Types.HasMethodImpl Worker "api" where
+  type MethodName Worker "api" = "Api"
+  type MethodInput Worker "api" = Encoded
+  type MethodOutput Worker "api" = Encoded
+  type MethodStreamingType Worker "api" = 'Data.ProtoLens.Service.Types.NonStreaming
 packedFileDescriptor :: Data.ByteString.ByteString
 packedFileDescriptor
   = "\n\
@@ -849,168 +744,146 @@ packedFileDescriptor
     \\ENQvalue\CAN\STX \SOH(\fR\ENQvalue\"F\n\
     \\SIExecuteResponse\DC2\ESC\n\
     \\texit_code\CAN\SOH \SOH(\ENQR\bexitCode\DC2\SYN\n\
-    \\ACKstderr\CAN\STX \SOH(\tR\ACKstderr\"\SI\n\
-    \\rExecuteCancel\"{\n\
-    \\fExecuteEvent\DC22\n\
-    \\acommand\CAN\SOH \SOH(\v2\SYN.worker.ExecuteCommandH\NULR\acommand\DC2/\n\
-    \\ACKcancel\CAN\STX \SOH(\v2\NAK.worker.ExecuteCancelH\NULR\ACKcancelB\ACK\n\
-    \\EOTdata2\129\SOH\n\
+    \\ACKstderr\CAN\STX \SOH(\tR\ACKstderr\"\a\n\
+    \\ENQEmpty\"#\n\
+    \\aEncoded\DC2\CAN\n\
+    \\apayload\CAN\SOH \SOH(\fR\apayload2\159\SOH\n\
     \\ACKWorker\DC2<\n\
-    \\aExecute\DC2\SYN.worker.ExecuteCommand\SUB\ETB.worker.ExecuteResponse\"\NUL\DC29\n\
-    \\EOTExec\DC2\DC4.worker.ExecuteEvent\SUB\ETB.worker.ExecuteResponse\"\NUL(\SOHB/\n\
-    \\RScom.facebook.buck.worker.modelB\vWorkerProtoP\SOHJ\206\t\n\
-    \\ACK\DC2\EOT\t\NUL.\SOH\n\
-    \\181\STX\n\
-    \\SOH\f\DC2\ETX\t\NUL\DC22\170\STX\n\
-    \ Copyright (c) Meta Platforms, Inc. and affiliates.\n\
-    \\n\
-    \ This source code is licensed under both the MIT license found in the\n\
-    \ LICENSE-MIT file in the root directory of this source tree and the Apache\n\
-    \ License, Version 2.0 found in the LICENSE-APACHE file in the root directory\n\
-    \ of this source tree.\n\
-    \\n\
+    \\aExecute\DC2\SYN.worker.ExecuteCommand\SUB\ETB.worker.ExecuteResponse\"\NUL\DC2,\n\
+    \\ACKEvents\DC2\r.worker.Empty\SUB\SI.worker.Encoded\"\NUL0\SOH\DC2)\n\
+    \\ETXApi\DC2\SI.worker.Encoded\SUB\SI.worker.Encoded\"\NULJ\143\ACK\n\
+    \\ACK\DC2\EOT\NUL\NUL\GS\SOH\n\
     \\b\n\
-    \\SOH\b\DC2\ETX\v\NUL\"\n\
-    \\t\n\
-    \\STX\b\n\
-    \\DC2\ETX\v\NUL\"\n\
+    \\SOH\f\DC2\ETX\NUL\NUL\DC2\n\
     \\b\n\
-    \\SOH\b\DC2\ETX\f\NUL7\n\
-    \\t\n\
-    \\STX\b\SOH\DC2\ETX\f\NUL7\n\
-    \\b\n\
-    \\SOH\b\DC2\ETX\r\NUL,\n\
-    \\t\n\
-    \\STX\b\b\DC2\ETX\r\NUL,\n\
-    \\b\n\
-    \\SOH\STX\DC2\ETX\SI\NUL\SI\n\
+    \\SOH\STX\DC2\ETX\STX\NUL\SI\n\
     \\n\
     \\n\
-    \\STX\EOT\NUL\DC2\EOT\DC1\NUL\EM\SOH\n\
+    \\STX\EOT\NUL\DC2\EOT\EOT\NUL\f\SOH\n\
     \\n\
     \\n\
-    \\ETX\EOT\NUL\SOH\DC2\ETX\DC1\b\SYN\n\
+    \\ETX\EOT\NUL\SOH\DC2\ETX\EOT\b\SYN\n\
     \\f\n\
-    \\EOT\EOT\NUL\ETX\NUL\DC2\EOT\DC2\STX\NAK\ETX\n\
+    \\EOT\EOT\NUL\ETX\NUL\DC2\EOT\ENQ\STX\b\ETX\n\
     \\f\n\
-    \\ENQ\EOT\NUL\ETX\NUL\SOH\DC2\ETX\DC2\n\
+    \\ENQ\EOT\NUL\ETX\NUL\SOH\DC2\ETX\ENQ\n\
     \\SUB\n\
     \\r\n\
-    \\ACK\EOT\NUL\ETX\NUL\STX\NUL\DC2\ETX\DC3\EOT\DC2\n\
+    \\ACK\EOT\NUL\ETX\NUL\STX\NUL\DC2\ETX\ACK\EOT\DC2\n\
     \\SO\n\
-    \\a\EOT\NUL\ETX\NUL\STX\NUL\ENQ\DC2\ETX\DC3\EOT\t\n\
+    \\a\EOT\NUL\ETX\NUL\STX\NUL\ENQ\DC2\ETX\ACK\EOT\t\n\
     \\SO\n\
-    \\a\EOT\NUL\ETX\NUL\STX\NUL\SOH\DC2\ETX\DC3\n\
+    \\a\EOT\NUL\ETX\NUL\STX\NUL\SOH\DC2\ETX\ACK\n\
     \\r\n\
     \\SO\n\
-    \\a\EOT\NUL\ETX\NUL\STX\NUL\ETX\DC2\ETX\DC3\DLE\DC1\n\
+    \\a\EOT\NUL\ETX\NUL\STX\NUL\ETX\DC2\ETX\ACK\DLE\DC1\n\
     \\r\n\
-    \\ACK\EOT\NUL\ETX\NUL\STX\SOH\DC2\ETX\DC4\EOT\DC4\n\
+    \\ACK\EOT\NUL\ETX\NUL\STX\SOH\DC2\ETX\a\EOT\DC4\n\
     \\SO\n\
-    \\a\EOT\NUL\ETX\NUL\STX\SOH\ENQ\DC2\ETX\DC4\EOT\t\n\
+    \\a\EOT\NUL\ETX\NUL\STX\SOH\ENQ\DC2\ETX\a\EOT\t\n\
     \\SO\n\
-    \\a\EOT\NUL\ETX\NUL\STX\SOH\SOH\DC2\ETX\DC4\n\
+    \\a\EOT\NUL\ETX\NUL\STX\SOH\SOH\DC2\ETX\a\n\
     \\SI\n\
     \\SO\n\
-    \\a\EOT\NUL\ETX\NUL\STX\SOH\ETX\DC2\ETX\DC4\DC2\DC3\n\
+    \\a\EOT\NUL\ETX\NUL\STX\SOH\ETX\DC2\ETX\a\DC2\DC3\n\
     \\v\n\
-    \\EOT\EOT\NUL\STX\NUL\DC2\ETX\ETB\STX\SUB\n\
+    \\EOT\EOT\NUL\STX\NUL\DC2\ETX\n\
+    \\STX\SUB\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\NUL\EOT\DC2\ETX\ETB\STX\n\
+    \\ENQ\EOT\NUL\STX\NUL\EOT\DC2\ETX\n\
+    \\STX\n\
     \\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\NUL\ENQ\DC2\ETX\ETB\v\DLE\n\
+    \\ENQ\EOT\NUL\STX\NUL\ENQ\DC2\ETX\n\
+    \\v\DLE\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\NUL\SOH\DC2\ETX\ETB\DC1\NAK\n\
+    \\ENQ\EOT\NUL\STX\NUL\SOH\DC2\ETX\n\
+    \\DC1\NAK\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\NUL\ETX\DC2\ETX\ETB\CAN\EM\n\
+    \\ENQ\EOT\NUL\STX\NUL\ETX\DC2\ETX\n\
+    \\CAN\EM\n\
     \\v\n\
-    \\EOT\EOT\NUL\STX\SOH\DC2\ETX\CAN\STX$\n\
+    \\EOT\EOT\NUL\STX\SOH\DC2\ETX\v\STX$\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\SOH\EOT\DC2\ETX\CAN\STX\n\
+    \\ENQ\EOT\NUL\STX\SOH\EOT\DC2\ETX\v\STX\n\
     \\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\SOH\ACK\DC2\ETX\CAN\v\ESC\n\
+    \\ENQ\EOT\NUL\STX\SOH\ACK\DC2\ETX\v\v\ESC\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\SOH\SOH\DC2\ETX\CAN\FS\US\n\
+    \\ENQ\EOT\NUL\STX\SOH\SOH\DC2\ETX\v\FS\US\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\SOH\ETX\DC2\ETX\CAN\"#\n\
+    \\ENQ\EOT\NUL\STX\SOH\ETX\DC2\ETX\v\"#\n\
     \\n\
     \\n\
-    \\STX\EOT\SOH\DC2\EOT\ESC\NUL\RS\SOH\n\
+    \\STX\EOT\SOH\DC2\EOT\SO\NUL\DC1\SOH\n\
     \\n\
     \\n\
-    \\ETX\EOT\SOH\SOH\DC2\ETX\ESC\b\ETB\n\
+    \\ETX\EOT\SOH\SOH\DC2\ETX\SO\b\ETB\n\
     \\v\n\
-    \\EOT\EOT\SOH\STX\NUL\DC2\ETX\FS\STX\SYN\n\
+    \\EOT\EOT\SOH\STX\NUL\DC2\ETX\SI\STX\SYN\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\NUL\ENQ\DC2\ETX\FS\STX\a\n\
+    \\ENQ\EOT\SOH\STX\NUL\ENQ\DC2\ETX\SI\STX\a\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\NUL\SOH\DC2\ETX\FS\b\DC1\n\
+    \\ENQ\EOT\SOH\STX\NUL\SOH\DC2\ETX\SI\b\DC1\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\NUL\ETX\DC2\ETX\FS\DC4\NAK\n\
+    \\ENQ\EOT\SOH\STX\NUL\ETX\DC2\ETX\SI\DC4\NAK\n\
     \\v\n\
-    \\EOT\EOT\SOH\STX\SOH\DC2\ETX\GS\STX\DC4\n\
+    \\EOT\EOT\SOH\STX\SOH\DC2\ETX\DLE\STX\DC4\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\SOH\ENQ\DC2\ETX\GS\STX\b\n\
+    \\ENQ\EOT\SOH\STX\SOH\ENQ\DC2\ETX\DLE\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\SOH\SOH\DC2\ETX\GS\t\SI\n\
+    \\ENQ\EOT\SOH\STX\SOH\SOH\DC2\ETX\DLE\t\SI\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\SOH\ETX\DC2\ETX\GS\DC2\DC3\n\
+    \\ENQ\EOT\SOH\STX\SOH\ETX\DC2\ETX\DLE\DC2\DC3\n\
     \\t\n\
-    \\STX\EOT\STX\DC2\ETX \NUL\CAN\n\
+    \\STX\EOT\STX\DC2\ETX\DC3\NUL\DLE\n\
     \\n\
     \\n\
-    \\ETX\EOT\STX\SOH\DC2\ETX \b\NAK\n\
+    \\ETX\EOT\STX\SOH\DC2\ETX\DC3\b\r\n\
     \\n\
     \\n\
-    \\STX\EOT\ETX\DC2\EOT\"\NUL'\SOH\n\
+    \\STX\EOT\ETX\DC2\EOT\NAK\NUL\ETB\SOH\n\
     \\n\
     \\n\
-    \\ETX\EOT\ETX\SOH\DC2\ETX\"\b\DC4\n\
-    \\f\n\
-    \\EOT\EOT\ETX\b\NUL\DC2\EOT#\STX&\ETX\n\
-    \\f\n\
-    \\ENQ\EOT\ETX\b\NUL\SOH\DC2\ETX#\b\f\n\
+    \\ETX\EOT\ETX\SOH\DC2\ETX\NAK\b\SI\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\NUL\DC2\ETX$\EOT\US\n\
+    \\EOT\EOT\ETX\STX\NUL\DC2\ETX\SYN\STX\DC4\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\NUL\ACK\DC2\ETX$\EOT\DC2\n\
+    \\ENQ\EOT\ETX\STX\NUL\ENQ\DC2\ETX\SYN\STX\a\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\NUL\SOH\DC2\ETX$\DC3\SUB\n\
+    \\ENQ\EOT\ETX\STX\NUL\SOH\DC2\ETX\SYN\b\SI\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\NUL\ETX\DC2\ETX$\GS\RS\n\
+    \\ENQ\EOT\ETX\STX\NUL\ETX\DC2\ETX\SYN\DC2\DC3\n\
+    \\n\
+    \\n\
+    \\STX\ACK\NUL\DC2\EOT\EM\NUL\GS\SOH\n\
+    \\n\
+    \\n\
+    \\ETX\ACK\NUL\SOH\DC2\ETX\EM\b\SO\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\SOH\DC2\ETX%\EOT\GS\n\
+    \\EOT\ACK\NUL\STX\NUL\DC2\ETX\SUB\STX:\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\SOH\ACK\DC2\ETX%\EOT\DC1\n\
+    \\ENQ\ACK\NUL\STX\NUL\SOH\DC2\ETX\SUB\ACK\r\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\SOH\SOH\DC2\ETX%\DC2\CAN\n\
+    \\ENQ\ACK\NUL\STX\NUL\STX\DC2\ETX\SUB\SO\FS\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\SOH\ETX\DC2\ETX%\ESC\FS\n\
-    \\n\
-    \\n\
-    \\STX\ACK\NUL\DC2\EOT)\NUL.\SOH\n\
-    \\n\
-    \\n\
-    \\ETX\ACK\NUL\SOH\DC2\ETX)\b\SO\n\
-    \A\n\
-    \\EOT\ACK\NUL\STX\NUL\DC2\ETX+\STX:\SUB4 TODO(ctolliday) delete once workers switch to Exec\n\
-    \\n\
-    \\f\n\
-    \\ENQ\ACK\NUL\STX\NUL\SOH\DC2\ETX+\ACK\r\n\
-    \\f\n\
-    \\ENQ\ACK\NUL\STX\NUL\STX\DC2\ETX+\SO\FS\n\
-    \\f\n\
-    \\ENQ\ACK\NUL\STX\NUL\ETX\DC2\ETX+'6\n\
+    \\ENQ\ACK\NUL\STX\NUL\ETX\DC2\ETX\SUB'6\n\
     \\v\n\
-    \\EOT\ACK\NUL\STX\SOH\DC2\ETX-\STX<\n\
+    \\EOT\ACK\NUL\STX\SOH\DC2\ETX\ESC\STX/\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\SOH\SOH\DC2\ETX-\ACK\n\
-    \\n\
+    \\ENQ\ACK\NUL\STX\SOH\SOH\DC2\ETX\ESC\ACK\f\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\SOH\ENQ\DC2\ETX-\v\DC1\n\
+    \\ENQ\ACK\NUL\STX\SOH\STX\DC2\ETX\ESC\r\DC2\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\SOH\STX\DC2\ETX-\DC2\RS\n\
+    \\ENQ\ACK\NUL\STX\SOH\ACK\DC2\ETX\ESC\GS#\n\
     \\f\n\
-    \\ENQ\ACK\NUL\STX\SOH\ETX\DC2\ETX-)8b\ACKproto3"
+    \\ENQ\ACK\NUL\STX\SOH\ETX\DC2\ETX\ESC$+\n\
+    \\v\n\
+    \\EOT\ACK\NUL\STX\STX\DC2\ETX\FS\STX'\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\STX\SOH\DC2\ETX\FS\ACK\t\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\STX\STX\DC2\ETX\FS\n\
+    \\DC1\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\STX\ETX\DC2\ETX\FS\FS#b\ACKproto3"

@@ -10,7 +10,7 @@ import Network.GRPC.Common (
  )
 import Network.GRPC.Common.Protobuf (Protobuf)
 import Proto.Worker
-import Proto.Instrument
+import Proto.Instrument hiding (Empty)
 
 type instance RequestMetadata (Protobuf Worker _) = NoMetadata
 type instance ResponseInitialMetadata (Protobuf Worker _) = NoMetadata

@@ -20,6 +20,7 @@
         enable = true;
         dependencies = [
           "async"
+          "aeson"
           "binary"
           "bytestring"
           "buck-worker-grpc"

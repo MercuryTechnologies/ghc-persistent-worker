@@ -1,7 +1,7 @@
 {-# LANGUAGE RecursiveDo #-}
 module GhcWorker.Orchestration where
 
-import Common.Grpc (forwardRequest, runGrpcServer, streamingNotImplemented, waitPoll)
+import Common.Grpc (forwardApi, forwardEvents, forwardRequest, runGrpcServer, waitPoll, workerMethods)
 import Control.Concurrent.Async (async, cancel, wait)
 import Control.DeepSeq (force)
 import Control.Exception (bracket_, finally, onException, try)
@@ -13,9 +13,9 @@ import Internal.Log (dbg)
 import Network.GRPC.Client (Server (..), withConnection)
 import Network.GRPC.Common (def)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
-import Network.GRPC.Server.StreamType (Methods (..), mkClientStreaming, mkNonStreaming)
+import Network.GRPC.Server.StreamType (Methods)
 import Proto.Instrument (Instrument (..))
-import Proto.Worker (Worker (..))
+import Proto.Worker (Worker)
 import System.Directory.OsPath (createDirectoryIfMissing, removeFile)
 import System.Exit (exitFailure)
 import System.File.OsPath (withFile)
@@ -83,10 +83,7 @@ withProxy ::
   IO a
 withProxy socket use = do
   withConnection def server $ \ connection -> do
-    use $
-      Method (mkClientStreaming streamingNotImplemented) $
-      Method (mkNonStreaming (forwardRequest connection)) $
-      NoMoreMethods
+    use (workerMethods (forwardApi connection) (forwardEvents connection) (forwardRequest connection))
   where
     server = ServerUnix (fromOsPath socket.path)
 

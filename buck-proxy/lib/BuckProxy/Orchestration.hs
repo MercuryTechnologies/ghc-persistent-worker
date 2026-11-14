@@ -9,7 +9,7 @@ module BuckProxy.Orchestration (
 import BuckProxy.Util (dbg)
 
 import BuckWorkerProto (ExecuteCommand, ExecuteResponse)
-import Common.Grpc (commandEnv, forwardRequest, runGrpcServer, streamingNotImplemented, waitPoll)
+import Common.Grpc (commandEnv, executeMethods, forwardRequest, runGrpcServer, waitPoll)
 import Control.Applicative ((<|>))
 
 import Control.Concurrent.MVar (MVar, modifyMVar)
@@ -26,12 +26,8 @@ import Network.GRPC.Client (Server (..), withConnection)
 import Network.GRPC.Common (def)
 import Network.GRPC.Common.Protobuf (Proto)
 import Network.GRPC.Server.Protobuf (ProtobufMethodsOf)
-import Network.GRPC.Server.StreamType (
-  Methods (..),
-  mkClientStreaming,
-  mkNonStreaming,
-  )
-import Proto.Worker (Worker (..))
+import Network.GRPC.Server.StreamType (Methods)
+import Proto.Worker (Worker)
 
 import System.Directory.OsPath (createDirectoryIfMissing)
 import System.Exit (exitFailure)
@@ -136,9 +132,7 @@ proxyServer workerMap command buckSocket mProxyInstance workerSocketOverride = d
     workerSocketDefault = PrimarySocketName (toOsPath $ traceId ++ "-" ++ workerSpecId)
     methods :: Methods IO (ProtobufMethodsOf Worker)
     methods =
-      Method (mkClientStreaming streamingNotImplemented) $
-      Method (mkNonStreaming (proxyHandler workerMap command workerSocketDefault mProxyInstance workerSocketOverride)) $
-      NoMoreMethods
+      executeMethods (proxyHandler workerMap command workerSocketDefault mProxyInstance workerSocketOverride)
     launch = do
       dbg ("Starting buck-proxy on " ++ fromOsPath buckSocket.path)
       runGrpcServer buckSocket.path methods

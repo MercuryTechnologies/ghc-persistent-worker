@@ -32,16 +32,6 @@ argv ::
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "argv" a) =>
   Lens.Family2.LensLike' f s a
 argv = Data.ProtoLens.Field.field @"argv"
-cancel ::
-  forall f s a.
-  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "cancel" a) =>
-  Lens.Family2.LensLike' f s a
-cancel = Data.ProtoLens.Field.field @"cancel"
-command ::
-  forall f s a.
-  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "command" a) =>
-  Lens.Family2.LensLike' f s a
-command = Data.ProtoLens.Field.field @"command"
 env ::
   forall f s a.
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "env" a) =>
@@ -58,24 +48,11 @@ key ::
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "key" a) =>
   Lens.Family2.LensLike' f s a
 key = Data.ProtoLens.Field.field @"key"
-maybe'cancel ::
+payload ::
   forall f s a.
-  (Prelude.Functor f,
-   Data.ProtoLens.Field.HasField s "maybe'cancel" a) =>
+  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "payload" a) =>
   Lens.Family2.LensLike' f s a
-maybe'cancel = Data.ProtoLens.Field.field @"maybe'cancel"
-maybe'command ::
-  forall f s a.
-  (Prelude.Functor f,
-   Data.ProtoLens.Field.HasField s "maybe'command" a) =>
-  Lens.Family2.LensLike' f s a
-maybe'command = Data.ProtoLens.Field.field @"maybe'command"
-maybe'data' ::
-  forall f s a.
-  (Prelude.Functor f,
-   Data.ProtoLens.Field.HasField s "maybe'data'" a) =>
-  Lens.Family2.LensLike' f s a
-maybe'data' = Data.ProtoLens.Field.field @"maybe'data'"
+payload = Data.ProtoLens.Field.field @"payload"
 stderr ::
   forall f s a.
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "stderr" a) =>
