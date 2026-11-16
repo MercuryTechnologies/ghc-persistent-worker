@@ -96,6 +96,7 @@ library
                       Internal.Metadata.Static
                       Internal.Session
                       Internal.State
+                      Internal.State.ExtraLibs
                       Internal.State.Linkables
                       Internal.State.Make
                       Internal.State.Stats

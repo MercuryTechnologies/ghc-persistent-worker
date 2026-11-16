@@ -10,21 +10,16 @@ import Types.State (WorkerState)
 #if defined(LINKABLES)
 
 import Control.Concurrent (modifyMVar, modifyMVar_)
-import Control.Monad (foldM)
-import Data.Foldable (for_, traverse_)
-import Data.Map.Strict qualified as M
-import Data.Set qualified as S
+import Data.Foldable (traverse_)
 import GHC (Module)
 import GHC.Driver.Config.Finder (initFinderOpts)
-import GHC.Driver.DynFlags (targetPlatform)
 import GHC.Driver.Env (hscInterp, hsc_home_unit, hsc_units)
 import GHC.Driver.Env.Types (HscEnv (..))
 import GHC.Linker.Deps (LinkDepsOpts, LinkModule (..), ldUseByteCode, resolveLinkDeps, selectLinkDeps)
 import GHC.Linker.Loader (initLinkDepsOpts)
 import qualified GHC.Linker.Types
 import GHC.Linker.Types (LinkDeps, Linkable (..), Linkables (Linkables), LoaderState)
-import GHC.Platform (platformSOName)
-import GHC.Runtime.Interpreter (Interp, loadDLL)
+import GHC.Runtime.Interpreter (Interp)
 import GHC.Types.SrcLoc (SrcSpan)
 import GHC.Types.Unique.DSet (UniqDSet)
 import GHC.Unit (UnitId, moduleUnitId)
@@ -36,15 +31,14 @@ import GHC.Unit.Home.PackageTable (addHomeModInfoToHpt)
 import GHC.Unit.Module.Location (ModLocation)
 import GHC.Unit.Module.ModIface (mi_module)
 import GHC.Unit.Types (toUnitId)
-import GHC.Utils.Outputable (parens, ppr, text, (<+>))
+import GHC.Utils.Outputable (parens, ppr, (<+>))
 import Internal.Cache.Bytecode (touchBcoCache)
 import Internal.Cache.Hpt (loadCachedByteCodeFrom, reloadIfaceFromDisk)
 import Internal.Error (workerErrorIO)
-import Internal.State (modifyMakeState)
+import Internal.State.ExtraLibs (loadUnitLibraries)
 import Language.Haskell.Syntax.ImpExp (IsBootInterface (..))
-import System.Directory (findFile)
 import Types.State (WorkerState (..))
-import Types.State.Make (LibLoadState (..), MakeState (..))
+import Types.State.Make (MakeState (..))
 
 
 -- | An absent 'ModLocation' should be fatal even if we don't end up loading bytecode, since we always add it to the
@@ -117,23 +111,6 @@ lazyLoadByteCode logger stateVar hsc_env hmi = do
 
     module_ = mi_module hmi.hm_iface
 
-loadDLL_ :: HscEnv -> Interp -> [FilePath] -> String -> IO ()
-loadDLL_ hsc_env interp lib_paths lib = do
-  let dflags = hsc_dflags hsc_env
-      platform = targetPlatform dflags
-      so_name = platformSOName platform lib
-  mb_so_file  <- findFile lib_paths so_name
-  case mb_so_file of
-    Nothing -> emitError ("Library not found: " <+> text so_name)
-    Just so_file -> do
-      e <- loadDLL interp so_file
-      case e of
-        Left err -> emitError (text err)
-        Right _ -> pure ()
-  where
-    emitError msg =
-      workerErrorIO hsc_env ("Loading DLL error:" <+> msg)
-
 -- | If the link target is a home module that's missing bytecode (because it was restored from cache), load it from the
 -- interface into the HPT and store it in the returned value.
 -- 'selectLinkDeps' will then choose the bytecode for linking.
@@ -152,17 +129,7 @@ addLazyByteCode logger stateVar hsc_env = \case
 
 ensureLibraries :: MVar WorkerState -> HscEnv -> Interp -> [LinkModule] -> IO ()
 ensureLibraries stateVar hsc_env interp deps =
-  for_ unitIds \unit_id ->
-    modifyMakeState stateVar \make -> do
-      let m = make.extraLib.requested
-      case M.lookup unit_id m of
-        Nothing -> pure (make, ())
-        Just (lib_paths, libs) -> do
-          let load loaded lib
-                | lib `S.member` loaded = pure loaded
-                | otherwise = loadDLL_ hsc_env interp lib_paths lib >> pure (S.insert lib loaded)
-          loaded' <- foldM load make.extraLib.loaded libs
-          pure (make {extraLib = LibLoadState m loaded'}, ())
+  loadUnitLibraries stateVar hsc_env interp unitIds
   where
     unitIds = [moduleUnitId (mi_module hm_iface) | LinkHomeModule HomeModInfo {hm_iface} <- deps]
 
