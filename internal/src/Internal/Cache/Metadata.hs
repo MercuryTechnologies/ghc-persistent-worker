@@ -54,7 +54,7 @@ import Internal.DynFlags.Parse (parseDynFlags)
 import Internal.Error (eitherMessages, unknownErrors)
 import Internal.Log (logDebugD, logTimed, logTimedD)
 import Internal.State (updateMakeState)
-import Internal.State.ExtraLibs (updateExtraLibs)
+import Internal.State.ExtraLibs (recordExtraLibs)
 import qualified Internal.State.Make as Make
 import Internal.State.Make (insertUnitEnv, rebuildModuleGraph, storeFixedNodeFlags, storeModuleGraphNodes)
 import System.OsPath.Extra (OsPath, fromOsPath)
@@ -283,7 +283,7 @@ loadCachedHomeUnit logger useFixedNodes useIncrModGraph hsc_env0 unit (cachedUni
       (hsc_env1, _) <- addHomeUnitTo hsc_env0 dflags
       pure (hscSetActiveUnitId unit hsc_env1)
 
-    modify (updateMakeState (updateExtraLibs unit dflags . insertUnitEnv hsc_env2))
+    modify (updateMakeState (recordExtraLibs unit dflags . insertUnitEnv hsc_env2))
     results <- liftIO $ loadCachedModules useFixedNodes hsc_env2 unit cachedUnit
     let (nodes, flagEntries) = unzip results
     modify (updateMakeState (storeFixedNodeFlags (catMaybes flagEntries) . rebuildModuleGraph useIncrModGraph . storeModuleGraphNodes nodes))
@@ -310,7 +310,7 @@ insertPreparedUnit logger features hsc_env pu = do
     let hsc_env1 = hsc_env {hsc_unit_env = unit_env}
     pure (hscSetActiveUnitId pu.unitId hsc_env1)
 
-  modify (updateMakeState (updateExtraLibs pu.unitId pu.dflags . insertUnitEnv hsc_env2))
+  modify (updateMakeState (recordExtraLibs pu.unitId pu.dflags . insertUnitEnv hsc_env2))
   results <- liftIO $ traverse (uncurry (loadCachedModule features.fixedNodesCache hsc_env2 pu.unitId)) pu.moduleEntries
   let (nodes, flagEntries) = unzip results
   modify (updateMakeState (storeFixedNodeFlags (catMaybes flagEntries) . storeModuleGraphNodes nodes))

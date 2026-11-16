@@ -1,6 +1,9 @@
 -- | Extra native libraries of home units, the @-l@ options of their flags.
+--
+-- The worker records them per unit when it adds the unit ('recordExtraLibs'), and loads those of a set of units into
+-- the interpreter ('loadUnitLibraries'), each library at most once for the whole worker.
 module Internal.State.ExtraLibs (
-  updateExtraLibs,
+  recordExtraLibs,
   loadUnitLibraries,
 ) where
 
@@ -22,43 +25,46 @@ import System.Directory (findFile)
 import Types.State (WorkerState)
 import Types.State.Make (LibLoadState (..), MakeState (..))
 
--- TODO: this ad hoc extraction of extra library dependency should be replaced
--- by proper specification from the build system rules and recorded in a file,
--- preferrably to buildplan file.
-updateExtraLibs :: UnitId -> DynFlags -> MakeState -> MakeState
-updateExtraLibs unit dflags state =
-  let lib_paths = libraryPaths dflags
-      libs = [ lib | Option ('-':'l':lib) <- ldInputs dflags ]
-      requested' = M.insert unit (lib_paths, libs) state.extraLib.requested
-   in state {extraLib = LibLoadState requested' state.extraLib.loaded}
+-- | Record in the 'MakeState' that @unit@ requires the libraries specified in
+-- @ldInputs dflags@.
+--
+-- The records are then used in 'loadUnitLibraries'.
+--
+-- TODO: this ad hoc extraction of extra library dependencies should be replaced by a proper specification from the
+-- build system rules, recorded in a file, preferably the build plan file.
+recordExtraLibs :: UnitId -> DynFlags -> MakeState -> MakeState
+recordExtraLibs unit dflags state =
+  state {extraLib = state.extraLib {requested = M.insert unit (dflags.libraryPaths, libs) state.extraLib.requested}}
+  where
+    libs = [lib | Option ('-' : 'l' : lib) <- dflags.ldInputs]
 
+-- | Load the recorded libraries of the given units, in order, each library at most once for the whole worker.
 loadUnitLibraries :: MVar WorkerState -> HscEnv -> Interp -> [UnitId] -> IO ()
-loadUnitLibraries stateVar hsc_env interp unitIds =
-  for_ unitIds \unit_id ->
-    modifyMakeState stateVar \make -> do
-      let m = make.extraLib.requested
-      case M.lookup unit_id m of
+loadUnitLibraries stateVar hsc_env interp units =
+  for_ units \ unit ->
+    modifyMakeState stateVar \ make ->
+      case M.lookup unit make.extraLib.requested of
         Nothing -> pure (make, ())
         Just (lib_paths, libs) -> do
-          let load loaded lib
-                | lib `S.member` loaded = pure loaded
-                | otherwise = loadDLL_ hsc_env interp lib_paths lib >> pure (S.insert lib loaded)
-          loaded' <- foldM load make.extraLib.loaded libs
-          pure (make {extraLib = LibLoadState m loaded'}, ())
+          loaded <- foldM (load lib_paths) make.extraLib.loaded libs
+          pure (make {extraLib = make.extraLib {loaded}}, ())
+  where
+    load lib_paths loaded lib
+      | lib `S.member` loaded = pure loaded
+      | otherwise = S.insert lib loaded <$ loadLibrary hsc_env interp lib_paths lib
 
-loadDLL_ :: HscEnv -> Interp -> [FilePath] -> String -> IO ()
-loadDLL_ hsc_env interp lib_paths lib = do
-  let dflags = hsc_dflags hsc_env
-      platform = targetPlatform dflags
-      so_name = platformSOName platform lib
-  mb_so_file  <- findFile lib_paths so_name
-  case mb_so_file of
+-- | Loads the first shared library with name @lib@ that is found
+-- in any of the directories in @lib_paths@. Fails if no such library
+-- is found.
+loadLibrary :: HscEnv -> Interp -> [FilePath] -> String -> IO ()
+loadLibrary hsc_env interp lib_paths lib = do
+  findFile lib_paths so_name >>= \case
     Nothing -> emitError ("Library not found: " <+> text so_name)
-    Just so_file -> do
-      e <- loadDLL interp so_file
-      case e of
+    Just so_file ->
+      loadDLL interp so_file >>= \case
         Left err -> emitError (text err)
         Right _ -> pure ()
   where
-    emitError msg =
-      workerErrorIO hsc_env ("Loading DLL error:" <+> msg)
+    so_name = platformSOName (targetPlatform hsc_env.hsc_dflags) lib
+
+    emitError msg = workerErrorIO hsc_env ("Loading DLL error:" <+> msg)

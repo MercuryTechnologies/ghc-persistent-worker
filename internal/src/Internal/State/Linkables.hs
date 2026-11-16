@@ -127,6 +127,9 @@ addLazyByteCode logger stateVar hsc_env = \case
     pure (LinkHomeModule hmi {hm_linkable = hmi.hm_linkable {homeMod_bytecode}})
   lm -> pure lm
 
+-- | Load the extra libraries of the units of the given modules.
+--
+-- This is needed when a splice needs those modules linked.
 ensureLibraries :: MVar WorkerState -> HscEnv -> Interp -> [LinkModule] -> IO ()
 ensureLibraries stateVar hsc_env interp deps =
   loadUnitLibraries stateVar hsc_env interp unitIds
