@@ -12,6 +12,7 @@ import CacheUnitsTest (test_cacheUnits)
 import DepFilesTest (test_depFiles)
 import ExtUnitResumeTest (test_extUnitResume)
 import LevelResumeTest (test_levelResume)
+import LoaderReuseTest (test_loaderReuseDependencyElsewhere)
 import FlagParserTest (test_parseBuckArgs)
 import InterfacePathTest (test_interfacePath)
 import ModuleGraphIncrTest (test_moduleGraphIncr)
@@ -59,6 +60,8 @@ byteCodeCacheTests = []
 testsGeneral :: [TestTree]
 testsGeneral =
   [
+    -- First, so that no earlier test has loaded the packages it checks into this process's RTS linker.
+    test_loaderReuseDependencyElsewhere,
     test_parseBuckArgs,
     test_depFiles,
     test_cacheUnits,

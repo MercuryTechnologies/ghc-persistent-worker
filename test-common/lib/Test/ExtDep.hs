@@ -25,7 +25,8 @@ import Test.Path (extDepModuleName, extDepName, extDepValueName)
 
 -- | Write the source file for an external dependency's module.
 --
--- The module exports a single @Int@ value that can be imported by home-unit modules.
+-- The module exports a single @Int@ value that can be imported by home-unit modules. The value is not inlined into
+-- them, so a splice that evaluates it runs this package's code, and the loader has to have loaded the package.
 writeExtDepSource :: FilePath -> Int -> IO ()
 writeExtDepSource dir i = do
   createDirectoryIfMissing True dir
@@ -34,6 +35,7 @@ writeExtDepSource dir i = do
     content = ByteString.pack $ unlines [
       "module " ++ extDepModuleName i ++ " where",
       "",
+      "{-# NOINLINE " ++ extDepValueName i ++ " #-}",
       extDepValueName i ++ " :: Int",
       extDepValueName i ++ " = " ++ show (i + 1)
       ]
