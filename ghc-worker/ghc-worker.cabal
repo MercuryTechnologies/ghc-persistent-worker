@@ -126,6 +126,7 @@ test-suite ghc-worker-test
     DepFilesTest,
     ExtUnitResumeTest,
     LevelResumeTest,
+    LoaderReuseTest,
     FlagParserTest,
     InterfacePathTest,
     ModuleGraphIncrTest,
