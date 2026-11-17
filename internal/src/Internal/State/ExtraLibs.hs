@@ -27,8 +27,8 @@ module Internal.State.ExtraLibs (
   initializePlugins,
 ) where
 
-import Control.Concurrent (MVar)
-import Control.Monad (foldM, when)
+import Control.Concurrent (MVar, readMVar)
+import Control.Monad (foldM, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.IORef (atomicModifyIORef', newIORef)
 import Data.Foldable (for_, toList)
@@ -51,7 +51,7 @@ import GHC.Utils.Outputable (text, (<+>))
 import Internal.Error (workerErrorIO)
 import Internal.State (modifyMakeState)
 import System.Directory (findFile)
-import Types.State (WorkerState)
+import Types.State (WorkerState (..))
 import Types.State.Make (LibLoadState (..), MakeState (..))
 
 -- | Drops flags starting with @-l@.
@@ -116,19 +116,25 @@ homeUnitClosure hsc_env =
 -- | Load the recorded libraries of the given units, in order, each library
 -- at most once for the whole worker.
 loadUnitLibraries :: MVar WorkerState -> HscEnv -> Interp -> [UnitId] -> IO ()
-loadUnitLibraries stateVar hsc_env interp units =
-  for_ units \ unit ->
-    modifyMakeState stateVar \ make ->
-      case M.lookup unit make.extraLib.requested of
-        Nothing -> pure (make, ())
-        Just (lib_paths, libs) -> do
-          loaded <- foldM (load lib_paths) make.extraLib.loaded libs
-          pure (make {extraLib = make.extraLib {loaded}}, ())
+loadUnitLibraries stateVar hsc_env interp units = do
+  unless (null units) $ do
+    libState <- (.make.extraLib) <$> readMVar stateVar
+    let pending =
+          [ (lib_paths, lib)
+          | unit <- units
+          , Just (lib_paths, libs) <- [M.lookup unit libState.requested]
+          , lib <- libs
+          , not (lib `S.member` libState.loaded)
+          ]
+    unless (null pending) do
+      modifyMakeState stateVar \ make -> do
+        loaded <- foldM load make.extraLib.loaded pending
+        pure (make {extraLib = make.extraLib {loaded}}, ())
   where
     -- Only the RTS linker has to be running to load a library, not GHC's
     -- loader, whose state GHC still initializes at its own first use.
     -- Starting the RTS linker again is a no-op.
-    load lib_paths loaded lib
+    load loaded (lib_paths, lib)
       | lib `S.member` loaded = pure loaded
       | otherwise = do
         initObjLinker interp
