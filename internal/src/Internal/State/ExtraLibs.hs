@@ -1,7 +1,9 @@
 -- | Extra native libraries of home units, the @-l@ options of their flags.
 --
--- The worker records them per unit when it adds the unit ('recordExtraLibs'), and loads those of a set of units into
--- the interpreter ('loadUnitLibraries'), each library at most once for the whole worker.
+-- The worker records them per unit when it adds the unit
+-- ('recordExtraLibs'), and loads those of a set of units into the
+-- interpreter ('loadUnitLibraries'), each library at most once for the
+-- whole worker.
 module Internal.State.ExtraLibs (
   recordExtraLibs,
   loadUnitLibraries,
@@ -30,15 +32,18 @@ import Types.State.Make (LibLoadState (..), MakeState (..))
 --
 -- The records are then used in 'loadUnitLibraries'.
 --
--- TODO: this ad hoc extraction of extra library dependencies should be replaced by a proper specification from the
--- build system rules, recorded in a file, preferably the build plan file.
+-- TODO: this ad hoc extraction of extra library dependencies should be
+-- replaced by a proper specification from the build system rules, recorded
+-- in a file, preferably the build plan file.
 recordExtraLibs :: UnitId -> DynFlags -> MakeState -> MakeState
 recordExtraLibs unit dflags state =
-  state {extraLib = state.extraLib {requested = M.insert unit (dflags.libraryPaths, libs) state.extraLib.requested}}
+  state {extraLib = state.extraLib {requested}}
   where
+    requested = M.insert unit (dflags.libraryPaths, libs) state.extraLib.requested
     libs = [lib | Option ('-' : 'l' : lib) <- dflags.ldInputs]
 
--- | Load the recorded libraries of the given units, in order, each library at most once for the whole worker.
+-- | Load the recorded libraries of the given units, in order, each library
+-- at most once for the whole worker.
 loadUnitLibraries :: MVar WorkerState -> HscEnv -> Interp -> [UnitId] -> IO ()
 loadUnitLibraries stateVar hsc_env interp units =
   for_ units \ unit ->
