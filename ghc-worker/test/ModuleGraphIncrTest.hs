@@ -6,8 +6,15 @@
 --
 -- Random graphs are added batch by batch, one batch per unit, each batch depending only on itself and on earlier
 -- batches, as Buck2 schedules units. After each batch, the incrementally extended graph is compared with
--- 'mkModuleGraph' over the same nodes, query by query. The answers are compared, not the vertex numbering, which
--- differs.
+-- 'mkModuleGraph' over the same nodes, query by query.
+--
+-- The vertices are also numbered as GHC numbers them: the acyclic graph's from
+-- 1 and the level graph's from 0, after a node's index where GHC takes its
+-- position in its list. The two agree for a first batch, whose nodes the
+-- worker indexes in the order of their keys, as 'mkModuleGraph' gets them, so
+-- there the vertex numbers are compared too, with GHC 9.10's acyclic graph as
+-- well. A later batch's keys may sort among the earlier ones, which moves
+-- GHC's positions but not the worker's indices.
 module ModuleGraphIncrTest (test_moduleGraphIncr) where
 
 #if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
@@ -18,10 +25,11 @@ import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import GHC (mkModuleName, moduleNameString)
+import GHC.Data.Graph.Directed (node_key)
 import GHC.Unit.Module.Graph (
   ImportLevel (..),
   ModNodeKeyWithUid (..),
-  ModuleGraph,
+  ModuleGraph (..),
   ModuleGraphNode (..),
   ModuleNodeEdge (..),
   ModuleNodeInfo (..),
@@ -281,19 +289,142 @@ equivalence withBoot =
           pure (nodes1, egr1)
     foldM_ step (Map.empty, emptyEModuleGraph) (zip [0 :: Int ..] batches)
 
+-- | Generates a first batch, with hs-boot loops, and checks that every key has
+-- the same vertex in the incremental graph as in GHC's, in the acyclic graph
+-- and in the level graph.
+numbering :: Property
+numbering =
+  withTests 200 $ property do
+    batch <- forAllWith renderNodes (genBatch True [] 0)
+    let nodes = mergeModuleGraphNodes batch Map.empty
+        incremental = (extendModuleGraphIncr nodes emptyEModuleGraph).moduleGraph
+        ghc = mkModuleGraph (Map.elems nodes)
+        zeroKeys =
+          [ ModuleScope (mnKey info) l
+          | ModuleNode _ info <- Map.elems nodes,
+            l <- [SpliceLevel, QuoteLevel, NormalLevel]
+          ]
+          <> [UnitScope u | UnitNode _ u <- Map.elems nodes]
+        vertex g k = node_key <$> snd (mg_graph g) k
+        zeroVertex g k = node_key <$> snd (mg_zero_graph g) k
+    expectNoDifferences "the acyclic graph's vertex numbering"
+      [ renderKey k <> ": " <> show (vertex incremental k) <> ", GHC: " <> show (vertex ghc k)
+      | k <- Map.keys nodes,
+        vertex incremental k /= vertex ghc k
+      ]
+    expectNoDifferences "the level graph's vertex numbering"
+      [ renderZero k <> ": " <> show (zeroVertex incremental k) <> ", GHC: "
+          <> show (zeroVertex ghc k)
+      | k <- zeroKeys,
+        zeroVertex incremental k /= zeroVertex ghc k
+      ]
+
 test_moduleGraphIncr :: TestTree
 test_moduleGraphIncr =
   testGroup "incremental module graph" [
     testProperty "equals GHC's, without hs-boot loops" (equivalence False),
-    testProperty "equals GHC's, with hs-boot loops" (equivalence True)
+    testProperty "equals GHC's, with hs-boot loops" (equivalence True),
+    testProperty "numbers the vertices as GHC's" numbering
   ]
 
 #else
 
+import Control.Monad (forM)
+import qualified Data.Map.Strict as Map
+import GHC (mkModuleName, moduleNameString)
+import GHC.Data.Graph.Directed (node_key)
+import GHC.Unit.Module.Graph (
+  ModNodeKeyWithUid (..),
+  ModuleGraph (..),
+  ModuleGraphNode (..),
+  ModuleNodeInfo (..),
+  NodeKey (..),
+  mkModuleGraph,
+  )
+import GHC.Unit.Module.Location (pattern ModLocation)
+import GHC.Unit.Types (GenWithIsBoot (..), IsBootInterface (..), stringToUnitId, unitIdString)
+import Hedgehog (Gen, Property, annotate, failure, forAllWith, property, withTests)
+import qualified Hedgehog.Gen as Gen
+import qualified Hedgehog.Range as Range
+import Internal.State.Make (extendModuleGraphIncr, mergeModuleGraphNodes)
 import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.Hedgehog (testProperty)
+import Types.State.Make (EModuleGraph (..), emptyEModuleGraph)
 
--- | GHC 9.10's module graph has one index, and no import levels.
+-- | Module @i@ of the one unit, or its hs-boot file.
+moduleKey :: Int -> IsBootInterface -> ModNodeKeyWithUid
+moduleKey i boot = ModNodeKeyWithUid (GWIB (mkModuleName ("M" <> show i)) boot) (stringToUnitId "unit")
+
+moduleNode :: ModNodeKeyWithUid -> [NodeKey] -> ModuleGraphNode
+moduleNode key deps =
+  ModuleNode deps (ModuleNodeFixed key (ModLocation Nothing "M.hi" "M.dyn_hi" "M.o" "M.dyn_o" "M.hie"))
+
+-- | The nodes of one unit: modules that import some of the modules before
+-- them, maybe an hs-boot file of the last one, which the first module imports,
+-- and a link node that depends on every module.
+genBatch :: Gen [ModuleGraphNode]
+genBatch = do
+  n <- Gen.int (Range.linear 1 6)
+  withBoot <- Gen.bool
+  let keys = [moduleKey i NotBoot | i <- [0 .. n - 1]]
+      boot = moduleKey (n - 1) IsBoot
+  modules <- forM (zip [0 ..] keys) \ (i, key) -> do
+    deps <- Gen.subsequence (take i keys)
+    pure (moduleNode key (map NodeKey_Module (deps <> [boot | withBoot, i == 0, n > 1])))
+  pure $
+    [moduleNode boot [] | withBoot, n > 1]
+    <> modules
+    <> [LinkNode (map NodeKey_Module keys) (stringToUnitId "unit")]
+
+renderKey :: NodeKey -> String
+renderKey = \case
+  NodeKey_Module (ModNodeKeyWithUid (GWIB m boot) _) ->
+    moduleNameString m <> (case boot of IsBoot -> "-boot"; NotBoot -> "")
+  NodeKey_Link u -> "link " <> unitIdString u
+  _ -> "?"
+
+renderNodes :: [ModuleGraphNode] -> String
+renderNodes nodes =
+  unlines
+    [ "  " <> name <> " -> " <> unwords (map renderKey deps)
+    | node <- nodes,
+      (name, deps) <- case node of
+        ModuleNode deps (ModuleNodeFixed key _) -> [(renderKey (NodeKey_Module key), deps)]
+        LinkNode deps u -> [("link " <> unitIdString u, deps)]
+        _ -> []
+    ]
+
+-- | Generates a first batch and checks that every module has the same vertex
+-- in the incremental graph as in GHC's.
+--
+-- The worker leaves link nodes out of its GHC 9.10 graph, so only modules are
+-- compared. A link node still takes an index, after every module, as its key
+-- sorts after theirs.
+numbering :: Property
+numbering =
+  withTests 200 $ property do
+    batch <- forAllWith renderNodes genBatch
+    let nodes = mergeModuleGraphNodes batch Map.empty
+        incremental = (extendModuleGraphIncr nodes emptyEModuleGraph).moduleGraph
+        ghc = mkModuleGraph (Map.elems nodes)
+        vertex g k = node_key <$> snd (mg_graph g) k
+    case
+        [ renderKey k <> ": " <> show (vertex incremental k) <> ", GHC: " <> show (vertex ghc k)
+        | k@(NodeKey_Module _) <- Map.keys nodes,
+          vertex incremental k /= vertex ghc k
+        ]
+      of
+        [] -> pure ()
+        diffs -> do
+          annotate ("the acyclic graph's vertex numbering differs:\n" <> unlines (take 20 diffs))
+          failure
+
+-- | GHC 9.10's module graph has one index, the acyclic graph's, and no import
+-- levels.
 test_moduleGraphIncr :: TestTree
-test_moduleGraphIncr = testGroup "incremental module graph" []
+test_moduleGraphIncr =
+  testGroup "incremental module graph" [
+    testProperty "numbers the vertices as GHC's" numbering
+  ]
 
 #endif
