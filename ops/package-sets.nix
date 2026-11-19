@@ -110,6 +110,10 @@ in {
 
   envs.mercury-ghc9101 = latestEnv [buckBinOverrides] // {
     expose.scoped = true;
+    # ghc-worker is notest here, so its test dependencies are not in the
+    # GHC of this environment's shell, where CI runs `cabal test`, but for
+    # those other packages depend on. tasty-hunit has no other user.
+    haskellPackages = ["tasty-hunit"];
   };
 
   envs.profiled = defaultEnv [({notest, ...}: { ghc-worker = notest; ghc-server = notest; })];

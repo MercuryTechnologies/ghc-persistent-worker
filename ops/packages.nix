@@ -64,6 +64,7 @@
           "process"
           "tasty"
           "tasty-hedgehog"
+          "tasty-hunit"
           "text"
         ];
         source-dirs = "test";

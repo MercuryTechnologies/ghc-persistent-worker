@@ -152,4 +152,5 @@ test-suite ghc-worker-test
     process,
     tasty >= 1.5.4,
     tasty-hedgehog,
+    tasty-hunit,
     text

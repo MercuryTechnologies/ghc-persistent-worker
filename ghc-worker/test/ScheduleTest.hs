@@ -1,12 +1,11 @@
 module ScheduleTest where
 
 import qualified Data.Set as Set
-import Hedgehog (diff, property, withTests)
 import Test.Data.Project (Component (..), GenUnit (..), ModuleKey (..), TaskKey (..))
 import Test.Data.Scheduler (Task (..), Schedule (..))
 import Test.Gen.ProjectBuild (sortSchedule)
 import Test.Tasty (TestTree)
-import Test.Tasty.Hedgehog (testProperty)
+import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 -- | These task lists have the same content but different orderings.
 -- The dependency graph does not impose a total order, which we exploit
@@ -53,8 +52,8 @@ tasks1, tasks2 :: [Task TaskKey Component]
 -- is effective at producing diverse valid orderings.
 test_sortScheduleOrder :: TestTree
 test_sortScheduleOrder =
-  testProperty "sortSchedule reorders tasks" $ withTests 1 $ property do
-    diff (sort tasks1) (/=) (sort tasks2)
-    diff (sort tasks1) (==) (sort tasks1)
+  testCase "sortSchedule reorders tasks" do
+    assertBool "the two orderings sort alike" (sort tasks1 /= sort tasks2)
+    sort tasks1 @?= sort tasks1
   where
     sort tasks = [n.key | n <- (fst (sortSchedule tasks)).tasks]
