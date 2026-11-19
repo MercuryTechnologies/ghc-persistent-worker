@@ -51,6 +51,7 @@ import qualified Hedgehog.Range as Range
 import Internal.State.Make (extendModuleGraphIncr, mergeModuleGraphNodes)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
+import Test.Tasty.HUnit (Assertion, testCase, (@?=))
 import Types.State.Make (EModuleGraph (..), emptyEModuleGraph)
 
 -- | The external units of all batches. Each depends on the one before it.
@@ -322,12 +323,22 @@ numbering =
         zeroVertex incremental k /= zeroVertex ghc k
       ]
 
+-- | A later node for an external unit already in the map is dropped, as the
+-- graph never takes it.
+keepsFirstUnitNode :: Assertion
+keepsFirstUnitNode = do
+  let first = UnitNode [externalUnitId 0] (externalUnitId 1)
+      later = UnitNode [] (externalUnitId 1)
+      merged = mergeModuleGraphNodes [later] (mergeModuleGraphNodes [first] Map.empty)
+  map renderNode (Map.elems merged) @?= [renderNode first]
+
 test_moduleGraphIncr :: TestTree
 test_moduleGraphIncr =
   testGroup "incremental module graph" [
     testProperty "equals GHC's, without hs-boot loops" (equivalence False),
     testProperty "equals GHC's, with hs-boot loops" (equivalence True),
-    testProperty "numbers the vertices as GHC's" numbering
+    testProperty "numbers the vertices as GHC's" numbering,
+    testCase "keeps the first node of an external unit" keepsFirstUnitNode
   ]
 
 #else

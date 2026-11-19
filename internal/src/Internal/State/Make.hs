@@ -17,6 +17,10 @@ import Internal.State.UnitIndex (restoreUnitIndex)
 import Types.Log (Logger)
 import Types.State.Make (EModuleGraph (..), KeyIndexNodeMap (..), MakeState (..))
 
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0) && defined(__DEBUG__)
+import GHC.Unit.Types (unitIdString)
+#endif
+
 import Internal.Compat.ModuleGraph qualified as MG
 
 -- | Restore the shared state used by both @computeMetadata@ and @compileHpt@ from the cache.
@@ -76,9 +80,32 @@ mergeModuleGraphNodes new oldMap = merged
 
     mergeNodes = \cases
       old@(ModuleNode _oldDeps _oldSumm) (ModuleNode _newDeps _newSumm) -> old
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+      old@(UnitNode _ _) later@(UnitNode _ _) -> checkEqualDeps old later `seq` old
+#endif
       _ newNode -> newNode
 
     newMap = Map.fromList $ [(mkNodeKey n, n) | n <- new]
+
+#if MIN_VERSION_GLASGOW_HASKELL(9,14,0,0)
+
+-- | In a debug build, stops the worker if two nodes for one external unit
+-- disagree on its dependencies. The incremental graph is extended on the
+-- premise that no existing node gains an edge, and it takes a node only when
+-- its key is new, so a later node for the unit never reaches it.
+checkEqualDeps :: ModuleGraphNode -> ModuleGraphNode -> ()
+#if defined(__DEBUG__)
+checkEqualDeps (UnitNode oldDeps uid) (UnitNode newDeps _)
+  | Set.fromList oldDeps /= Set.fromList newDeps =
+    error
+      ( "mergeModuleGraphNodes: the dependencies of external unit "
+          <> unitIdString uid
+          <> " changed"
+      )
+#endif
+checkEqualDeps _ _ = ()
+
+#endif
 
 mergeModuleGraph ::
   [(NodeKey, (Int, ModuleGraphNode))] ->
