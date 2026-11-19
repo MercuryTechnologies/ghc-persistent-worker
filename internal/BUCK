@@ -33,7 +33,8 @@ haskell_library(
         select_map(flags, lambda fs: cpp_flags_when("mwb" in fs, ["MWB", "DOWNSWEEP_CACHE", "UNIT_INDEX", "LINKABLES"])) +
         select_map(flags, lambda fs: cpp_flags_when("downsweep-cache" in fs, ["DOWNSWEEP_CACHE"])) +
         select_map(flags, lambda fs: cpp_flags_when("unit-index" in fs, ["UNIT_INDEX"])) +
-        select_map(flags, lambda fs: cpp_flags_when("linkables" in fs, ["LINKABLES"])),
+        select_map(flags, lambda fs: cpp_flags_when("linkables" in fs, ["LINKABLES"])) +
+        select_map(flags, lambda fs: cpp_flags_when("debug" in fs, ["__DEBUG__"])),
     strip_prefix = ["src"],
     deps = [
         "//haskell:aeson",
