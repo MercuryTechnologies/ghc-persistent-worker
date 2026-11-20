@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Rejects lines longer than 100 columns that a change adds to Haskell sources
+# and Markdown files. A Markdown line with a URL in it may be longer, as a URL
+# cannot be wrapped.
+#
+# As a pre-commit hook, it checks the staged changes:
+#
+#   ln -s "$PWD/ops/check-line-length" "$(git rev-parse --git-path hooks)/pre-commit"
+#
+# Given `git diff` arguments, it checks those instead, such as a commit
+# against its parent:
+#
+#   ops/check-line-length HEAD~1 HEAD
+#
+# Only added lines count, so older lines over the limit do not stop a change
+# that leaves them alone.
+set -euo pipefail
+
+max=100
+if [ "$#" -eq 0 ]; then
+  set -- --cached
+fi
+
+LC_ALL=C.UTF-8 git diff -U0 --no-color --no-ext-diff "$@" -- '*.hs' '*.hs-boot' '*.hsc' '*.md' |
+  LC_ALL=C.UTF-8 awk -v max="$max" '
+    /^\+\+\+ / { file = substr($0, 7); markdown = file ~ /\.md$/; next }
+    /^@@ / { split($3, a, ","); line = substr(a[1], 2) + 0; next }
+    /^\+/ {
+      if (length($0) - 1 > max && !(markdown && $0 ~ /:\/\//)) {
+        printf "%s:%d: %d columns, over the limit of %d\n", file, line, length($0) - 1, max
+        bad = 1
+      }
+      line++
+    }
+    END {
+      if (bad) print "Wrap the lines above at " max " columns." > "/dev/stderr"
+      exit bad
+    }'

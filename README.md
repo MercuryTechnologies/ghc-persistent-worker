@@ -21,6 +21,19 @@ If you need to use a locally built GHC, you can use
 nix develop --command cabal test --with-compiler=path/to/your/ghc all
 ```
 
+Line length
+===========
+
+Lines added to Haskell sources and Markdown files are at most 100 columns, but for a
+Markdown line with a URL, which cannot be wrapped. `ops/check-line-length` checks the
+lines a change adds. Install it as the pre-commit hook, from the repository's root:
+
+```
+ln -s "$PWD/ops/check-line-length" "$(git rev-parse --git-path hooks)/pre-commit"
+```
+
+It also checks a commit against its parent, `ops/check-line-length HEAD~1 HEAD`.
+
 HLS
 ===
 
