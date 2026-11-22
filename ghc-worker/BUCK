@@ -37,18 +37,8 @@ other_common_ghc_options = [
 # unfortunately, -with-rtsopts cannot be applied multiple times
 # and transforming Select via select_apply is not available yet.
 rts_flags = select({
-    "prelude//os:linux": select({
-        "root//constraints/ghc:ghc_version[ghc910]":
-            ["-with-rtsopts=\"-K512M -I5 -A128M -T -N -xm40000000 -xp\""],
-        "root//constraints/ghc:ghc_version[ghc914]":
-            ["-with-rtsopts=\"-K512M -I5 -A128M -T -N -xm40000000 -xp --optimistic-linking\""],
-    }),
-    "prelude//os:macos": select({
-        "root//constraints/ghc:ghc_version[ghc910]":
-            ["-with-rtsopts=\"-K512M -I5 -A128M -T -N\""],
-        "root//constraints/ghc:ghc_version[ghc914]":
-            ["-with-rtsopts=\"-K512M -I5 -A128M -T -N --optimistic-linking\""],
-    }),
+    "prelude//os:linux": ["-with-rtsopts=\"-K512M -I5 -A128M -T -N -xm40000000 -xp\""],
+    "prelude//os:macos": ["-with-rtsopts=\"-K512M -I5 -A128M -T -N\""],
 })
 
 haskell_library(
