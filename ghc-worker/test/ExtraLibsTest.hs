@@ -16,6 +16,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Hedgehog (TestT, (===))
 import System.Directory (createDirectoryIfMissing)
+import System.Info (os)
 import System.OsPath.Extra (fromOsPath, osp, (</>))
 import qualified GHC.Paths
 import System.Process (callProcess, readProcess)
@@ -82,6 +83,13 @@ cCompiler = do
   maybe (fail "ghc --info has no C compiler command") pure $
     lookup "C compiler command" (info :: [(String, String)])
 
+-- | The file name of a shared library, as GHC's loader looks for the library
+-- of an @extra-libraries@ entry: @libNAME.dylib@ on macOS, and @libNAME.so@ on
+-- other systems. A @.so@ name on macOS leaves the library unfound, and the
+-- code that calls it fails.
+sharedLibraryFile :: String -> FilePath
+sharedLibraryFile name = "lib" ++ name ++ if os == "darwin" then ".dylib" else ".so"
+
 -- | A C library with one function.
 cLibrarySource :: String
 cLibrarySource =
@@ -133,7 +141,9 @@ testDependencyLibrary testEnv = do
     writeFile (libDir ++ "/answer.c") cLibrarySource
     cc <- cCompiler
     callProcess cc
-      ["-shared", "-fPIC", "-o", libDir ++ "/libghc_worker_test_answer.so", libDir ++ "/answer.c"]
+      [ "-shared", "-fPIC", "-o", libDir ++ "/" ++ sharedLibraryFile "ghc_worker_test_answer"
+      , libDir ++ "/answer.c"
+      ]
     createDirectoryIfMissing True (srcDir ++ "/" ++ fromOsPath (unitDir 1))
     createDirectoryIfMissing True (srcDir ++ "/" ++ fromOsPath (unitDir 2))
     writeFile (srcDir ++ "/" ++ fromOsPath (moduleSourcePath module1.key)) unit1Source
@@ -203,7 +213,7 @@ testAnnotationLibrary testEnv = do
     writeFile (libDir ++ "/annotation.c") annotationLibrarySource
     cc <- cCompiler
     callProcess cc
-      [ "-shared", "-fPIC", "-o", libDir ++ "/libghc_worker_test_annotation.so"
+      [ "-shared", "-fPIC", "-o", libDir ++ "/" ++ sharedLibraryFile "ghc_worker_test_annotation"
       , libDir ++ "/annotation.c"
       ]
     createDirectoryIfMissing True (srcDir ++ "/" ++ fromOsPath (unitDir 1))
